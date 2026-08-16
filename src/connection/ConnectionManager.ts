@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 
 import { authenticatedCommand, commandPayloads, pairingRequest } from '@/domain/protocol/commands';
-import type { PointerProfile } from '@/domain/protocol/types';
+import type { JsonObject, PointerProfile } from '@/domain/protocol/types';
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
 import type { BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
@@ -86,6 +86,10 @@ export class ConnectionManager {
     await this.load();
   }
 
+  listSaved(): Promise<SavedPc[]> { return this.storage.list(); }
+  defaultDesktopId(): Promise<string | null> { return this.storage.defaultDesktopId(); }
+  async setDefaultDesktopId(desktopId: string | null): Promise<void> { await this.storage.setDefaultDesktopId(desktopId); }
+
   async disconnect(record = true): Promise<void> {
     this.#scanStop?.(); this.#scanStop = null;
     for (const cleanup of [...this.#cleanups]) await Promise.resolve(cleanup()).catch(() => undefined);
@@ -96,14 +100,19 @@ export class ConnectionManager {
     this.#set({ kind: 'idle', saved: await this.storage.list() });
   }
 
-  async send(type: string, payload: Record<string, string | number | boolean | string[]> = {}, responseMode: 'ack' | 'none' = 'ack'): Promise<boolean> {
+  async send(type: string, payload: JsonObject = {}, responseMode: 'ack' | 'none' = 'ack'): Promise<boolean> {
     if (!this.#client || !this.#token || !this.#deviceId) return false;
     const id = this.id();
     const message = authenticatedCommand({ id, deviceId: this.#deviceId, token: this.#token, timestamp: this.now(), type, payload, responseMode });
     try {
       if (responseMode === 'none') { await this.#client.send(message); return true; }
       const response = await this.#client.request(message, id, 5_000);
-      if (response.kind === 'ack') return true;
+      if (response.kind === 'ack') {
+        if (type === 'pointer.speed.set' && typeof payload.scalePercent === 'number' && this.#state.kind === 'connected' && this.#state.profile) {
+          this.#set({ ...this.#state, profile: { ...this.#state.profile, capabilities: { ...this.#state.profile.capabilities, pointerSpeed: { ...this.#state.profile.capabilities.pointerSpeed, scalePercent: payload.scalePercent } } } });
+        }
+        return true;
+      }
       if (response.kind === 'error' && response.code === 'invalid_auth') await this.#fail('Saved access is no longer valid.', true);
     } catch { /* sanitized below */ }
     this.diagnostics.add('command_failed', 'warning');
