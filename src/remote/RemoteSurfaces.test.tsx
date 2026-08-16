@@ -36,5 +36,6 @@ describe('capability-driven remote surfaces', () => {
     expect(view.getByLabelText('Ctrl').props.accessibilityState.disabled).toBe(false);
     expect(view.getByLabelText('Next app').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('A').props.accessibilityState.disabled).toBe(true);
+    expect(view.getByLabelText('Left').props.accessibilityState.disabled).toBe(true);
   });
 });

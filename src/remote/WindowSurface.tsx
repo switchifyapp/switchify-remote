@@ -18,6 +18,7 @@ export function WindowSurface({ session, state, platform }: { session: RemoteSes
       <View style={styles.grid}>{actions.map(([label, action]) => <View key={action} style={styles.cell}><ControlButton label={label} danger={action === 'closeFocused'} disabled={!session.supports('window.control')} onPress={() => { const [type, payload] = commandPayloads.windowControl(action); void session.command(type, payload); }} /></View>)}</View>
       <Text accessibilityRole="header" style={styles.heading}>Shortcuts</Text>
       <View style={styles.row}>{['A', 'C', 'V', 'X'].map((key) => <ControlButton key={key} label={`${state.modifiers.length ? state.modifiers.map((item) => labels[item]).join('+') + '+' : ''}${key}`} disabled={!session.supports('keyboard.shortcut')} onPress={() => void session.shortcut(key)} />)}</View>
+      {session.profile?.capabilities.displayNavigation.supported && session.profile.capabilities.displayNavigation.displayCount > 1 ? <><Text accessibilityRole="header" style={styles.heading}>Move pointer to monitor</Text><View style={styles.row}>{(['left', 'up', 'down', 'right'] as const).map((direction) => <ControlButton key={direction} label={direction[0]!.toUpperCase() + direction.slice(1)} disabled={!session.supports('pointer.display.move')} onPress={() => { const [type, payload] = commandPayloads.displayMove(direction); void session.command(type, payload); }} />)}</View></> : null}
     </View>
   );
 }
