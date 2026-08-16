@@ -99,6 +99,26 @@ describe('ReactNativeBleTransport', () => {
     expect(native.cancelTransaction).toHaveBeenCalledWith(transactionId);
   });
 
+  it.each(['rejects', 'never settles'])('poisons writes when native cancellation %s', async (behavior) => {
+    const connected = device({ writeCharacteristicWithResponseForService: jest.fn(() => new Promise(() => undefined)) });
+    const cancelTransaction = behavior === 'rejects' ? jest.fn(async () => { throw new Error('cancel failed'); }) : jest.fn(() => new Promise<void>(() => undefined));
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected), cancelTransaction }), 'ios', behavior === 'rejects' ? 100 : 1);
+    await transport.connect('ble-1');
+    const write = transport.writeFrame('frame');
+    await transport.cancelPendingWrites();
+    await expect(write).rejects.toThrow();
+    await expect(transport.writeFrame('next')).rejects.toThrow('unavailable until reconnect');
+  });
+
+  it('bounds cleanup when discovery fails and native cancellation hangs', async () => {
+    const connected = device({
+      discoverAllServicesAndCharacteristics: jest.fn(async () => { throw new Error('discovery failed'); }),
+      cancelConnection: jest.fn(() => new Promise<Device>(() => undefined)),
+    });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios', 1);
+    await expect(transport.connect('ble-1')).rejects.toThrow('discovery failed');
+  });
+
   it('deduplicates advertisements and cancels in-flight probes when scanning stops', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let resolveConnect!: (value: Device) => void;

@@ -86,7 +86,7 @@ export class ReactNativeBleTransport implements BleTransport {
       this.#writePoisoned = false;
     } catch (error) {
       connectCancelled = true;
-      if (connected) await connected.cancelConnection().catch(() => undefined);
+      if (connected) await this.#bounded(connected.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);
       else void this.#manager.cancelDeviceConnection(peripheralId).catch(() => undefined);
       if (operation === this.#operation) this.#device = null;
       throw error;
@@ -108,7 +108,7 @@ export class ReactNativeBleTransport implements BleTransport {
     probes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
     const device = this.#device;
     this.#device = null;
-    if (device) await this.#bounded(device.cancelConnection(), 1_000).catch(() => undefined);
+    if (device) await this.#bounded(device.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);
   }
 
   maxWriteValueBytes(): number {
@@ -177,7 +177,7 @@ export class ReactNativeBleTransport implements BleTransport {
       return status ? { ...status, peripheralId: device.id, rssi: device.rssi ?? null } : null;
     } finally {
       probeFinished = true;
-      if (connectedHere) await this.#bounded(target.cancelConnection(), 1_000).catch(() => undefined);
+      if (connectedHere) await this.#bounded(target.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);
     }
   }
 
@@ -212,13 +212,15 @@ export class ReactNativeBleTransport implements BleTransport {
   async #cancelWriteTransaction(transactionId: string): Promise<void> {
     let completed = false;
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 1_000);
-      void this.#manager.cancelTransaction(transactionId).catch(() => undefined).then(() => {
+      const timer = setTimeout(resolve, this.#cancellationTimeout());
+      void this.#manager.cancelTransaction(transactionId).then(() => {
         completed = true;
         clearTimeout(timer);
         resolve();
-      });
+      }, () => { clearTimeout(timer); resolve(); });
     });
     if (!completed) this.#writePoisoned = true;
   }
+
+  #cancellationTimeout(): number { return Math.min(1_000, this.nativeTimeoutMs); }
 }
