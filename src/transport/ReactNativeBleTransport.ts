@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { BleManager, type Device, type Subscription } from 'react-native-ble-plx';
+import { toByteArray } from 'base64-js';
 
 import { BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
@@ -118,7 +119,7 @@ export class ReactNativeBleTransport implements BleTransport {
       await target.discoverAllServicesAndCharacteristics();
       const characteristic = await target.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status);
       if (!characteristic.value) return null;
-      const raw = new TextDecoder().decode(Uint8Array.from(atob(characteristic.value), (char) => char.charCodeAt(0)));
+      const raw = new TextDecoder().decode(toByteArray(characteristic.value));
       const status = parseStatus(raw);
       return status ? { ...status, peripheralId: device.id, rssi: device.rssi ?? null } : null;
     } finally {
