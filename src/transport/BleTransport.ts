@@ -9,4 +9,5 @@ export interface BleTransport {
   disconnect(): Promise<void>;
   writeFrame(frameBase64: string): Promise<void>;
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe;
+  subscribeDisconnect(onDisconnect: () => void): Unsubscribe;
 }

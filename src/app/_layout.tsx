@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { colors } from '@/constants/colors';
+import { ConnectionProvider } from '@/connection/ConnectionContext';
 
 const theme = {
   ...DarkTheme,
@@ -13,10 +14,12 @@ const theme = {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider value={theme}>
-        <Stack screenOptions={{ headerShown: false }} />
-        <StatusBar style="light" />
-      </ThemeProvider>
+      <ConnectionProvider>
+        <ThemeProvider value={theme}>
+          <Stack screenOptions={{ headerShown: false }} />
+          <StatusBar style="light" />
+        </ThemeProvider>
+      </ConnectionProvider>
     </SafeAreaProvider>
   );
 }

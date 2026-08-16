@@ -45,6 +45,12 @@ export class ReactNativeBleTransport implements BleTransport {
     return () => subscription.remove();
   }
 
+  subscribeDisconnect(onDisconnect: () => void): Unsubscribe {
+    const device = this.#requireDevice();
+    const subscription = this.#manager.onDeviceDisconnected(device.id, () => onDisconnect());
+    return () => subscription.remove();
+  }
+
   async #readStatus(device: Device): Promise<DiscoveredDesktop | null> {
     const connectedHere = !(await device.isConnected());
     const target = connectedHere ? await device.connect() : device;
