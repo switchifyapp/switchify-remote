@@ -118,6 +118,24 @@ describe('ReactNativeBleTransport', () => {
     expect(advertised.cancelConnection).toHaveBeenCalled();
     expect(found).not.toHaveBeenCalled();
   });
+
+  it('cleans up a scan probe that resolves after its connection timeout', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let resolveConnect!: (value: Device) => void;
+    const connected = device();
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(() => new Promise<Device>((resolve) => { resolveConnect = resolve; })) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios', 1);
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+    scanCallback(null, advertised);
+    await waitFor(() => (advertised.connect as jest.Mock).mock.calls.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    resolveConnect(connected);
+    await waitFor(() => (connected.cancelConnection as jest.Mock).mock.calls.length === 1);
+    expect(found).not.toHaveBeenCalled();
+    stop();
+  });
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {
