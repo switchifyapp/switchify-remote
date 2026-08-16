@@ -9,14 +9,16 @@ export class RemoteSession {
   #listeners = new Set<() => void>();
   #streamId: string | null = null;
   #sequence = 0;
+  #streamQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly manager: ConnectionManager, readonly profile: PointerProfile | null, private readonly id = () => `${Date.now()}-${Math.random()}`, readonly connectionIdentity: string | null = null) {}
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
   snapshot = () => this.#state;
 
   async mouse(type: string, payload: JsonObject = {}, repeatable = false): Promise<boolean> {
+    if (!this.supports(type)) return false;
     if (this.#state.repeat) { await this.stopRepeat(); return true; }
-    if (repeatable && this.profile?.capabilities.mouseRepeat.supported && this.profile.capabilities.mouseRepeat.enabled) {
+    if (repeatable && this.supports('mouse.repeat.start') && this.supports('mouse.repeat.stop') && this.profile?.capabilities.mouseRepeat.supported && this.profile.capabilities.mouseRepeat.enabled) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
       if (ok) this.#set({ repeat: type });
@@ -35,6 +37,7 @@ export class RemoteSession {
   async toggleDrag(): Promise<boolean> {
     await this.stopRepeat();
     const [type, payload] = this.#state.dragging ? commandPayloads.dragEnd() : commandPayloads.dragStart();
+    if (!this.supports(type)) return false;
     const ok = await this.manager.send(type, payload);
     if (ok) this.#set({ dragging: !this.#state.dragging });
     return ok;
@@ -43,12 +46,14 @@ export class RemoteSession {
   async toggleModifier(key: string): Promise<boolean> {
     const active = this.#state.modifiers.includes(key);
     const [type, payload] = active ? commandPayloads.modifierUp(key) : commandPayloads.modifierDown(key);
+    if (!this.supports(type)) return false;
     const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
     if (ok) this.#set({ modifiers: active ? this.#state.modifiers.filter((item) => item !== key) : [...this.#state.modifiers, key] });
     return ok;
   }
 
   async command(type: string, payload: JsonObject = {}): Promise<boolean> {
+    if (!this.supports(type)) return false;
     await this.stopRepeat();
     const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
     if (ok && this.#state.dragging && (type === 'mouse.click' || type === 'mouse.doubleClick' || type === 'mouse.rightClick')) this.#set({ dragging: false });
@@ -56,7 +61,60 @@ export class RemoteSession {
   }
 
   async openStream(): Promise<boolean> {
+    return this.#enqueueStream(() => this.#openStream());
+  }
+
+  async streamChunk(text: string): Promise<boolean> {
+    if (!text) return false;
+    return this.#enqueueStream(async () => {
+      if (!this.supports('keyboard.textStream.chunk') || !await this.#openStream()) return false;
+      const [type, payload] = commandPayloads.streamChunk(this.#streamId!, this.#sequence, text);
+      const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
+      if (ok) this.#sequence += 1;
+      return ok;
+    });
+  }
+
+  async streamKey(key: string): Promise<boolean> {
+    return this.#enqueueStream(async () => {
+      if (!this.supports('keyboard.textStream.key') || !await this.#openStream()) return false;
+      const [type, payload] = commandPayloads.streamKey(this.#streamId!, this.#sequence, key);
+      const ok = await this.manager.send(type, payload);
+      if (ok) this.#sequence += 1;
+      return ok;
+    });
+  }
+
+  async closeStream(): Promise<void> {
+    await this.#enqueueStream(async () => {
+      if (!this.#state.streamOpen || !this.#streamId) return;
+      const [type, payload] = commandPayloads.streamClose(this.#streamId, this.#sequence);
+      this.#set({ streamOpen: false });
+      this.#streamId = null;
+      await this.manager.send(type, payload, 'none');
+    });
+  }
+
+  async shortcut(key: string): Promise<boolean> {
+    if (!this.supports('keyboard.shortcut')) return false;
+    const active = [...this.#state.modifiers];
+    const [type, payload] = commandPayloads.shortcut([...active, key]);
+    const ok = await this.command(type, payload);
+    if (!ok) return false;
+    for (const modifier of active) {
+      const [releaseType, releasePayload] = commandPayloads.modifierUp(modifier);
+      if (this.supports(releaseType)) await this.manager.send(releaseType, releasePayload, this.#supportsNoAck(releaseType) ? 'none' : 'ack');
+    }
+    if (active.length) this.#set({ modifiers: [] });
+    return true;
+  }
+
+  supports(type: string): boolean { return this.profile?.capabilities.supportedCommands.includes(type) === true; }
+  supportsAll(...types: string[]): boolean { return types.every((type) => this.supports(type)); }
+
+  async #openStream(): Promise<boolean> {
     if (this.#state.streamOpen) return true;
+    if (!this.supports('keyboard.textStream.open') || !this.supports('keyboard.textStream.close')) return false;
     const streamId = this.id();
     const [type, payload] = commandPayloads.streamOpen(streamId);
     const ok = await this.command(type, payload);
@@ -64,28 +122,10 @@ export class RemoteSession {
     return ok;
   }
 
-  async streamChunk(text: string): Promise<boolean> {
-    if (!text || !await this.openStream()) return false;
-    const [type, payload] = commandPayloads.streamChunk(this.#streamId!, this.#sequence, text);
-    const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
-    if (ok) this.#sequence += 1;
-    return ok;
-  }
-
-  async streamKey(key: string): Promise<boolean> {
-    if (!await this.openStream()) return false;
-    const [type, payload] = commandPayloads.streamKey(this.#streamId!, this.#sequence, key);
-    const ok = await this.manager.send(type, payload);
-    if (ok) this.#sequence += 1;
-    return ok;
-  }
-
-  async closeStream(): Promise<void> {
-    if (!this.#state.streamOpen || !this.#streamId) return;
-    const [type, payload] = commandPayloads.streamClose(this.#streamId, this.#sequence);
-    this.#set({ streamOpen: false });
-    this.#streamId = null;
-    await this.manager.send(type, payload, 'none');
+  #enqueueStream<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#streamQueue.catch(() => undefined).then(operation);
+    this.#streamQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async cleanup(): Promise<void> {

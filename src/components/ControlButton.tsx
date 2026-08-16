@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text, type AccessibilityRole } from 'react-native';
 import { colors } from '@/constants/colors';
 
-export function ControlButton({ label, hint, onPress, selected = false, disabled = false, danger = false, role = 'button' }: { label: string; hint?: string; onPress: () => void; selected?: boolean; disabled?: boolean; danger?: boolean; role?: AccessibilityRole }) {
+export function ControlButton({ label, accessibilityLabel = label, hint, onPress, selected = false, disabled = false, danger = false, role = 'button' }: { label: string; accessibilityLabel?: string; hint?: string; onPress: () => void; selected?: boolean; disabled?: boolean; danger?: boolean; role?: AccessibilityRole }) {
   return (
-    <Pressable accessibilityRole={role} accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, selected && styles.selected, danger && styles.danger, pressed && styles.pressed, disabled && styles.disabled]}>
+    <Pressable accessibilityRole={role} accessibilityLabel={accessibilityLabel} accessibilityHint={hint} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, selected && styles.selected, danger && styles.danger, pressed && styles.pressed, disabled && styles.disabled]}>
       <Text numberOfLines={2} style={styles.label}>{label}</Text>
     </Pressable>
   );

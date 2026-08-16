@@ -20,6 +20,7 @@ export default function RemoteScreen() {
   useEffect(() => manager.registerCleanup(() => session.cleanup()), [manager, session]);
   useEffect(() => () => { void session.cleanup(); }, [session]);
   if (connection.kind !== 'connected') return <Screen title="Remote"><EmptyState title="Connect a PC" body="Choose a saved or nearby PC before opening remote controls." /></Screen>;
+  if (!connection.profile) return <Screen title="Remote"><EmptyState title="Controls unavailable" body="This PC did not provide a compatible remote-control profile. Reconnect after updating Switchify PC." /></Screen>;
   return (
     <Screen title="Remote" description={`Connected to ${connection.desktop.displayName}`}>
       <SurfaceSelector selected={preferences.surface} />

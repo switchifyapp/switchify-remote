@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 
-import { createFrames, decodeFrame, encodeFrame, FrameReassembler } from '@/domain/protocol/framing';
+import { createFramesForWriteLimit, decodeFrame, encodeFrame, FrameReassembler } from '@/domain/protocol/framing';
 import { parseResponse } from '@/domain/protocol/responses';
 import type { ProtocolResponse } from '@/domain/protocol/types';
 import type { BleTransport, Unsubscribe } from '@/transport/BleTransport';
@@ -29,7 +29,7 @@ export class ProtocolClient {
   }
 
   async send(message: string): Promise<void> {
-    const frames = createFrames(message, this.messageId());
+    const frames = createFramesForWriteLimit(message, this.messageId(), this.transport.maxWriteValueBytes());
     for (const frame of frames) {
       const write = this.#writeQueue.catch(() => undefined).then(() => this.transport.writeFrame(encodeFrame(frame)));
       this.#writeQueue = write;

@@ -25,9 +25,11 @@ jobs:
       fail-fast: false
       matrix:
         platform: [android, ios]
-    runs-on: ${{ matrix.platform == 'ios' && 'macos-15' || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-26' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
+      - if: matrix.platform == 'ios'
+        run: sudo xcode-select --switch /Applications/Xcode_26.6.app
       - uses: actions/setup-node@v6
         with:
           node-version: 24

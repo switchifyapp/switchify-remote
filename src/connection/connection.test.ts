@@ -1,24 +1,32 @@
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
-import type { BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
+import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
 import { ConnectionManager } from './ConnectionManager';
 import { pairingVerificationCode } from './verificationCode';
 
 class FakeStorage implements PairingStorage {
   saved: SavedPc[] = [];
   tokens = new Map<string, string>();
+  defaultId: string | null = null;
+  failRemove = false;
   getDeviceId = async () => 'device-1'; list = async () => this.saved; token = async (id: string) => this.tokens.get(id) ?? null;
   save = async (pc: SavedPc, token: string) => { this.saved = [pc]; this.tokens.set(pc.desktopId, token); };
-  remove = async (id: string) => { this.saved = []; this.tokens.delete(id); };
-  defaultDesktopId = async () => null; setDefaultDesktopId = async () => undefined;
+  remove = async (id: string) => { if (this.failRemove) throw new Error('remove failed'); this.saved = this.saved.filter((pc) => pc.desktopId !== id); this.tokens.delete(id); };
+  defaultDesktopId = async () => this.defaultId; setDefaultDesktopId = async (id: string | null) => { this.defaultId = id; };
 }
 
 class FakeTransport implements BleTransport {
+  currentAvailability: BleAvailability = 'ready';
+  availability = async () => this.currentAvailability;
+  maxWriteValueBytes = () => 182;
   scanCallback: ((pc: DiscoveredDesktop) => void) | null = null;
+  connectGate: Promise<void> | null = null;
   scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe { this.scanCallback = onDesktop; return () => { this.scanCallback = null; }; }
-  connect = async () => undefined; disconnect = async () => undefined; writeFrame = async () => undefined;
+  connect = async () => { await this.connectGate; }; disconnect = async () => undefined; writeFrame = async () => undefined;
   subscribe(): Unsubscribe { return () => undefined; } subscribeDisconnect(): Unsubscribe { return () => undefined; }
 }
+
+const pc = (id: string, lastConnectedAt = 1): SavedPc => ({ desktopId: id, displayName: id, platform: 'windows', peripheralId: `ble-${id}`, lastConnectedAt });
 
 describe('connection lifecycle', () => {
   it('matches the Android pairing verification algorithm', () => {
@@ -35,9 +43,50 @@ describe('connection lifecycle', () => {
     expect(manager.snapshot()).toMatchObject({ kind: 'scanning', discovered: [{ desktopId: 'pc-1', displayName: 'Office' }] });
   });
 
-  it('keeps permission denial outside the transport', async () => {
+  it.each([['unauthorized', 'permissionDenied'], ['poweredOff', 'bluetoothOff'], ['unsupported', 'unsupported']] as const)('maps %s adapter state to %s', async (availability, expected) => {
+    const transport = new FakeTransport();
+    transport.currentAvailability = availability;
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+    await manager.scan();
+    expect(manager.snapshot().kind).toBe(expected);
+  });
+
+  it('keeps Android permission denial outside the transport', async () => {
     const manager = new ConnectionManager(new FakeTransport(), new FakeStorage(), new DiagnosticLog(), async () => false);
     await manager.scan();
     expect(manager.snapshot().kind).toBe('permissionDenied');
+  });
+
+  it('orders the selected default before more recently connected PCs', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('recent', 2), pc('default', 1)];
+    storage.defaultId = 'default';
+    const manager = new ConnectionManager(new FakeTransport(), storage, new DiagnosticLog(), async () => true);
+    await manager.load();
+    expect((manager.snapshot() as { saved: SavedPc[] }).saved.map(({ desktopId }) => desktopId)).toEqual(['default', 'recent']);
+    await manager.setDefaultDesktopId('recent');
+    expect((manager.snapshot() as { saved: SavedPc[] }).saved.map(({ desktopId }) => desktopId)).toEqual(['recent', 'default']);
+  });
+
+  it('surfaces a sanitized unpair failure without hiding the saved PC', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('pc-1')];
+    storage.failRemove = true;
+    const manager = new ConnectionManager(new FakeTransport(), storage, new DiagnosticLog(), async () => true);
+    expect(await manager.unpair('pc-1')).toBe(false);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not remove this saved PC.', saved: [{ desktopId: 'pc-1' }] });
+  });
+
+  it('does not let a stale native connect overwrite explicit disconnect', async () => {
+    let release!: () => void;
+    const transport = new FakeTransport();
+    transport.connectGate = new Promise<void>((resolve) => { release = resolve; });
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+    const connecting = manager.connect({ ...pc('pc-1'), rssi: null });
+    await Promise.resolve();
+    const disconnecting = manager.disconnect();
+    release();
+    await Promise.all([connecting, disconnecting]);
+    expect(manager.snapshot().kind).toBe('idle');
   });
 });
