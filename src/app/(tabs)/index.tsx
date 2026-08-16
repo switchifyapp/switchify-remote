@@ -14,7 +14,7 @@ export default function PcsScreen() {
 
   return (
     <Screen title="PCs" description="Connect securely to Switchify PC over Bluetooth.">
-      {state.kind === 'pairing' ? <View style={styles.pairing} accessible accessibilityLiveRegion="polite"><Text style={styles.heading}>Approve on your PC</Text><Text style={styles.code}>{state.verificationCode}</Text><Text style={styles.body}>Confirm that this code matches Switchify PC, then approve the request there.</Text></View> : null}
+      {state.kind === 'pairing' ? <View style={styles.pairing} accessible accessibilityLabel={`Approve on your PC. Verification code ${state.verificationCode.split('').join(' ')}. Confirm that this code matches Switchify PC, then approve the request there.`} accessibilityLiveRegion="polite"><Text style={styles.heading}>Approve on your PC</Text><Text importantForAccessibility="no" style={styles.code}>{state.verificationCode}</Text><Text importantForAccessibility="no" style={styles.body}>Confirm that this code matches Switchify PC, then approve the request there.</Text></View> : null}
       {state.kind === 'connected' ? <View style={styles.card}><Text style={styles.heading}>{state.desktop.displayName}</Text><Text style={styles.connected}>Connected</Text><ActionButton label="Disconnect" secondary onPress={() => void manager.disconnect()} /></View> : null}
       {state.kind === 'failed' ? <View accessibilityRole="alert" style={styles.error}><Text style={styles.heading}>Could not connect</Text><Text style={styles.body}>{state.message}</Text></View> : null}
       {state.kind !== 'connected' && state.kind !== 'pairing' && state.kind !== 'connecting' ? <ActionButton label={state.kind === 'scanning' ? 'Searching…' : 'Find nearby PCs'} disabled={state.kind === 'scanning'} onPress={() => void manager.scan()} /> : null}
@@ -32,7 +32,7 @@ function PcCard({ pc, connect }: { pc: DiscoveredDesktop; connect: () => void })
 }
 
 function SavedPcCard({ pc, connect, unpair }: { pc: SavedPc; connect: () => void; unpair: () => void }) {
-  return <View style={styles.card}><Text style={styles.heading}>{pc.displayName}</Text><View style={styles.actions}><View style={styles.flex}><ActionButton label="Connect" onPress={connect} /></View><View style={styles.flex}><ActionButton label="Unpair" secondary onPress={unpair} /></View></View></View>;
+  return <View style={styles.card}><Text style={styles.heading}>{pc.displayName}</Text><View style={styles.actions}><View style={styles.flex}><ActionButton label={`Connect to ${pc.displayName}`} onPress={connect} /></View><View style={styles.flex}><ActionButton label={`Unpair ${pc.displayName}`} secondary onPress={unpair} /></View></View></View>;
 }
 
 const styles = StyleSheet.create({
