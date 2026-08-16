@@ -7,7 +7,7 @@ import type { BleTransport, Unsubscribe } from '@/transport/BleTransport';
 
 export class ProtocolClient {
   readonly #reassembler = new FrameReassembler();
-  readonly #pending = new Map<string, { resolve: (response: ProtocolResponse) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  readonly #pending = new Map<string, { resolve: (response: ProtocolResponse) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>();
   readonly #writeCancels = new Set<(error: Error) => void>();
   #writeQueue = Promise.resolve();
   #unsubscribe: Unsubscribe | null = null;
@@ -16,17 +16,19 @@ export class ProtocolClient {
 
   start(onFailure: () => void): void {
     this.#unsubscribe?.();
-    this.#unsubscribe = this.transport.subscribe((raw) => this.#accept(raw), () => { this.close(); onFailure(); });
+    this.#unsubscribe = this.transport.subscribe((raw) => this.#accept(raw), () => { void this.close().finally(onFailure); });
   }
 
   async request(message: string, requestId: string, timeoutMs = 10_000): Promise<ProtocolResponse> {
     const response = new Promise<ProtocolResponse>((resolve, reject) => {
-      const timer = setTimeout(() => { this.#pending.delete(requestId); reject(new Error('PC response timed out.')); }, timeoutMs);
-      this.#pending.set(requestId, { resolve, reject, timer });
+      this.#pending.set(requestId, { resolve, reject, timer: null });
     });
+    void response.catch(() => undefined);
     try { await this.send(message); }
     catch { this.#reject(requestId, new Error('Could not write to PC.')); }
-    return response;
+    const pending = this.#pending.get(requestId);
+    if (pending) pending.timer = setTimeout(() => { this.#pending.delete(requestId); pending.reject(new Error('PC response timed out.')); }, timeoutMs);
+    return await response;
   }
 
   async send(message: string): Promise<void> {
@@ -38,20 +40,21 @@ export class ProtocolClient {
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#reassembler.clear();
-    this.cancelOutstanding();
+    await this.cancelOutstanding();
   }
 
   cancelPending(): void {
     for (const id of [...this.#pending.keys()]) this.#reject(id, new Error('PC disconnected.'));
   }
 
-  cancelOutstanding(): void {
+  async cancelOutstanding(): Promise<void> {
     this.cancelPending();
     const error = new Error('PC disconnected.');
+    await this.transport.cancelPendingWrites();
     for (const cancel of [...this.#writeCancels]) cancel(error);
     this.#writeQueue = Promise.resolve();
   }
@@ -68,7 +71,7 @@ export class ProtocolClient {
         if (result === 'resolve') resolve(); else reject(error ?? new Error('Could not write to PC.'));
       };
       const cancel = (error: Error) => finish('reject', error);
-      timer = setTimeout(() => cancel(new Error('Bluetooth write timed out.')), this.writeTimeoutMs);
+      timer = setTimeout(() => { void this.transport.cancelPendingWrites().finally(() => cancel(new Error('Bluetooth write timed out.'))); }, this.writeTimeoutMs);
       this.#writeCancels.add(cancel);
       void this.transport.writeFrame(frame).then(() => finish('resolve'), () => finish('reject'));
     });
@@ -84,14 +87,14 @@ export class ProtocolClient {
     const id = response.id;
     if (id) {
       const pending = this.#pending.get(id);
-      if (pending) { clearTimeout(pending.timer); this.#pending.delete(id); pending.resolve(response); }
+      if (pending) { if (pending.timer) clearTimeout(pending.timer); this.#pending.delete(id); pending.resolve(response); }
     }
   }
 
   #reject(id: string, error: Error): void {
     const pending = this.#pending.get(id);
     if (!pending) return;
-    clearTimeout(pending.timer);
+    if (pending.timer) clearTimeout(pending.timer);
     this.#pending.delete(id);
     pending.reject(error);
   }

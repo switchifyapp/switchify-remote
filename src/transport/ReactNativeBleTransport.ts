@@ -13,7 +13,9 @@ export class ReactNativeBleTransport implements BleTransport {
   #scanDevices = new Map<string, Device>();
   #connectQueue: Promise<void> = Promise.resolve();
   #nativeCancels = new Set<(error: Error) => void>();
+  #writeCancels = new Map<string, (error: Error) => void>();
   #connectingPeripheralId: string | null = null;
+  #writeSequence = 0;
 
   constructor(manager = new BleManager(), private readonly platform = Platform.OS, private readonly nativeTimeoutMs = 10_000) { this.#manager = manager; }
 
@@ -44,6 +46,7 @@ export class ReactNativeBleTransport implements BleTransport {
       active = false;
       if (operation === this.#operation) this.#operation += 1;
       this.#manager.stopDeviceScan();
+      this.#cancelNativeOperations();
       const probes = [...this.#scanDevices.values()];
       this.#scanDevices.clear();
       probes.forEach((device) => { void device.cancelConnection().catch(() => undefined); });
@@ -92,8 +95,8 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async disconnect(): Promise<void> {
     this.#operation += 1;
-    const cancellation = new Error('Bluetooth operation was cancelled.');
-    for (const cancel of [...this.#nativeCancels]) cancel(cancellation);
+    this.#cancelNativeOperations();
+    await this.cancelPendingWrites();
     const connectingPeripheralId = this.#connectingPeripheralId;
     this.#connectingPeripheralId = null;
     if (connectingPeripheralId) void this.#manager.cancelDeviceConnection(connectingPeripheralId).catch(() => undefined);
@@ -103,7 +106,7 @@ export class ReactNativeBleTransport implements BleTransport {
     probes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
     const device = this.#device;
     this.#device = null;
-    if (device && await device.isConnected()) await device.cancelConnection();
+    if (device) await this.#bounded(device.cancelConnection(), 1_000).catch(() => undefined);
   }
 
   maxWriteValueBytes(): number {
@@ -112,7 +115,31 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async writeFrame(frameBase64: string): Promise<void> {
     const device = this.#requireDevice();
-    await device.writeCharacteristicWithResponseForService(BLE_UUIDS.service, BLE_UUIDS.receive, frameBase64);
+    const transactionId = `switchify-write-${++this.#writeSequence}`;
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (result: 'resolve' | 'reject', error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.#writeCancels.delete(transactionId);
+        if (result === 'resolve') resolve(); else reject(error ?? new Error('Bluetooth write failed.'));
+      };
+      const cancel = (error: Error) => finish('reject', error);
+      const timer = setTimeout(() => {
+        void this.#manager.cancelTransaction(transactionId).catch(() => undefined);
+        cancel(new Error('Bluetooth write timed out.'));
+      }, this.nativeTimeoutMs);
+      this.#writeCancels.set(transactionId, cancel);
+      void device.writeCharacteristicWithResponseForService(BLE_UUIDS.service, BLE_UUIDS.receive, frameBase64, transactionId).then(() => finish('resolve'), (error: unknown) => finish('reject', error instanceof Error ? error : new Error('Bluetooth write failed.')));
+    });
+  }
+
+  async cancelPendingWrites(): Promise<void> {
+    const operations = [...this.#writeCancels.entries()];
+    const error = new Error('Bluetooth write was cancelled.');
+    operations.forEach(([, cancel]) => cancel(error));
+    await Promise.all(operations.map(([transactionId]) => this.#manager.cancelTransaction(transactionId).catch(() => undefined)));
   }
 
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe {
@@ -130,17 +157,17 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   async #readStatus(device: Device): Promise<DiscoveredDesktop | null> {
-    const connectedHere = !(await device.isConnected());
-    const target = connectedHere ? await device.connect() : device;
+    const connectedHere = !(await this.#bounded(device.isConnected()));
+    const target = connectedHere ? await this.#bounded(device.connect()) : device;
     try {
-      await target.discoverAllServicesAndCharacteristics();
-      const characteristic = await target.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status);
+      await this.#bounded(target.discoverAllServicesAndCharacteristics());
+      const characteristic = await this.#bounded(target.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status));
       if (!characteristic.value) return null;
       const raw = new TextDecoder().decode(toByteArray(characteristic.value));
       const status = parseStatus(raw);
       return status ? { ...status, peripheralId: device.id, rssi: device.rssi ?? null } : null;
     } finally {
-      if (connectedHere) await target.cancelConnection().catch(() => undefined);
+      if (connectedHere) await this.#bounded(target.cancelConnection(), 1_000).catch(() => undefined);
     }
   }
 
@@ -165,5 +192,10 @@ export class ReactNativeBleTransport implements BleTransport {
       this.#nativeCancels.add(cancel);
       void operation.then((value) => finish('resolve', value), (error: unknown) => finish('reject', error instanceof Error ? error : new Error('Bluetooth operation failed.')));
     });
+  }
+
+  #cancelNativeOperations(): void {
+    const cancellation = new Error('Bluetooth operation was cancelled.');
+    for (const cancel of [...this.#nativeCancels]) cancel(cancellation);
   }
 }

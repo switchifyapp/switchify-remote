@@ -14,6 +14,7 @@ class FakeTransport implements BleTransport {
   maxWriteValueBytes = () => 182;
   scan(): Unsubscribe { return () => undefined; }
   connect = async () => undefined; disconnect = async () => undefined;
+  cancelPendingWrites = async () => undefined;
   async writeFrame(frame: string) { if (this.fail) throw new Error('write failed'); this.inFlight += 1; this.maxInFlight = Math.max(this.maxInFlight, this.inFlight); await this.writeGate; this.frames.push(frame); this.inFlight -= 1; }
   subscribe(listener: (value: string) => void): Unsubscribe { this.listener = listener; return () => { this.listener = null; }; }
   subscribeDisconnect(): Unsubscribe { return () => undefined; }

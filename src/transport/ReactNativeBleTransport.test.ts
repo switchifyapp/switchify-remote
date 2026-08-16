@@ -20,7 +20,7 @@ function device(overrides: Partial<Device> = {}): Device {
 function manager(overrides: Record<string, unknown> = {}): BleManager {
   return {
     state: jest.fn(async () => 'PoweredOn'), startDeviceScan: jest.fn(), stopDeviceScan: jest.fn(),
-    connectToDevice: jest.fn(), cancelDeviceConnection: jest.fn(async () => null as unknown as Device), onDeviceDisconnected: jest.fn(() => ({ remove: jest.fn() })), ...overrides,
+    connectToDevice: jest.fn(), cancelDeviceConnection: jest.fn(async () => null as unknown as Device), cancelTransaction: jest.fn(async () => undefined), onDeviceDisconnected: jest.fn(() => ({ remove: jest.fn() })), ...overrides,
   } as unknown as BleManager;
 }
 
@@ -86,6 +86,19 @@ describe('ReactNativeBleTransport', () => {
     expect(native.cancelDeviceConnection).toHaveBeenCalledWith('stuck');
   });
 
+  it('cancels the native transaction before releasing a hung GATT write', async () => {
+    const connected = device({ writeCharacteristicWithResponseForService: jest.fn(() => new Promise(() => undefined)) });
+    const native = manager({ connectToDevice: jest.fn(async () => connected) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    await transport.connect('ble-1');
+    const write = transport.writeFrame('frame');
+    await waitFor(() => (connected.writeCharacteristicWithResponseForService as jest.Mock).mock.calls.length === 1);
+    const transactionId = (connected.writeCharacteristicWithResponseForService as jest.Mock).mock.calls[0][3] as string;
+    await transport.cancelPendingWrites();
+    await expect(write).rejects.toThrow('cancelled');
+    expect(native.cancelTransaction).toHaveBeenCalledWith(transactionId);
+  });
+
   it('deduplicates advertisements and cancels in-flight probes when scanning stops', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let resolveConnect!: (value: Device) => void;
@@ -97,7 +110,7 @@ describe('ReactNativeBleTransport', () => {
     const stop = transport.scan(found, jest.fn());
     scanCallback(null, advertised);
     scanCallback(null, advertised);
-    await Promise.resolve();
+    await waitFor(() => (advertised.connect as jest.Mock).mock.calls.length === 1);
     expect(advertised.connect).toHaveBeenCalledTimes(1);
     stop();
     resolveConnect(connected);

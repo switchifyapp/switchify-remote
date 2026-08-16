@@ -34,6 +34,7 @@ class LoopbackTransport implements BleTransport {
   scan(): Unsubscribe { return () => undefined; }
   connect = async () => { this.connectCount += 1; if (this.connectFailures > 0) { this.connectFailures -= 1; throw new Error('connect failed'); } };
   disconnect = async () => undefined;
+  cancelPendingWrites = async () => undefined;
   subscribe(onFrame: (frameBase64: string) => void): Unsubscribe { this.onFrame = onFrame; return () => { this.onFrame = null; }; }
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe { this.onDisconnect = onDisconnect; return () => { this.onDisconnect = null; }; }
   async writeFrame(raw: string): Promise<void> {
