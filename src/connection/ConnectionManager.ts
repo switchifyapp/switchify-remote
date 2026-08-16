@@ -125,7 +125,9 @@ export class ConnectionManager {
   async disconnect(record = true): Promise<void> {
     const operation = ++this.#operation;
     this.#scanStop?.(); this.#scanStop = null;
-    // Run session cleanup while authenticated commands can still be sent.
+    // Cancel older acknowledgement waits, then send best-effort cleanup while
+    // the authenticated client and transport remain available.
+    this.#client?.cancelPending();
     for (const cleanup of [...this.#cleanups]) await Promise.resolve(cleanup()).catch(() => undefined);
     await this.#teardownConnection();
     if (!this.#current(operation)) return;

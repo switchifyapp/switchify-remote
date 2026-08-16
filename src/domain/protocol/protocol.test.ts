@@ -64,7 +64,7 @@ describe('Switchify PC protocol v1', () => {
     expect(parseResponse('not json')).toEqual({ kind: 'invalid' });
   });
 
-  it.each(['replay_detected', 'timestamp_expired'])('preserves the sanitized %s authentication failure code', (code) => {
+  it.each(['duplicate_request', 'expired_timestamp'])('preserves the sanitized %s authentication failure code', (code) => {
     expect(parseResponse(JSON.stringify({ type: 'error', error: { code, message: code } }))).toEqual({ kind: 'error', code, message: code });
   });
 });

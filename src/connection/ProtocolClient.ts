@@ -41,6 +41,10 @@ export class ProtocolClient {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#reassembler.clear();
+    this.cancelPending();
+  }
+
+  cancelPending(): void {
     for (const id of [...this.#pending.keys()]) this.#reject(id, new Error('PC disconnected.'));
   }
 

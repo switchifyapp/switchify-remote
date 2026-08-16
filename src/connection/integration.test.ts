@@ -5,6 +5,7 @@ import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
 import type { BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
 import { ConnectionManager } from './ConnectionManager';
+import { RemoteSession } from '@/remote/RemoteSession';
 
 class MemoryStorage implements PairingStorage {
   saved: SavedPc[] = [];
@@ -28,6 +29,7 @@ class LoopbackTransport implements BleTransport {
   connectCount = 0;
   connectFailures = 0;
   responseGates = new Map<string, Promise<void>>();
+  dropResponses = new Set<string>();
   scan(): Unsubscribe { return () => undefined; }
   connect = async () => { this.connectCount += 1; if (this.connectFailures > 0) { this.connectFailures -= 1; throw new Error('connect failed'); } };
   disconnect = async () => undefined;
@@ -43,6 +45,7 @@ class LoopbackTransport implements BleTransport {
     const request = JSON.parse(result.message) as { id: string; type: string; payload: { deviceId?: string; desktopId?: string } };
     this.requests.push(request.type);
     await this.responseGates.get(request.type);
+    if (this.dropResponses.has(request.type)) return;
     let response: object;
     if (request.type === 'pairing.request') {
       response = this.rejectPairing
@@ -51,7 +54,7 @@ class LoopbackTransport implements BleTransport {
     } else if (request.type === 'pointer.profile') {
       response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {
         displayId: 'display-1', scaleFactor: 1.5, bounds: { x: -1280, y: 0, width: 1280, height: 720 }, maxDelta: 256,
-        recommendedDeltas: { small: 32, medium: 128, large: 256 }, capabilities: { noAckMouseMove: true, noAckCommands: ['mouse.move'], supportedCommands: ['mouse.move', 'mouse.click', 'pointer.display.move', 'pointer.speed.set', 'keyboard.typeText'], mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 128, effectiveMoveDelta: 128 }, displayNavigation: { supported: true, displayCount: 2 } },
+        recommendedDeltas: { small: 32, medium: 128, large: 256 }, capabilities: { noAckMouseMove: true, noAckCommands: ['mouse.move'], supportedCommands: ['mouse.move', 'mouse.click', 'pointer.display.move', 'pointer.speed.set', 'keyboard.typeText', 'keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close'], mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 128, effectiveMoveDelta: 128 }, displayNavigation: { supported: true, displayCount: 2 } },
       } };
     } else response = { type: 'ack', id: request.id, ok: true, error: null };
     queueMicrotask(() => createFrames(JSON.stringify(response), `response-${request.id}`).forEach((item) => this.onFrame?.(encodeFrame(item))));
@@ -128,6 +131,24 @@ describe('pairing and authenticated connection integration', () => {
     await Promise.resolve();
     expect(delayed.snapshot().kind).toBe('idle');
     expect(delayedTransport.connectCount).toBe(1);
+  });
+
+  it('cancels a blocked stream request before foreground cleanup writes', async () => {
+    const transport = new LoopbackTransport();
+    const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `cleanup-${++id}`; })());
+    await manager.connect(desktop);
+    const connected = manager.snapshot();
+    if (connected.kind !== 'connected') throw new Error('fixture did not connect');
+    const session = new RemoteSession(manager, connected.profile, () => 'stream-1');
+    manager.registerCleanup(() => session.cleanup());
+    expect(await session.streamChunk('first')).toBe(true);
+    transport.dropResponses.add('keyboard.textStream.chunk');
+    const blocked = session.streamChunk('second');
+    await waitFor(() => transport.requests.filter((type) => type === 'keyboard.textStream.chunk').length === 2);
+    await manager.disconnect();
+    await expect(blocked).resolves.toBe(false);
+    expect(transport.requests).toContain('keyboard.textStream.close');
+    expect(manager.snapshot().kind).toBe('idle');
   });
 
   it.each(['pairing.request', 'connection.ping', 'pointer.profile'])('keeps explicit disconnect authoritative while %s is pending', async (pendingType) => {

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import type { RenderResult } from '@testing-library/react-native';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
 import { MouseSurface } from './MouseSurface';
@@ -62,5 +63,24 @@ describe('capability-driven remote surfaces', () => {
     for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'A', 'C', 'V', 'X', 'Left', 'Up', 'Down', 'Right']) {
       expect(window.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
     }
+  });
+
+  it('routes every displayed remote action through the capability-approved session', async () => {
+    const send = jest.fn(async (_type: string, _payload?: unknown, _mode?: unknown) => true);
+    const actionManager = { send } as unknown as ConnectionManager;
+    const commands = ['mouse.move', 'mouse.click', 'mouse.doubleClick', 'mouse.rightClick', 'mouse.dragStart', 'mouse.scroll', 'pointer.speed.set', 'pointer.display.move', 'keyboard.typeText', 'keyboard.key', 'keyboard.modifierDown', 'keyboard.modifierUp', 'keyboard.shortcut', 'window.control'];
+    const session = new RemoteSession(actionManager, profile(commands));
+    const press = async (control: RenderResult, label: string) => { await act(async () => { fireEvent.press(control.getByLabelText(label)); await Promise.resolve(); }); };
+    const mouse = await render(<MouseSurface session={session} state={session.snapshot()} />);
+    for (const label of ['Move up and left', 'Move up', 'Move up and right', 'Move left', 'Left click', 'Move right', 'Move down and left', 'Move down', 'Move down and right', 'Double click', 'Right click', 'Start drag', 'Scroll up', 'Scroll down', 'Slower', 'Faster', 'Left', 'Up', 'Down', 'Right']) await press(mouse, label);
+
+    const typing = await render(<TypingSurface session={session} mode="draft" draft="hello" />);
+    await press(typing, 'Send to PC');
+    for (const label of ['Backspace', 'Enter', 'Escape', 'Tab', 'Left', 'Up', 'Down', 'Right']) await press(typing, label);
+
+    const window = await render(<WindowSurface session={session} state={session.snapshot()} platform="windows" />);
+    for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'A', 'C', 'V', 'X', 'Left', 'Up', 'Down', 'Right']) await press(window, label);
+    await waitFor(() => expect(send.mock.calls.length).toBeGreaterThanOrEqual(48));
+    expect(new Set(send.mock.calls.map(([type]) => type))).toEqual(new Set(commands));
   });
 });
