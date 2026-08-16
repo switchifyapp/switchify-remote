@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run validate
+
+  native-projects:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [android, ios]
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-15' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx expo prebuild --clean --platform ${{ matrix.platform }} --no-install
+      - if: matrix.platform == 'android'
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - if: matrix.platform == 'ios'
+        working-directory: ios
+        run: pod install
+      - if: matrix.platform == 'ios'
+        run: xcodebuild -workspace ios/SwitchifyRemote.xcworkspace -scheme SwitchifyRemote -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build

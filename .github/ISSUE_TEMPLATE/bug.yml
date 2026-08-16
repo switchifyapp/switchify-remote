@@ -1,0 +1,16 @@
+name: Bug report
+description: Report a reproducible Switchify Remote problem.
+body:
+  - type: textarea
+    attributes: { label: What happened? }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: dropdown
+    attributes:
+      label: Platform
+      options: [Android, iOS]
+    validations: { required: true }
+  - type: markdown
+    attributes: { value: "Do not include typed text, pairing tokens, authentication proofs, or verification codes." }
