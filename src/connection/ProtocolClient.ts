@@ -11,7 +11,7 @@ export class ProtocolClient {
   #writeQueue = Promise.resolve();
   #unsubscribe: Unsubscribe | null = null;
 
-  constructor(private readonly transport: BleTransport) {}
+  constructor(private readonly transport: BleTransport, private readonly messageId = () => Crypto.randomUUID()) {}
 
   start(onFailure: () => void): void {
     this.#unsubscribe?.();
@@ -29,7 +29,7 @@ export class ProtocolClient {
   }
 
   async send(message: string): Promise<void> {
-    const frames = createFrames(message, Crypto.randomUUID());
+    const frames = createFrames(message, this.messageId());
     for (const frame of frames) {
       const write = this.#writeQueue.catch(() => undefined).then(() => this.transport.writeFrame(encodeFrame(frame)));
       this.#writeQueue = write;

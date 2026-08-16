@@ -64,7 +64,7 @@ export class ConnectionManager {
     try {
       await this.transport.connect(desktop.peripheralId);
       this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect());
-      const client = new ProtocolClient(this.transport);
+      const client = new ProtocolClient(this.transport, this.id);
       client.start(() => void this.#unexpectedDisconnect());
       this.#client = client;
       this.#deviceId = await this.storage.getDeviceId();
