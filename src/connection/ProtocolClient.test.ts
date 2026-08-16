@@ -69,4 +69,11 @@ describe('ProtocolClient', () => {
     transport.fail = false;
     await expect(client.request('{"fixture":true}', 'timeout', 1)).rejects.toThrow('timed out');
   });
+
+  it('bounds a native GATT write that never settles', async () => {
+    const transport = new FakeTransport();
+    transport.writeGate = new Promise<void>(() => undefined);
+    const client = new ProtocolClient(transport, () => 'hung-write', 1);
+    await expect(client.send('never')).rejects.toThrow('write timed out');
+  });
 });

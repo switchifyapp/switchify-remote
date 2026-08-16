@@ -30,6 +30,7 @@ class LoopbackTransport implements BleTransport {
   connectFailures = 0;
   responseGates = new Map<string, Promise<void>>();
   dropResponses = new Set<string>();
+  hangWrites = new Set<string>();
   scan(): Unsubscribe { return () => undefined; }
   connect = async () => { this.connectCount += 1; if (this.connectFailures > 0) { this.connectFailures -= 1; throw new Error('connect failed'); } };
   disconnect = async () => undefined;
@@ -44,6 +45,7 @@ class LoopbackTransport implements BleTransport {
     if (result.kind !== 'complete') return;
     const request = JSON.parse(result.message) as { id: string; type: string; payload: { deviceId?: string; desktopId?: string } };
     this.requests.push(request.type);
+    if (this.hangWrites.has(request.type)) await new Promise<void>(() => undefined);
     await this.responseGates.get(request.type);
     if (this.dropResponses.has(request.type)) return;
     let response: object;
@@ -148,6 +150,18 @@ describe('pairing and authenticated connection integration', () => {
     await manager.disconnect();
     await expect(blocked).resolves.toBe(false);
     expect(transport.requests).toContain('keyboard.textStream.close');
+    expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('disconnects when a native command write never settles', async () => {
+    const transport = new LoopbackTransport();
+    const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `hung-${++id}`; })());
+    await manager.connect(desktop);
+    transport.hangWrites.add('mouse.click');
+    const blocked = manager.send('mouse.click', { button: 'left' });
+    await waitFor(() => transport.requests.filter((type) => type === 'mouse.click').length === 1);
+    await manager.disconnect();
+    await expect(blocked).resolves.toBe(false);
     expect(manager.snapshot().kind).toBe('idle');
   });
 

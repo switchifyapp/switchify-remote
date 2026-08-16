@@ -20,7 +20,7 @@ function device(overrides: Partial<Device> = {}): Device {
 function manager(overrides: Record<string, unknown> = {}): BleManager {
   return {
     state: jest.fn(async () => 'PoweredOn'), startDeviceScan: jest.fn(), stopDeviceScan: jest.fn(),
-    connectToDevice: jest.fn(), onDeviceDisconnected: jest.fn(() => ({ remove: jest.fn() })), ...overrides,
+    connectToDevice: jest.fn(), cancelDeviceConnection: jest.fn(async () => null as unknown as Device), onDeviceDisconnected: jest.fn(() => ({ remove: jest.fn() })), ...overrides,
   } as unknown as BleManager;
 }
 
@@ -61,6 +61,29 @@ describe('ReactNativeBleTransport', () => {
     expect(firstDevice.cancelConnection).toHaveBeenCalled();
     expect(connectToDevice).toHaveBeenCalledTimes(2);
     expect(transport.maxWriteValueBytes()).toBe(182);
+  });
+
+  it('cancels a native connect that never settles and allows a replacement', async () => {
+    const secondDevice = device();
+    const connectToDevice = jest.fn()
+      .mockImplementationOnce(() => new Promise<Device>(() => undefined))
+      .mockImplementationOnce(async () => secondDevice);
+    const native = manager({ connectToDevice });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    const first = transport.connect('stuck');
+    await waitFor(() => connectToDevice.mock.calls.length === 1);
+    const second = transport.connect('replacement');
+    await expect(first).rejects.toThrow('cancelled');
+    await second;
+    expect(native.cancelDeviceConnection).toHaveBeenCalledWith('stuck');
+    expect(connectToDevice).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds a native connection even without an explicit cancellation', async () => {
+    const native = manager({ connectToDevice: jest.fn(() => new Promise<Device>(() => undefined)) });
+    const transport = new ReactNativeBleTransport(native, 'ios', 1);
+    await expect(transport.connect('stuck')).rejects.toThrow('timed out');
+    expect(native.cancelDeviceConnection).toHaveBeenCalledWith('stuck');
   });
 
   it('deduplicates advertisements and cancels in-flight probes when scanning stops', async () => {

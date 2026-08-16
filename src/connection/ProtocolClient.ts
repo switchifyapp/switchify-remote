@@ -8,10 +8,11 @@ import type { BleTransport, Unsubscribe } from '@/transport/BleTransport';
 export class ProtocolClient {
   readonly #reassembler = new FrameReassembler();
   readonly #pending = new Map<string, { resolve: (response: ProtocolResponse) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  readonly #writeCancels = new Set<(error: Error) => void>();
   #writeQueue = Promise.resolve();
   #unsubscribe: Unsubscribe | null = null;
 
-  constructor(private readonly transport: BleTransport, private readonly messageId = () => Crypto.randomUUID()) {}
+  constructor(private readonly transport: BleTransport, private readonly messageId = () => Crypto.randomUUID(), private readonly writeTimeoutMs = 5_000) {}
 
   start(onFailure: () => void): void {
     this.#unsubscribe?.();
@@ -31,7 +32,7 @@ export class ProtocolClient {
   async send(message: string): Promise<void> {
     const frames = createFramesForWriteLimit(message, this.messageId(), this.transport.maxWriteValueBytes());
     for (const frame of frames) {
-      const write = this.#writeQueue.catch(() => undefined).then(() => this.transport.writeFrame(encodeFrame(frame)));
+      const write = this.#writeQueue.catch(() => undefined).then(() => this.#write(encodeFrame(frame)));
       this.#writeQueue = write;
       await write;
     }
@@ -41,11 +42,36 @@ export class ProtocolClient {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#reassembler.clear();
-    this.cancelPending();
+    this.cancelOutstanding();
   }
 
   cancelPending(): void {
     for (const id of [...this.#pending.keys()]) this.#reject(id, new Error('PC disconnected.'));
+  }
+
+  cancelOutstanding(): void {
+    this.cancelPending();
+    const error = new Error('PC disconnected.');
+    for (const cancel of [...this.#writeCancels]) cancel(error);
+    this.#writeQueue = Promise.resolve();
+  }
+
+  #write(frame: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (result: 'resolve' | 'reject', error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.#writeCancels.delete(cancel);
+        if (result === 'resolve') resolve(); else reject(error ?? new Error('Could not write to PC.'));
+      };
+      const cancel = (error: Error) => finish('reject', error);
+      timer = setTimeout(() => cancel(new Error('Bluetooth write timed out.')), this.writeTimeoutMs);
+      this.#writeCancels.add(cancel);
+      void this.transport.writeFrame(frame).then(() => finish('resolve'), () => finish('reject'));
+    });
   }
 
   #accept(raw: string): void {

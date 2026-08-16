@@ -12,8 +12,10 @@ export class ReactNativeBleTransport implements BleTransport {
   #operation = 0;
   #scanDevices = new Map<string, Device>();
   #connectQueue: Promise<void> = Promise.resolve();
+  #nativeCancels = new Set<(error: Error) => void>();
+  #connectingPeripheralId: string | null = null;
 
-  constructor(manager = new BleManager(), private readonly platform = Platform.OS) { this.#manager = manager; }
+  constructor(manager = new BleManager(), private readonly platform = Platform.OS, private readonly nativeTimeoutMs = 10_000) { this.#manager = manager; }
 
   async availability(): Promise<BleAvailability> {
     const state = await this.#manager.state();
@@ -58,28 +60,43 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async #connect(peripheralId: string, operation: number): Promise<void> {
     let connected: Device | null = null;
+    let connectCancelled = false;
+    this.#connectingPeripheralId = peripheralId;
     try {
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
-      connected = await this.#manager.connectToDevice(peripheralId);
+      const nativeConnect = this.#manager.connectToDevice(peripheralId);
+      void nativeConnect.then((device) => {
+        if (connectCancelled || operation !== this.#operation) void device.cancelConnection().catch(() => undefined);
+      }, () => undefined);
+      connected = await this.#bounded(nativeConnect);
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
       this.#device = connected;
       if (this.platform === 'android') {
-        connected = await connected.requestMTU(517);
+        connected = await this.#bounded(connected.requestMTU(517));
         if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
         this.#device = connected;
       }
-      connected = await connected.discoverAllServicesAndCharacteristics();
+      connected = await this.#bounded(connected.discoverAllServicesAndCharacteristics());
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
       this.#device = connected;
     } catch (error) {
+      connectCancelled = true;
       if (connected) await connected.cancelConnection().catch(() => undefined);
+      else void this.#manager.cancelDeviceConnection(peripheralId).catch(() => undefined);
       if (operation === this.#operation) this.#device = null;
       throw error;
+    } finally {
+      if (this.#connectingPeripheralId === peripheralId) this.#connectingPeripheralId = null;
     }
   }
 
   async disconnect(): Promise<void> {
     this.#operation += 1;
+    const cancellation = new Error('Bluetooth operation was cancelled.');
+    for (const cancel of [...this.#nativeCancels]) cancel(cancellation);
+    const connectingPeripheralId = this.#connectingPeripheralId;
+    this.#connectingPeripheralId = null;
+    if (connectingPeripheralId) void this.#manager.cancelDeviceConnection(connectingPeripheralId).catch(() => undefined);
     this.#manager.stopDeviceScan();
     const probes = [...this.#scanDevices.values()];
     this.#scanDevices.clear();
@@ -130,5 +147,23 @@ export class ReactNativeBleTransport implements BleTransport {
   #requireDevice(): Device {
     if (!this.#device) throw new Error('No PC is connected.');
     return this.#device;
+  }
+
+  #bounded<T>(operation: Promise<T>, timeoutMs = this.nativeTimeoutMs): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (result: 'resolve' | 'reject', value: T | Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.#nativeCancels.delete(cancel);
+        if (result === 'resolve') resolve(value as T); else reject(value);
+      };
+      const cancel = (error: Error) => finish('reject', error);
+      timer = setTimeout(() => cancel(new Error('Bluetooth operation timed out.')), timeoutMs);
+      this.#nativeCancels.add(cancel);
+      void operation.then((value) => finish('resolve', value), (error: unknown) => finish('reject', error instanceof Error ? error : new Error('Bluetooth operation failed.')));
+    });
   }
 }

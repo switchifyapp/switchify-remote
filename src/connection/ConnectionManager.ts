@@ -127,7 +127,7 @@ export class ConnectionManager {
     this.#scanStop?.(); this.#scanStop = null;
     // Cancel older acknowledgement waits, then send best-effort cleanup while
     // the authenticated client and transport remain available.
-    this.#client?.cancelPending();
+    this.#client?.cancelOutstanding();
     for (const cleanup of [...this.#cleanups]) await Promise.resolve(cleanup()).catch(() => undefined);
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
