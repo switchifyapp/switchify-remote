@@ -59,7 +59,8 @@
             "deploymentTarget": "16.4"
           }
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,
