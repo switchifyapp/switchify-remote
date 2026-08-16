@@ -65,7 +65,9 @@ describe('pairing and authenticated connection integration', () => {
     const transport = new LoopbackTransport();
     const storage = new MemoryStorage();
     const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `request-${++id}`; })());
-    const cleanup = jest.fn();
+    const cleanup = jest.fn(async () => {
+      expect(await manager.send('mouse.click', { button: 'left' })).toBe(true);
+    });
     manager.registerCleanup(cleanup);
     await manager.connect(desktop);
     expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: { scaleFactor: 1.5, capabilities: { displayNavigation: { displayCount: 2 } } } });
@@ -73,6 +75,7 @@ describe('pairing and authenticated connection integration', () => {
     expect(await manager.send('mouse.click', { button: 'left' })).toBe(true);
     await manager.disconnect();
     expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(transport.requests.filter((type) => type === 'mouse.click')).toHaveLength(2);
     expect(manager.snapshot().kind).toBe('idle');
   });
 

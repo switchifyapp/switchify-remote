@@ -41,20 +41,17 @@ export class PairingStore implements PairingStorage {
   }
 
   async list(): Promise<SavedPc[]> {
-    try {
-      const parsed = JSON.parse(await this.publicStorage.getItem(INDEX_KEY) ?? '[]') as unknown;
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isSavedPc).sort((a, b) => b.lastConnectedAt - a.lastConnectedAt);
-    } catch { return []; }
+    try { return await this.#readIndex(); }
+    catch { return []; }
   }
 
   token(desktopId: string): Promise<string | null> { return this.secretStorage.getItemAsync(`${TOKEN_PREFIX}${desktopId}`); }
 
   async save(pc: SavedPc, token: string): Promise<void> {
+    const next = (await this.#readIndex()).filter((item) => item.desktopId !== pc.desktopId);
+    next.unshift(pc);
     const previousToken = await this.token(pc.desktopId);
     await this.secretStorage.setItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`, token, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
-    const next = (await this.list()).filter((item) => item.desktopId !== pc.desktopId);
-    next.unshift(pc);
     try { await this.publicStorage.setItem(INDEX_KEY, JSON.stringify(next)); }
     catch (error) {
       if (previousToken) await this.secretStorage.setItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`, previousToken, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
@@ -64,7 +61,7 @@ export class PairingStore implements PairingStorage {
   }
 
   async remove(desktopId: string): Promise<void> {
-    const previous = await this.list();
+    const previous = await this.#readIndex();
     const previousToken = await this.token(desktopId);
     const previousDefault = await this.defaultDesktopId();
     const next = previous.filter((item) => item.desktopId !== desktopId);
@@ -85,6 +82,14 @@ export class PairingStore implements PairingStorage {
   async setDefaultDesktopId(desktopId: string | null): Promise<void> {
     if (desktopId) await this.publicStorage.setItem(`${INDEX_KEY}.default`, desktopId);
     else await this.publicStorage.removeItem(`${INDEX_KEY}.default`);
+  }
+
+  async #readIndex(): Promise<SavedPc[]> {
+    const raw = await this.publicStorage.getItem(INDEX_KEY);
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) throw new Error('Invalid pairing index.');
+    return parsed.filter(isSavedPc).sort((a, b) => b.lastConnectedAt - a.lastConnectedAt);
   }
 }
 

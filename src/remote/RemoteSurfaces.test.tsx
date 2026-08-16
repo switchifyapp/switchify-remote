@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
 import { MouseSurface } from './MouseSurface';
@@ -30,6 +30,15 @@ describe('capability-driven remote surfaces', () => {
     expect(view.getByLabelText('Send to PC').props.accessibilityState.disabled).toBe(false);
   });
 
+  it('keeps failed live text visible and offers an explicit retry', async () => {
+    const failingManager = { send: jest.fn(async () => false) } as unknown as ConnectionManager;
+    const session = new RemoteSession(failingManager, profile(['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close']));
+    const view = await render(<TypingSurface session={session} mode="live" draft="" />);
+    await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'unsent'); });
+    await waitFor(() => expect(view.getByLabelText('Retry unsent text')).toBeTruthy());
+    expect(view.getByLabelText('Live text').props.value).toBe('unsent');
+  });
+
   it('gates modifiers, shortcuts, and window commands independently', async () => {
     const session = new RemoteSession(manager, profile(['keyboard.modifierDown']));
     const view = await render(<WindowSurface session={session} state={session.snapshot()} platform="windows" />);
@@ -37,5 +46,21 @@ describe('capability-driven remote surfaces', () => {
     expect(view.getByLabelText('Next app').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('A').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('Left').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('disables every action category when no commands are advertised', async () => {
+    const session = new RemoteSession(manager, profile([]));
+    const mouse = await render(<MouseSurface session={session} state={session.snapshot()} />);
+    for (const label of ['Move up and left', 'Move up', 'Move up and right', 'Move left', 'Left click', 'Move right', 'Move down and left', 'Move down', 'Move down and right', 'Double click', 'Right click', 'Start drag', 'Scroll up', 'Scroll down', 'Slower', 'Faster']) {
+      expect(mouse.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
+    }
+    const typing = await render(<TypingSurface session={session} mode="draft" draft="protected" />);
+    for (const label of ['Type live', 'Write a draft', 'Send to PC', 'Backspace', 'Enter', 'Escape', 'Tab', 'Left', 'Up', 'Down', 'Right']) {
+      expect(typing.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
+    }
+    const window = await render(<WindowSurface session={session} state={session.snapshot()} platform="windows" />);
+    for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'A', 'C', 'V', 'X', 'Left', 'Up', 'Down', 'Right']) {
+      expect(window.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
+    }
   });
 });

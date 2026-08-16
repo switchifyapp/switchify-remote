@@ -5,9 +5,10 @@ const tokenKey = 'switchify.remote.token.pc-1';
 
 class PublicMemory {
   values = new Map<string, string>();
+  failGet = 0;
   failSet = 0;
   failRemove = 0;
-  getItem = async (key: string) => this.values.get(key) ?? null;
+  getItem = async (key: string) => { if (this.failGet-- > 0) throw new Error('get failed'); return this.values.get(key) ?? null; };
   setItem = async (key: string, value: string) => { if (this.failSet-- > 0) throw new Error('set failed'); this.values.set(key, value); };
   removeItem = async (key: string) => { if (this.failRemove-- > 0) throw new Error('remove failed'); this.values.delete(key); };
 }
@@ -71,5 +72,26 @@ describe('PairingStore transactions', () => {
     expect(await store.list()).toEqual([pc]);
     expect(await store.token('pc-1')).toBe('secret');
     expect(await store.defaultDesktopId()).toBe('pc-1');
+  });
+
+  it('does not mutate a pairing when the public index cannot be read', async () => {
+    const { store, publicStorage, secretStorage } = fixture();
+    publicStorage.failGet = 1;
+    await expect(store.save({ ...pc, displayName: 'Renamed' }, 'replacement')).rejects.toThrow('get failed');
+    expect(secretStorage.values.get(tokenKey)).toBe('secret');
+    expect(publicStorage.values.get(indexKey)).toBe(JSON.stringify([pc]));
+
+    publicStorage.failGet = 1;
+    await expect(store.remove('pc-1')).rejects.toThrow('get failed');
+    expect(secretStorage.values.get(tokenKey)).toBe('secret');
+    expect(publicStorage.values.get(indexKey)).toBe(JSON.stringify([pc]));
+  });
+
+  it('does not overwrite a malformed pairing index during a mutation', async () => {
+    const { store, publicStorage, secretStorage } = fixture();
+    publicStorage.values.set(indexKey, '{malformed');
+    await expect(store.remove('pc-1')).rejects.toThrow();
+    expect(publicStorage.values.get(indexKey)).toBe('{malformed');
+    expect(secretStorage.values.get(tokenKey)).toBe('secret');
   });
 });
