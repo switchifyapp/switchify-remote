@@ -62,9 +62,10 @@ class SwitchifyAndroidBridgeModule : Module() {
             binding = false
             runCatching {
                 check(service.version == SUPPORTED_BRIDGE_VERSION)
-                bridge = service
                 service.registerCallback(callback)
-                sendEvent("onBridgeEvent", service.getSnapshot().toEventMap("snapshot"))
+                val snapshot = service.getSnapshot()
+                bridge = service
+                sendEvent("onBridgeEvent", snapshot.toEventMap("snapshot"))
             }.onFailure { disconnectInternal() }
         }
 
