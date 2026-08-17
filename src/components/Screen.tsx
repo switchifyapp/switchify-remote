@@ -10,11 +10,13 @@ export function Screen({ title, description, children }: ScreenProps) {
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View accessibilityRole="header">
-          <Text style={styles.title}>{title}</Text>
-          {description ? <Text style={styles.description}>{description}</Text> : null}
+        <View style={styles.body}>
+          <View>
+            <Text accessibilityRole="header" style={styles.title}>{title}</Text>
+            {description ? <Text style={styles.description}>{description}</Text> : null}
+          </View>
+          {children}
         </View>
-        {children}
       </ScrollView>
     </SafeAreaView>
   );
@@ -22,7 +24,8 @@ export function Screen({ title, description, children }: ScreenProps) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  content: { flexGrow: 1, gap: 20, paddingHorizontal: 20, paddingBottom: 32 },
+  content: { alignItems: 'center', flexGrow: 1, paddingHorizontal: 20, paddingBottom: 32 },
+  body: { gap: 20, maxWidth: 760, width: '100%' },
   title: { color: colors.text, fontSize: 34, fontWeight: '800', lineHeight: 41 },
   description: { color: colors.textMuted, fontSize: 17, lineHeight: 25, marginTop: 6 },
 });
