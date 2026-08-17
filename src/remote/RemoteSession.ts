@@ -1,4 +1,6 @@
 import type { ConnectionManager } from '@/connection/ConnectionManager';
+import { switchifyBridge } from '@/bridge/SwitchifyBridgeClient';
+import type { SwitchifyBridge } from '@/bridge/types';
 import { commandPayloads } from '@/domain/protocol/commands';
 import type { JsonObject, PointerProfile } from '@/domain/protocol/types';
 
@@ -10,8 +12,20 @@ export class RemoteSession {
   #streamId: string | null = null;
   #sequence = 0;
   #streamQueue: Promise<void> = Promise.resolve();
+  #repeatGeneration = 0;
+  #bridgeUnsubscribe: () => void;
 
-  constructor(private readonly manager: ConnectionManager, readonly profile: PointerProfile | null, private readonly id = () => `${Date.now()}-${Math.random()}`, readonly connectionIdentity: string | null = null) {}
+  constructor(
+    private readonly manager: ConnectionManager,
+    readonly profile: PointerProfile | null,
+    private readonly id = () => `${Date.now()}-${Math.random()}`,
+    readonly connectionIdentity: string | null = null,
+    private readonly bridge: SwitchifyBridge = switchifyBridge,
+  ) {
+    this.#bridgeUnsubscribe = bridge.subscribe((event) => {
+      if (event.type === 'repeatStop' && event.generation === this.#repeatGeneration && this.#state.repeat) void this.stopRepeat();
+    });
+  }
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
   snapshot = () => this.#state;
 
@@ -21,7 +35,11 @@ export class RemoteSession {
     if (repeatable && this.supports('mouse.repeat.start') && this.supports('mouse.repeat.stop') && this.profile?.capabilities.mouseRepeat.supported && this.profile.capabilities.mouseRepeat.enabled) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
-      if (ok) this.#set({ repeat: type });
+      if (ok) {
+        this.#repeatGeneration = this.bridge.nextGeneration();
+        this.#set({ repeat: type });
+        await this.bridge.setRepeatActive(this.#repeatGeneration, true);
+      }
       return ok;
     }
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
@@ -29,9 +47,12 @@ export class RemoteSession {
 
   async stopRepeat(): Promise<void> {
     if (!this.#state.repeat) return;
+    const generation = this.#repeatGeneration;
+    this.#repeatGeneration = 0;
+    this.#set({ repeat: null });
+    await this.bridge.setRepeatActive(generation, false);
     const [type, payload] = commandPayloads.repeatStop();
     await this.manager.send(type, payload, 'none');
-    this.#set({ repeat: null });
   }
 
   async toggleDrag(): Promise<boolean> {
@@ -135,6 +156,10 @@ export class RemoteSession {
     await this.closeStream();
     this.#state = { repeat: null, dragging: false, modifiers: [], streamOpen: false };
     this.#emit();
+  }
+
+  dispose(): void {
+    this.#bridgeUnsubscribe();
   }
 
   #supportsNoAck(type: string): boolean { return this.profile?.capabilities.noAckCommands.includes(type) === true || (type === 'mouse.move' && this.profile?.capabilities.noAckMouseMove === true); }

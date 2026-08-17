@@ -11,7 +11,7 @@ const directions = [
   ['↙', 'Move down and left', -1, 1], ['↓', 'Move down', 0, 1], ['↘', 'Move down and right', 1, 1],
 ] as const;
 
-export function MouseSurface({ session, state }: { session: RemoteSession; state: RemoteSessionState }) {
+export function MouseSurface({ session, state, physicalSwitchStopAvailable = true }: { session: RemoteSession; state: RemoteSessionState; physicalSwitchStopAvailable?: boolean }) {
   const profile = session.profile;
   const step = Math.max(1, Math.min(profile?.maxDelta ?? 128, profile?.capabilities.pointerSpeed.baseMoveDelta ?? profile?.recommendedDeltas.medium ?? 128));
   const speed = profile?.capabilities.pointerSpeed;
@@ -22,6 +22,7 @@ export function MouseSurface({ session, state }: { session: RemoteSession; state
   return (
     <View style={styles.section}>
       {state.repeat ? <Text accessibilityLiveRegion="polite" style={styles.status}>Movement is repeating. Tap any control to stop.</Text> : null}
+      {!physicalSwitchStopAvailable && profile?.capabilities.mouseRepeat.supported && profile.capabilities.mouseRepeat.enabled ? <Text accessibilityLiveRegion="polite" style={styles.warning}>Switchify is unavailable. Use a Remote control to stop movement repeat.</Text> : null}
       <Text accessibilityRole="header" style={styles.heading}>Movement</Text>
       <View style={styles.grid}>{directions.map(([label, accessibleLabel, dx, dy]) => <View key={label} style={styles.cell}><ControlButton label={label} accessibilityLabel={accessibleLabel} disabled={!session.supports(dx === 0 && dy === 0 ? 'mouse.click' : 'mouse.move')} onPress={() => dx === 0 && dy === 0 ? sendTuple(click) : void session.mouse('mouse.move', { dx: dx * step, dy: dy * step }, true)} /></View>)}</View>
       <Text accessibilityRole="header" style={styles.heading}>Clicks and scroll</Text>
@@ -33,4 +34,4 @@ export function MouseSurface({ session, state }: { session: RemoteSession; state
   );
 }
 
-const styles = StyleSheet.create({ section: { gap: 12 }, heading: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 4 }, status: { color: colors.warning, fontSize: 16 }, grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, cell: { flexBasis: '30%', flexGrow: 1 }, row: { flexDirection: 'row', gap: 8 } });
+const styles = StyleSheet.create({ section: { gap: 12 }, heading: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 4 }, status: { color: colors.warning, fontSize: 16 }, warning: { color: colors.textMuted, fontSize: 16 }, grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, cell: { flexBasis: '30%', flexGrow: 1 }, row: { flexDirection: 'row', gap: 8 } });
