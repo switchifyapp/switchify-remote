@@ -20,10 +20,14 @@ class FakeTransport implements BleTransport {
   availability = async () => this.currentAvailability;
   maxWriteValueBytes = () => 182;
   scanCallback: ((pc: DiscoveredDesktop) => void) | null = null;
+  scanStops = 0;
   connectedPeripheralIds: string[] = [];
   failConnect = false;
   connectGate: Promise<void> | null = null;
-  scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe { this.scanCallback = onDesktop; return () => { this.scanCallback = null; }; }
+  scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe {
+    this.scanCallback = onDesktop;
+    return () => { this.scanStops += 1; this.scanCallback = null; };
+  }
   connect = async (peripheralId: string) => {
     this.connectedPeripheralIds.push(peripheralId);
     await this.connectGate;
@@ -134,5 +138,37 @@ describe('connection lifecycle', () => {
 
     expect(transport.connectedPeripheralIds).toEqual([]);
     expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('times out saved-PC rediscovery, stops scanning, and ignores a late advertisement', async () => {
+    const storage = new FakeStorage();
+    const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(
+      transport,
+      storage,
+      new DiagnosticLog(),
+      async () => true,
+      Date.now,
+      () => 'request-id',
+      async () => undefined,
+      1,
+    );
+
+    const connecting = manager.connectSaved(saved);
+    await waitFor(() => transport.scanCallback !== null);
+    const lateAdvertisement = transport.scanCallback!;
+    await connecting;
+
+    expect(transport.scanStops).toBe(1);
+    expect(transport.scanCallback).toBeNull();
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not find this PC nearby.' });
+
+    lateAdvertisement({ ...saved, peripheralId: 'late-private-address', rssi: -42 });
+    await Promise.resolve();
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not find this PC nearby.' });
   });
 });
