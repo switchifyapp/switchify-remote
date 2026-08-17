@@ -30,6 +30,25 @@ describe('ForwardingController', () => {
     await controller.stop(); expect(bridge.active).toEqual([[41, true], [41, false]]);
   });
 
+  it('uses a desktop-compatible UUID session ID', async () => {
+    const bridge = new FakeBridge(); const connection = { request: jest.fn(async () => catalog), send: jest.fn(async () => true) } as ForwardingConnection;
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '5d59aaf0-f77b-4dd5-a522-8665bc8bcf51');
+    await controller.loadProfiles();
+    expect(await controller.start()).toBe(true);
+    expect(connection.send).toHaveBeenCalledWith('switch.session.start', expect.objectContaining({ sessionId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i) }));
+  });
+
+  it('synthesizes release and repress for a replacement press', async () => {
+    const bridge = new FakeBridge(); const connection = { request: jest.fn(async () => catalog), send: jest.fn(async () => true) } as ForwardingConnection;
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '00000000-0000-4000-8000-000000000001');
+    await controller.loadProfiles(); await controller.start();
+    bridge.emit({ type: 'switchEdge', generation: 41, sequence: 1, keyCode: 20, down: true, downTimeMs: 10, eventTimeMs: 10, cancelled: false });
+    bridge.emit({ type: 'switchEdge', generation: 41, sequence: 2, keyCode: 20, down: true, downTimeMs: 20, eventTimeMs: 20, cancelled: false });
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    const edges = (connection.send as jest.Mock).mock.calls.filter(([command]) => command === 'switch.edge').map(([, payload]) => payload.state);
+    expect(edges).toEqual(['down', 'up', 'down']);
+  });
+
   it('fails closed on a missing edge and supports legacy Grid 3', async () => {
     const bridge = new FakeBridge(); const connection = { request: jest.fn(async () => null), send: jest.fn(async () => true) } as ForwardingConnection;
     const controller = new ForwardingController(connection, bridge, profile(['grid.switch.set', 'grid.switch.sync'], ['grid.switch.set']), 5_000, fakeTimers(), () => 'legacy');
@@ -42,12 +61,14 @@ describe('ForwardingController', () => {
 
   it('requires capture and stops after a five-second hold release', async () => {
     const bridge = new FakeBridge(); const connection = { request: jest.fn(async () => catalog), send: jest.fn(async () => true) } as ForwardingConnection;
-    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => 'hold');
+    const safetyStop = jest.fn();
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '00000000-0000-4000-8000-000000000002', safetyStop);
     await controller.loadProfiles(); bridge.value = { version: 1, captureAvailable: false, externalSwitches: [] }; expect(await controller.start()).toBe(false);
     bridge.value = { version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 20, name: 'Switch' }] }; expect(await controller.start()).toBe(true);
     bridge.emit({ type: 'switchEdge', generation: 41, sequence: 1, keyCode: 20, down: true, downTimeMs: 0, eventTimeMs: 0, cancelled: false });
     bridge.emit({ type: 'switchEdge', generation: 41, sequence: 2, keyCode: 20, down: false, downTimeMs: 0, eventTimeMs: 5_000, cancelled: false });
     for (let index = 0; index < 12; index += 1) await Promise.resolve();
     expect(controller.snapshot().phase).toBe('idle');
+    expect(safetyStop).toHaveBeenCalledTimes(1);
   });
 });
