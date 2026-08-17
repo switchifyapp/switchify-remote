@@ -8,6 +8,7 @@ export interface BleTransport {
   availability(): Promise<BleAvailability>;
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe;
   connect(peripheralId: string): Promise<void>;
+  resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop>;
   disconnect(): Promise<void>;
   maxWriteValueBytes(): number;
   writeFrame(frameBase64: string): Promise<void>;

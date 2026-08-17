@@ -9,13 +9,17 @@ import android.os.IBinder
 import com.enaboapps.switchify.remotebridge.ISwitchifyRemoteBridge
 import com.enaboapps.switchify.remotebridge.ISwitchifyRemoteBridgeCallback
 import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import kotlinx.coroutines.delay
 
 class SwitchifyAndroidBridgeModule : Module() {
+    private val stateLock = Any()
     private var bridge: ISwitchifyRemoteBridge? = null
     private var binding = false
     private var bindRequested = false
+    private var connectionAttempt = 0L
 
     private val context: Context
         get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
@@ -57,13 +61,29 @@ class SwitchifyAndroidBridgeModule : Module() {
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val service = ISwitchifyRemoteBridge.Stub.asInterface(binder)
-            binding = false
-            runCatching {
+            val attempt = synchronized(stateLock) {
+                if (!binding) return
+                connectionAttempt
+            }
+            var registered = false
+            try {
                 check(service.version == SUPPORTED_BRIDGE_VERSION)
-                bridge = service
                 service.registerCallback(callback)
-                sendEvent("onBridgeEvent", service.getSnapshot().toEventMap("snapshot"))
-            }.onFailure { disconnectInternal() }
+                registered = true
+                val snapshot = service.getSnapshot()
+                val publish = synchronized(stateLock) {
+                    if (binding && connectionAttempt == attempt) {
+                        bridge = service
+                        binding = false
+                        true
+                    } else false
+                }
+                if (publish) sendEvent("onBridgeEvent", snapshot.toEventMap("snapshot"))
+                else runCatching { service.unregisterCallback(callback) }
+            } catch (_: Throwable) {
+                if (registered) runCatching { service.unregisterCallback(callback) }
+                failConnectionAttempt(attempt)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) = disconnected(bindingEnded = false)
@@ -75,28 +95,26 @@ class SwitchifyAndroidBridgeModule : Module() {
         Name("SwitchifyAndroidBridge")
         Events("onBridgeEvent")
 
-        AsyncFunction("connectAsync") {
-            connectInternal()
-        }
+        AsyncFunction("connectAsync") Coroutine (suspend { connectAndAwait() })
 
         AsyncFunction("disconnectAsync") {
             disconnectInternal()
         }
 
         AsyncFunction("getVersionAsync") {
-            runCatching { bridge?.version ?: 0 }.getOrDefault(0)
+            runCatching { currentBridge()?.version ?: 0 }.getOrDefault(0)
         }
 
         AsyncFunction("snapshotAsync") {
-            bridge?.getSnapshot()?.toEventMap("snapshot") ?: unavailableSnapshot()
+            currentBridge()?.getSnapshot()?.toEventMap("snapshot") ?: unavailableSnapshot()
         }
 
         AsyncFunction("setRepeatActiveAsync") { generation: Double, active: Boolean ->
-            runCatching { bridge?.setRepeatActive(generation.toLong(), active) == true }.getOrDefault(false)
+            runCatching { currentBridge()?.setRepeatActive(generation.toLong(), active) == true }.getOrDefault(false)
         }
 
         AsyncFunction("setForwardingActiveAsync") { generation: Double, active: Boolean ->
-            runCatching { bridge?.setForwardingActive(generation.toLong(), active) == true }.getOrDefault(false)
+            runCatching { currentBridge()?.setForwardingActive(generation.toLong(), active) == true }.getOrDefault(false)
         }
 
         OnDestroy {
@@ -104,38 +122,93 @@ class SwitchifyAndroidBridgeModule : Module() {
         }
     }
 
-    private fun connectInternal(): Boolean {
-        if (bridge != null || binding) return true
-        binding = true
-        val intent = Intent(BRIDGE_ACTION).setPackage(SWITCHIFY_PACKAGE)
-        val started = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
-            .getOrDefault(false)
-        bindRequested = started
-        if (!started) {
-            binding = false
-            sendEvent("onBridgeEvent", unavailableSnapshot())
+    private suspend fun connectAndAwait(): Boolean {
+        var shouldBind = false
+        val attempt = synchronized(stateLock) {
+            if (bridge != null) return true
+            if (!binding) {
+                binding = true
+                connectionAttempt += 1
+                shouldBind = true
+            }
+            connectionAttempt
         }
-        return started
+        if (shouldBind) {
+            val intent = Intent(BRIDGE_ACTION).setComponent(
+                ComponentName(SWITCHIFY_PACKAGE, SWITCHIFY_BRIDGE_SERVICE)
+            )
+            val started = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
+                .getOrDefault(false)
+            val stale = synchronized(stateLock) {
+                if (connectionAttempt != attempt) true
+                else {
+                    bindRequested = started
+                    if (!started && bridge == null) binding = false
+                    false
+                }
+            }
+            if (stale && started) runCatching { context.unbindService(connection) }
+            if (stale || !started) {
+                sendEvent("onBridgeEvent", unavailableSnapshot())
+                return false
+            }
+        }
+        repeat(CONNECTION_WAIT_ATTEMPTS) {
+            val (ready, pending) = synchronized(stateLock) {
+                (bridge != null) to (binding && connectionAttempt == attempt)
+            }
+            if (ready) return true
+            if (!pending) return false
+            delay(CONNECTION_WAIT_INTERVAL_MS)
+        }
+        failConnectionAttempt(attempt)
+        return false
     }
 
     private fun disconnectInternal() {
-        val service = bridge
-        bridge = null
-        binding = false
+        val (service, shouldUnbind) = synchronized(stateLock) {
+            connectionAttempt += 1
+            val current = bridge
+            val requested = bindRequested
+            bridge = null
+            binding = false
+            bindRequested = false
+            current to requested
+        }
         if (service != null) runCatching { service.unregisterCallback(callback) }
-        if (bindRequested) runCatching { context.unbindService(connection) }
-        bindRequested = false
+        if (shouldUnbind) runCatching { context.unbindService(connection) }
+    }
+
+    private fun failConnectionAttempt(attempt: Long) {
+        val shouldUnbind = synchronized(stateLock) {
+            if (connectionAttempt != attempt) return
+            connectionAttempt += 1
+            val requested = bindRequested
+            bridge = null
+            binding = false
+            bindRequested = false
+            requested
+        }
+        if (shouldUnbind) runCatching { context.unbindService(connection) }
+        sendEvent("onBridgeEvent", unavailableSnapshot())
     }
 
     private fun disconnected(bindingEnded: Boolean) {
-        bridge = null
-        binding = false
-        if (bindingEnded && bindRequested) {
+        val shouldUnbind = synchronized(stateLock) {
+            connectionAttempt += 1
+            bridge = null
+            binding = !bindingEnded && bindRequested
+            val requested = bindingEnded && bindRequested
+            if (bindingEnded) bindRequested = false
+            requested
+        }
+        if (shouldUnbind) {
             runCatching { context.unbindService(connection) }
-            bindRequested = false
         }
         sendEvent("onBridgeEvent", unavailableSnapshot())
     }
+
+    private fun currentBridge(): ISwitchifyRemoteBridge? = synchronized(stateLock) { bridge }
 
     private fun Bundle.toEventMap(type: String): Map<String, Any?> {
         val switches = getParcelableArrayList<Bundle>("externalSwitches").orEmpty().map { item ->
@@ -161,7 +234,11 @@ class SwitchifyAndroidBridgeModule : Module() {
 
     private companion object {
         const val SWITCHIFY_PACKAGE = "com.enaboapps.switchify"
+        const val SWITCHIFY_BRIDGE_SERVICE =
+            "com.enaboapps.switchify.service.remotebridge.SwitchifyRemoteBridgeService"
         const val BRIDGE_ACTION = "com.enaboapps.switchify.remote.BIND_BRIDGE"
         const val SUPPORTED_BRIDGE_VERSION = 1
+        const val CONNECTION_WAIT_ATTEMPTS = 30
+        const val CONNECTION_WAIT_INTERVAL_MS = 100L
     }
 }

@@ -20,15 +20,42 @@ class FakeTransport implements BleTransport {
   availability = async () => this.currentAvailability;
   maxWriteValueBytes = () => 182;
   scanCallback: ((pc: DiscoveredDesktop) => void) | null = null;
+  scanStops = 0;
+  connectedPeripheralIds: string[] = [];
+  resolvedDesktop: DiscoveredDesktop | null = null;
+  resolveError: Error | null = null;
+  resolveGate: Promise<void> | null = null;
+  resolveDesktopIds: string[] = [];
+  failConnect = false;
+  failReadiness = false;
   connectGate: Promise<void> | null = null;
-  scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe { this.scanCallback = onDesktop; return () => { this.scanCallback = null; }; }
-  connect = async () => { await this.connectGate; }; disconnect = async () => undefined; writeFrame = async () => undefined;
+  scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe {
+    this.scanCallback = onDesktop;
+    return () => { this.scanStops += 1; this.scanCallback = null; };
+  }
+  connect = async (peripheralId: string) => {
+    this.connectedPeripheralIds.push(peripheralId);
+    await this.connectGate;
+    if (this.failConnect) throw new Error('connect failed');
+  }; disconnect = async () => undefined; writeFrame = async () => undefined;
+  resolveAndConnect = async (desktopId: string) => {
+    this.resolveDesktopIds.push(desktopId);
+    await this.resolveGate;
+    if (this.resolveError) throw this.resolveError;
+    if (!this.resolvedDesktop) throw new Error('not found');
+    return this.resolvedDesktop;
+  };
   cancelPendingWrites = async () => undefined;
-  notificationsReady = async () => undefined;
+  notificationsReady = async () => { if (this.failReadiness) throw new Error('readiness failed'); };
   subscribe(): Unsubscribe { return () => undefined; } subscribeDisconnect(): Unsubscribe { return () => undefined; }
 }
 
 const pc = (id: string, lastConnectedAt = 1): SavedPc => ({ desktopId: id, displayName: id, platform: 'windows', peripheralId: `ble-${id}`, lastConnectedAt });
+
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 20 && !condition(); attempt += 1) await Promise.resolve();
+  expect(condition()).toBe(true);
+};
 
 describe('connection lifecycle', () => {
   it('matches the Android pairing verification algorithm', () => {
@@ -82,7 +109,8 @@ describe('connection lifecycle', () => {
   it('does not let a stale native connect overwrite explicit disconnect', async () => {
     let release!: () => void;
     const transport = new FakeTransport();
-    transport.connectGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolvedDesktop = { ...pc('pc-1'), rssi: null };
     const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
     const connecting = manager.connect({ ...pc('pc-1'), rssi: null });
     await Promise.resolve();
@@ -90,5 +118,69 @@ describe('connection lifecycle', () => {
     release();
     await Promise.all([connecting, disconnecting]);
     expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('re-resolves a discovered PC and authenticates on the retained GATT connection', async () => {
+    const transport = new FakeTransport();
+    const discovered = { ...pc('pc-1'), peripheralId: 'probed-address', rssi: -50 };
+    transport.resolvedDesktop = { ...discovered, peripheralId: 'fresh-address', rssi: -42 };
+    transport.failReadiness = true;
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+
+    await manager.connect(discovered);
+
+    expect(transport.resolveDesktopIds).toEqual(['pc-1']);
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not connect to this PC.' });
+  });
+
+  it('resolves a saved PC by stable desktop ID before connecting to its rotating BLE address', async () => {
+    const storage = new FakeStorage();
+    const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    transport.resolvedDesktop = { ...saved, peripheralId: 'current-private-address', rssi: -42 };
+    transport.failReadiness = true;
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectSaved(saved);
+
+    expect(transport.resolveDesktopIds).toEqual(['pc-1']);
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(transport.connectedPeripheralIds).not.toContain('old-private-address');
+  });
+
+  it('cancels saved-PC rediscovery without trying the stale address', async () => {
+    const storage = new FakeStorage();
+    const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    let release!: () => void;
+    transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolvedDesktop = { ...saved, peripheralId: 'current-private-address', rssi: -42 };
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    const connecting = manager.connectSaved(saved);
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    const disconnecting = manager.disconnect();
+    release();
+    await Promise.all([connecting, disconnecting]);
+
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('surfaces a sanitized failure when saved-PC discovery times out', async () => {
+    const storage = new FakeStorage();
+    const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    transport.resolveError = new Error('Saved PC discovery timed out.');
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectSaved(saved);
+
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not find this PC nearby.' });
   });
 });

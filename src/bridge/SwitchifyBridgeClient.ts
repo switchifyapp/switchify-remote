@@ -10,6 +10,7 @@ export class SwitchifyBridgeClient implements SwitchifyBridge {
   #listeners = new Set<(event: BridgeEvent) => void>();
   #nativeSubscription: { remove(): void } | null = null;
   #generation = Date.now();
+  #connectionEpoch = 0;
 
   constructor(private readonly native: NativeSwitchifyAndroidBridge | null = loadNativeSwitchifyAndroidBridge()) {}
 
@@ -22,17 +23,29 @@ export class SwitchifyBridgeClient implements SwitchifyBridge {
 
   async connect(): Promise<boolean> {
     if (!this.native) return false;
+    const epoch = ++this.#connectionEpoch;
     this.#nativeSubscription ??= this.native.addListener('onBridgeEvent', (event) => this.#accept(event));
     const started = await this.native.connectAsync().catch(() => false);
-    if (!started) this.#accept({ type: 'snapshot', ...unavailable });
+    if (epoch !== this.#connectionEpoch) return false;
+    if (started) {
+      const snapshot = await this.native.snapshotAsync().catch(() => unavailable);
+      if (epoch !== this.#connectionEpoch) return false;
+      this.#accept({
+        type: 'snapshot',
+        version: snapshot.version,
+        captureAvailable: snapshot.captureAvailable,
+        externalSwitches: snapshot.externalSwitches,
+      });
+    } else this.#accept({ type: 'snapshot', ...unavailable });
     return started;
   }
 
   async disconnect(): Promise<void> {
-    await this.native?.disconnectAsync().catch(() => undefined);
+    this.#connectionEpoch += 1;
     this.#nativeSubscription?.remove();
     this.#nativeSubscription = null;
     this.#accept({ type: 'snapshot', ...unavailable });
+    await this.native?.disconnectAsync().catch(() => undefined);
   }
 
   nextGeneration(): number {
