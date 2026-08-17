@@ -17,6 +17,7 @@ export class ReactNativeBleTransport implements BleTransport {
   #nativeCancels = new Set<(error: Error) => void>();
   #writeCancels = new Map<string, (error: Error) => void>();
   #connectingPeripheralId: string | null = null;
+  #resolutionCancel: ((error: Error) => void) | null = null;
   #writeSequence = 0;
   #writePoisoned = false;
 
@@ -66,6 +67,88 @@ export class ReactNativeBleTransport implements BleTransport {
     await result;
   }
 
+  async resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop> {
+    await this.disconnect();
+    const operation = ++this.#operation;
+    return new Promise<DiscoveredDesktop>((resolve, reject) => {
+      let active = true;
+      let claimedDeviceId: string | null = null;
+      const succeed = (desktop: DiscoveredDesktop) => {
+        if (!active) return;
+        active = false;
+        clearTimeout(timer);
+        this.#manager.stopDeviceScan();
+        if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
+        resolve(desktop);
+      };
+      const cancel = (error: Error) => {
+        if (!active) return;
+        active = false;
+        clearTimeout(timer);
+        this.#manager.stopDeviceScan();
+        const probes = [...this.#scanDevices.values()];
+        const retained = this.#device;
+        this.#device = null;
+        this.#scanDevices.clear();
+        this.#cancelNativeOperations();
+        const connections = retained && !probes.some((probe) => probe.id === retained.id) ? [...probes, retained] : probes;
+        void Promise.allSettled(connections.map((connection) => this.#bounded(
+          connection.cancelConnection(),
+          this.#cancellationTimeout(),
+        ))).then(() => {
+          if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
+          reject(error);
+        });
+      };
+      this.#resolutionCancel = cancel;
+      const timer = setTimeout(() => cancel(new Error('Saved PC discovery timed out.')), this.nativeTimeoutMs);
+      const onAdvertisement = (error: Error | null, device: Device | null) => {
+        if (!active || operation !== this.#operation) return;
+        if (error) { cancel(new Error('Saved PC discovery failed.')); return; }
+        if (!device || this.#scanDevices.has(device.id) || this.#scanDevices.size >= 4) return;
+        this.#scanDevices.set(device.id, device);
+        const task = this.#readStatus(device, (desktop) => {
+          if (desktop.desktopId !== desktopId || claimedDeviceId !== null) return false;
+          claimedDeviceId = device.id;
+          return true;
+        }).then(async (desktop) => {
+          if (!active || operation !== this.#operation || desktop?.desktopId !== desktopId || claimedDeviceId !== device.id) return;
+          this.#scanDevices.delete(device.id);
+          this.#manager.stopDeviceScan();
+          const otherProbes = [...this.#scanDevices.values()];
+          this.#scanDevices.clear();
+          otherProbes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
+          let connected = this.#requireDevice();
+          if (this.platform === 'android') {
+            connected = await this.#bounded(connected.requestMTU(517));
+            if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
+            this.#device = connected;
+          }
+          connected = await this.#bounded(connected.discoverAllServicesAndCharacteristics());
+          if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
+          this.#device = connected;
+          this.#writePoisoned = false;
+          succeed(desktop);
+        }).catch((probeError: unknown) => {
+          if (this.#device?.id === device.id) {
+            this.#device = null;
+            void device.cancelConnection().catch(() => undefined);
+            cancel(probeError instanceof Error ? probeError : new Error('Saved PC discovery failed.'));
+          }
+        }).finally(() => {
+          if (operation === this.#operation) this.#scanDevices.delete(device.id);
+        });
+        this.#scanTasks.add(task);
+        void task.finally(() => this.#scanTasks.delete(task));
+      };
+      try {
+        this.#manager.startDeviceScan([BLE_UUIDS.service], null, onAdvertisement);
+      } catch {
+        cancel(new Error('Saved PC discovery failed.'));
+      }
+    });
+  }
+
   async #connect(peripheralId: string, operation: number): Promise<void> {
     let connected: Device | null = null;
     let connectCancelled = false;
@@ -101,6 +184,8 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async disconnect(): Promise<void> {
     this.#operation += 1;
+    this.#resolutionCancel?.(new Error('Bluetooth operation was cancelled.'));
+    this.#resolutionCancel = null;
     this.#cancelNativeOperations();
     await this.cancelPendingWrites();
     const connectingPeripheralId = this.#connectingPeripheralId;
@@ -171,7 +256,7 @@ export class ReactNativeBleTransport implements BleTransport {
     return () => subscription.remove();
   }
 
-  async #readStatus(device: Device): Promise<DiscoveredDesktop | null> {
+  async #readStatus(device: Device, retain = (_desktop: DiscoveredDesktop) => false): Promise<DiscoveredDesktop | null> {
     let connectedHere = false;
     let target = device;
     let probeFinished = false;
@@ -189,12 +274,17 @@ export class ReactNativeBleTransport implements BleTransport {
       if (!characteristic.value) return null;
       const raw = new TextDecoder().decode(toByteArray(characteristic.value));
       const status = parseStatus(raw);
-      return status ? {
+      const desktop = status ? {
         ...status,
         displayName: desktopDisplayName(status, device.name),
         peripheralId: device.id,
         rssi: device.rssi ?? null,
       } : null;
+      if (desktop && retain(desktop)) {
+        this.#device = target;
+        connectedHere = false;
+      }
+      return desktop;
     } finally {
       probeFinished = true;
       if (connectedHere) await this.#bounded(target.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);

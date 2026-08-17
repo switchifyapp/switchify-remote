@@ -41,7 +41,6 @@ export class ConnectionManager {
     private readonly now = Date.now,
     private readonly id = () => `remote-${Crypto.randomUUID()}`,
     private readonly reconnectDelay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
-    private readonly savedPcDiscoveryTimeoutMs = 10_000,
   ) {}
 
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
@@ -105,20 +104,20 @@ export class ConnectionManager {
     const savedDesktop: DiscoveredDesktop = { ...pc, rssi: null };
     this.#set({ kind: 'connecting', desktop: savedDesktop });
     this.diagnostics.add('connecting');
-    const resolved = await this.#discoverSavedDesktop(pc.desktopId, operation);
-    if (!this.#current(operation)) return;
-    if (!resolved) {
-      await this.#fail('Could not find this PC nearby.', operation);
-      return;
+    try {
+      const resolved = await this.transport.resolveAndConnect(pc.desktopId);
+      if (!this.#current(operation)) return;
+      await this.#connectDesktop(resolved, operation, true, true);
+    } catch {
+      if (this.#current(operation)) await this.#fail('Could not find this PC nearby.', operation);
     }
-    await this.#connectDesktop(resolved, operation, true);
   }
 
-  async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false): Promise<void> {
+  async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false, transportConnected = false): Promise<void> {
     this.#set({ kind: 'connecting', desktop });
     if (!announced) this.diagnostics.add('connecting');
     try {
-      await this.transport.connect(desktop.peripheralId);
+      if (!transportConnected) await this.transport.connect(desktop.peripheralId);
       if (!this.#current(operation)) return;
       this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
       const client = new ProtocolClient(this.transport, this.id);
@@ -289,33 +288,6 @@ export class ConnectionManager {
     if (!this.#current(operation)) return;
     this.diagnostics.add('scan_failed', 'error');
     this.#set(availability === 'ready' ? { kind: 'failed', message: 'Bluetooth discovery could not start.', saved } : this.#availabilityState(availability, saved));
-  }
-
-  #discoverSavedDesktop(desktopId: string, operation: number): Promise<DiscoveredDesktop | null> {
-    return new Promise((resolve) => {
-      let settled = false;
-      let nativeStop: Unsubscribe = () => undefined;
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const finish = (desktop: DiscoveredDesktop | null) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        nativeStop();
-        if (this.#scanStop === stop) this.#scanStop = null;
-        resolve(desktop);
-      };
-      const stop = () => finish(null);
-      this.#scanStop = stop;
-      try {
-        nativeStop = this.transport.scan((desktop) => {
-          if (this.#current(operation) && desktop.desktopId === desktopId) finish(desktop);
-        }, () => finish(null));
-        if (settled) nativeStop();
-        else timeout = setTimeout(() => finish(null), this.savedPcDiscoveryTimeoutMs);
-      } catch {
-        finish(null);
-      }
-    });
   }
 
   #availabilityState(availability: Exclude<BleAvailability, 'ready'>, saved: SavedPc[]): ConnectionState {

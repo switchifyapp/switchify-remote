@@ -33,6 +33,7 @@ class LoopbackTransport implements BleTransport {
   dropResponses = new Set<string>();
   hangWrites = new Set<string>();
   scan(): Unsubscribe { return () => undefined; }
+  resolveAndConnect = async () => desktop;
   connect = async () => { this.connectCount += 1; if (this.connectFailures > 0) { this.connectFailures -= 1; throw new Error('connect failed'); } };
   disconnect = async () => undefined;
   cancelPendingWrites = async () => undefined;

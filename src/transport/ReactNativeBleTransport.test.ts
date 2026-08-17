@@ -211,6 +211,63 @@ describe('ReactNativeBleTransport', () => {
     stop();
   });
 
+  it('hands a matching discovery connection directly to the authenticated session', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const configured = device({ isConnected: jest.fn(async () => true), mtu: 517 });
+    const connected = device({ isConnected: jest.fn(async () => true), requestMTU: jest.fn(async () => configured) });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    const resolved = await resolving;
+
+    expect(resolved).toMatchObject({ desktopId: 'pc-1', peripheralId: 'ble-1' });
+    expect(advertised.connect).toHaveBeenCalledTimes(1);
+    expect(connected.cancelConnection).not.toHaveBeenCalled();
+    expect(connected.requestMTU).toHaveBeenCalledWith(517);
+    expect(native.connectToDevice).not.toHaveBeenCalled();
+    expect(native.stopDeviceScan).toHaveBeenCalled();
+    expect(transport.maxWriteValueBytes()).toBe(514);
+  });
+
+  it('times out a saved-PC handoff, cancels probes, and ignores late advertisements', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const advertised = device({ isConnected: jest.fn(async () => false) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios', 1);
+
+    const resolving = transport.resolveAndConnect('missing-pc');
+    await waitFor(() => typeof scanCallback === 'function');
+    await expect(resolving).rejects.toThrow('timed out');
+    scanCallback(null, advertised);
+    await Promise.resolve();
+
+    expect(native.stopDeviceScan).toHaveBeenCalled();
+    expect(advertised.connect).not.toHaveBeenCalled();
+  });
+
+  it('disconnects a retained saved-PC probe when session setup times out', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const connected = device({
+      isConnected: jest.fn(async () => true),
+      requestMTU: jest.fn(() => new Promise<Device>(() => undefined)),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android', 10);
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    await expect(resolving).rejects.toThrow('timed out');
+
+    expect(connected.cancelConnection).toHaveBeenCalled();
+    expect(() => transport.maxWriteValueBytes()).toThrow('No PC is connected');
+  });
+
   it('cleans up a scan probe that resolves after its connection timeout', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let resolveConnect!: (value: Device) => void;
