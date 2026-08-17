@@ -179,15 +179,17 @@ describe('ReactNativeBleTransport', () => {
     const rotated = device({ id: 'private-2', name: 'A9_MAX', isConnected: jest.fn(async () => false) });
     const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
     const transport = new ReactNativeBleTransport(native, 'android');
-    const stop = transport.scan(jest.fn(), jest.fn());
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
 
     scanCallback(null, first);
     await waitFor(() => (first.connect as jest.Mock).mock.calls.length === 1);
+    releaseConnect(connected);
+    await waitFor(() => found.mock.calls.length === 1);
     scanCallback(null, rotated);
     expect(rotated.isConnected).not.toHaveBeenCalled();
 
     stop();
-    releaseConnect(connected);
     await waitFor(() => (connected.cancelConnection as jest.Mock).mock.calls.length === 1);
   });
 
