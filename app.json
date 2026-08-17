@@ -25,7 +25,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/switchify-remote-icon.png"
     },
     "plugins": [
       "expo-router",
@@ -39,7 +39,16 @@
             "backgroundColor": "#050505"
           }
         }
-      ]
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "neverForLocation": true,
+          "bluetoothAlwaysPermission": "Allow Switchify Remote to find and connect to Switchify PC."
+        }
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
