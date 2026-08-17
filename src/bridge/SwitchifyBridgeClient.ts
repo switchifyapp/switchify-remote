@@ -49,6 +49,7 @@ export class SwitchifyBridgeClient implements SwitchifyBridge {
   }
 
   #accept(event: BridgeEvent): void {
+    let accepted = event;
     if (event.type === 'snapshot') {
       const version = Number.isInteger(event.version) ? event.version : 0;
       this.#snapshot = version === supportedVersion ? {
@@ -56,8 +57,9 @@ export class SwitchifyBridgeClient implements SwitchifyBridge {
         captureAvailable: event.captureAvailable === true,
         externalSwitches: Array.isArray(event.externalSwitches) ? event.externalSwitches.filter((item) => Number.isInteger(item.keyCode) && typeof item.name === 'string') : [],
       } : unavailable;
+      accepted = { type: 'snapshot', ...this.#snapshot };
     }
-    this.#listeners.forEach((listener) => listener(event));
+    this.#listeners.forEach((listener) => listener(accepted));
   }
 }
 

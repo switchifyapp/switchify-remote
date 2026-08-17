@@ -47,5 +47,9 @@ describe('SwitchifyBridgeClient', () => {
     await bridge.connect();
     host.emit({ type: 'snapshot', version: 2, captureAvailable: true, externalSwitches: [{ keyCode: 42, name: 'Primary' }] });
     expect(bridge.snapshot()).toEqual({ version: 0, captureAvailable: false, externalSwitches: [] });
+    const events: BridgeEvent[] = [];
+    bridge.subscribe((event) => events.push(event));
+    host.emit({ type: 'snapshot', version: 2, captureAvailable: true, externalSwitches: [{ keyCode: 42, name: 'Primary' }] });
+    expect(events).toEqual([{ type: 'snapshot', version: 0, captureAvailable: false, externalSwitches: [] }]);
   });
 });
