@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { colors } from '@/constants/colors';
+import { BridgeProvider } from '@/bridge/BridgeContext';
 import { ConnectionProvider } from '@/connection/ConnectionContext';
 
 const theme = {
@@ -13,12 +14,14 @@ const theme = {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <ConnectionProvider>
-        <ThemeProvider value={theme}>
-          <Stack screenOptions={{ headerShown: false }} />
-          <StatusBar style="light" />
-        </ThemeProvider>
-      </ConnectionProvider>
+      <BridgeProvider>
+        <ConnectionProvider>
+          <ThemeProvider value={theme}>
+            <Stack screenOptions={{ headerShown: false }} />
+            <StatusBar style="light" />
+          </ThemeProvider>
+        </ConnectionProvider>
+      </BridgeProvider>
     </SafeAreaProvider>
   );
 }

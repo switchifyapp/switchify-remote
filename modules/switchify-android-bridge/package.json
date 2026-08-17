@@ -1,0 +1,9 @@
+{
+  "name": "switchify-android-bridge",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

@@ -81,7 +81,51 @@ export class ConnectionManager {
     this.#set({ kind: 'connecting', desktop });
     this.diagnostics.add('connecting');
     try {
-      await this.transport.connect(desktop.peripheralId);
+      const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
+      if (!this.#current(operation)) return;
+      await this.#connectDesktop(resolved, operation, true, true);
+    } catch {
+      if (this.#current(operation)) await this.#fail('Could not connect to this PC.', operation);
+    }
+  }
+
+  async connectSaved(pc: SavedPc): Promise<void> {
+    const operation = ++this.#operation;
+    this.#scanStop?.(); this.#scanStop = null;
+    await this.#teardownConnection();
+    if (!this.#current(operation)) return;
+
+    const saved = await this.#orderedSaved();
+    if (!this.#current(operation)) return;
+    if (!await this.requestPermission()) {
+      if (this.#current(operation)) this.#set({ kind: 'permissionDenied', saved });
+      return;
+    }
+    if (!this.#current(operation)) return;
+    const availability = await this.transport.availability();
+    if (!this.#current(operation)) return;
+    if (availability !== 'ready') {
+      this.#set(this.#availabilityState(availability, saved));
+      return;
+    }
+
+    const savedDesktop: DiscoveredDesktop = { ...pc, rssi: null };
+    this.#set({ kind: 'connecting', desktop: savedDesktop });
+    this.diagnostics.add('connecting');
+    try {
+      const resolved = await this.transport.resolveAndConnect(pc.desktopId);
+      if (!this.#current(operation)) return;
+      await this.#connectDesktop(resolved, operation, true, true);
+    } catch {
+      if (this.#current(operation)) await this.#fail('Could not find this PC nearby.', operation);
+    }
+  }
+
+  async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false, transportConnected = false): Promise<void> {
+    this.#set({ kind: 'connecting', desktop });
+    if (!announced) this.diagnostics.add('connecting');
+    try {
+      if (!transportConnected) await this.transport.connect(desktop.peripheralId);
       if (!this.#current(operation)) return;
       this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
       const client = new ProtocolClient(this.transport, this.id);
@@ -97,10 +141,6 @@ export class ConnectionManager {
     } catch {
       if (this.#current(operation)) await this.#fail('Could not connect to this PC.', operation);
     }
-  }
-
-  async connectSaved(pc: SavedPc): Promise<void> {
-    await this.connect({ desktopId: pc.desktopId, displayName: pc.displayName, platform: pc.platform, peripheralId: pc.peripheralId, rssi: null });
   }
 
   async unpair(desktopId: string): Promise<boolean> {
@@ -207,16 +247,16 @@ export class ConnectionManager {
       await this.reconnectDelay(attempt * 500);
       if (!this.#current(operation)) return;
       try {
-        await this.transport.connect(desktop.peripheralId);
+        const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
         if (!this.#current(operation)) return;
-        this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
+        this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(resolved, operation));
         const client = new ProtocolClient(this.transport, this.id);
-        await client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+        await client.start(() => void this.#unexpectedDisconnect(resolved, operation));
         if (!this.#current(operation)) { await client.close(); return; }
         this.#client = client;
         this.#deviceId = await this.storage.getDeviceId();
         if (!this.#current(operation)) return;
-        await this.#authenticate(desktop, token, operation);
+        await this.#authenticate(resolved, token, operation);
         if (this.#current(operation) && this.#state.kind === 'connected') return;
       } catch {
         if (!this.#current(operation)) return;

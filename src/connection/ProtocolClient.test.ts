@@ -13,6 +13,7 @@ class FakeTransport implements BleTransport {
   availability = async () => 'ready' as const;
   maxWriteValueBytes = () => 182;
   scan(): Unsubscribe { return () => undefined; }
+  resolveAndConnect = async () => { throw new Error('not used'); };
   connect = async () => undefined; disconnect = async () => undefined;
   cancelPendingWrites = async () => undefined;
   notificationsReady = async () => undefined;

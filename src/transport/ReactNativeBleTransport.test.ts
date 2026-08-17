@@ -1,5 +1,5 @@
 import { fromByteArray } from 'base64-js';
-import type { BleManager, Descriptor, Device } from 'react-native-ble-plx';
+import type { BleManager, Characteristic, Descriptor, Device } from 'react-native-ble-plx';
 import { ReactNativeBleTransport } from './ReactNativeBleTransport';
 
 const descriptor = (value: string): Descriptor => ({ value } as Descriptor);
@@ -171,6 +171,100 @@ describe('ReactNativeBleTransport', () => {
     expect(found).not.toHaveBeenCalled();
   });
 
+  it('deduplicates rotating addresses for the same named PC while a probe is in flight', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseConnect!: (value: Device) => void;
+    const connected = device();
+    const first = device({ id: 'private-1', name: 'A9_MAX', isConnected: jest.fn(async () => false), connect: jest.fn(() => new Promise<Device>((resolve) => { releaseConnect = resolve; })) });
+    const rotated = device({ id: 'private-2', name: 'A9_MAX', isConnected: jest.fn(async () => false) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => (first.connect as jest.Mock).mock.calls.length === 1);
+    scanCallback(null, rotated);
+    expect(rotated.isConnected).not.toHaveBeenCalled();
+
+    stop();
+    releaseConnect(connected);
+    await waitFor(() => (connected.cancelConnection as jest.Mock).mock.calls.length === 1);
+    expect(found).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates a rotated Windows address after the first probe completes', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const firstConnected = device({
+      readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc-1","displayName":"A9_MAX","platform":"windows"}')) } as Characteristic)),
+    });
+    const first = device({ id: 'private-1', name: 'A9_MAX', isConnected: jest.fn(async () => false), connect: jest.fn(async () => firstConnected) });
+    const rotated = device({ id: 'private-2', name: 'A9_MAX', isConnected: jest.fn(async () => false) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
+    scanCallback(null, rotated);
+    await Promise.resolve();
+
+    expect(rotated.isConnected).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('discovers multiple Macs that share the Switchify PC Bluetooth name', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const makeMac = (id: string, desktopId: string, displayName: string) => {
+      const connected = device({
+        readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode(JSON.stringify({ protocolVersion: 1, desktopId, displayName, platform: 'macos' }))) } as Characteristic)),
+      });
+      return device({ id, name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
+    };
+    const first = makeMac('mac-1', 'pc-1', 'First Mac');
+    const second = makeMac('mac-2', 'pc-2', 'Second Mac');
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
+    scanCallback(null, second);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-2'));
+
+    expect(first.connect).toHaveBeenCalledTimes(1);
+    expect(second.connect).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('can resolve the second of two same-name PCs', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const firstConnected = device();
+    const first = device({ id: 'mac-1', name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => firstConnected) });
+    const secondConfigured = device({ id: 'mac-2', name: 'Switchify PC', mtu: 185 });
+    const secondConnected = device({
+      id: 'mac-2', name: 'Switchify PC',
+      readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc-2","displayName":"Second Mac","platform":"macos"}')) } as Characteristic)),
+      discoverAllServicesAndCharacteristics: jest.fn(async () => secondConfigured),
+    });
+    const second = device({ id: 'mac-2', name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => secondConnected) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+
+    const resolving = transport.resolveAndConnect('pc-2');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, first);
+    await waitFor(() => (firstConnected.cancelConnection as jest.Mock).mock.calls.length === 1);
+    scanCallback(null, second);
+    await expect(resolving).resolves.toMatchObject({ desktopId: 'pc-2', peripheralId: 'mac-2' });
+
+    expect(first.connect).toHaveBeenCalledTimes(1);
+    expect(second.connect).toHaveBeenCalledTimes(1);
+    expect(secondConnected.cancelConnection).not.toHaveBeenCalled();
+  });
+
   it('waits for cancelled discovery probe cleanup before a real connection', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let releaseDiscovery!: (value: Device) => void;
@@ -209,6 +303,124 @@ describe('ReactNativeBleTransport', () => {
     await waitFor(() => found.mock.calls.length === 1);
     expect(found).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Oliver Laptop', platform: 'windows' }));
     stop();
+  });
+
+  it('hands a matching discovery connection directly to the authenticated session', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const configured = device({ isConnected: jest.fn(async () => true), mtu: 517 });
+    const connected = device({ isConnected: jest.fn(async () => true), requestMTU: jest.fn(async () => configured) });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    const resolved = await resolving;
+
+    expect(resolved).toMatchObject({ desktopId: 'pc-1', peripheralId: 'ble-1' });
+    expect(advertised.connect).toHaveBeenCalledTimes(1);
+    expect(connected.cancelConnection).not.toHaveBeenCalled();
+    expect(connected.requestMTU).toHaveBeenCalledWith(517);
+    expect(native.connectToDevice).not.toHaveBeenCalled();
+    expect(native.stopDeviceScan).toHaveBeenCalled();
+    expect(transport.maxWriteValueBytes()).toBe(514);
+  });
+
+  it('times out a saved-PC handoff, cancels probes, and ignores late advertisements', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const advertised = device({ isConnected: jest.fn(async () => false) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios', 1);
+
+    const resolving = transport.resolveAndConnect('missing-pc');
+    await waitFor(() => typeof scanCallback === 'function');
+    await expect(resolving).rejects.toThrow('timed out');
+    scanCallback(null, advertised);
+    await Promise.resolve();
+
+    expect(native.stopDeviceScan).toHaveBeenCalled();
+    expect(advertised.connect).not.toHaveBeenCalled();
+  });
+
+  it('disconnects a retained saved-PC probe when session setup times out', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const connected = device({
+      isConnected: jest.fn(async () => true),
+      requestMTU: jest.fn(() => new Promise<Device>(() => undefined)),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android', 10);
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    await expect(resolving).rejects.toThrow('timed out');
+
+    expect(connected.cancelConnection).toHaveBeenCalled();
+    expect(() => transport.maxWriteValueBytes()).toThrow('No PC is connected');
+  });
+
+  it('waits for retained-probe cancellation before starting a replacement connection', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseMtu!: (value: Device) => void;
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const retained = device({
+      isConnected: jest.fn(async () => true),
+      requestMTU: jest.fn(() => new Promise<Device>((resolve) => { releaseMtu = resolve; })),
+      cancelConnection: jest.fn(async () => { await cleanupGate; return null as unknown as Device; }),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => retained) });
+    const replacement = device();
+    const connectToDevice = jest.fn(async () => replacement);
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }), connectToDevice });
+    const transport = new ReactNativeBleTransport(native, 'android');
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    const resolvingRejected = expect(resolving).rejects.toThrow('cancelled');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    await waitFor(() => (retained.requestMTU as jest.Mock).mock.calls.length === 1);
+    const connecting = transport.connect('replacement');
+    await waitFor(() => (retained.cancelConnection as jest.Mock).mock.calls.length === 1);
+    expect(connectToDevice).not.toHaveBeenCalled();
+
+    releaseCleanup();
+    releaseMtu(retained);
+    await resolvingRejected;
+    await connecting;
+    expect(connectToDevice).toHaveBeenCalledWith('replacement');
+  });
+
+  it('waits for failed retained-probe setup cleanup before retrying', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const retained = device({
+      isConnected: jest.fn(async () => true),
+      requestMTU: jest.fn(async () => { throw new Error('MTU failed'); }),
+      cancelConnection: jest.fn(async () => { await cleanupGate; return null as unknown as Device; }),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => retained) });
+    const replacement = device();
+    const connectToDevice = jest.fn(async () => replacement);
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }), connectToDevice });
+    const transport = new ReactNativeBleTransport(native, 'android');
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    const resolvingRejected = expect(resolving).rejects.toThrow('MTU failed');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    await waitFor(() => (retained.cancelConnection as jest.Mock).mock.calls.length === 1);
+    const connecting = transport.connect('replacement');
+    expect(connectToDevice).not.toHaveBeenCalled();
+
+    releaseCleanup();
+    await resolvingRejected;
+    await connecting;
+    expect(connectToDevice).toHaveBeenCalledWith('replacement');
   });
 
   it('cleans up a scan probe that resolves after its connection timeout', async () => {

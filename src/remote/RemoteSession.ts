@@ -1,4 +1,6 @@
 import type { ConnectionManager } from '@/connection/ConnectionManager';
+import { switchifyBridge } from '@/bridge/SwitchifyBridgeClient';
+import type { SwitchifyBridge } from '@/bridge/types';
 import { commandPayloads } from '@/domain/protocol/commands';
 import type { JsonObject, PointerProfile } from '@/domain/protocol/types';
 
@@ -10,28 +12,84 @@ export class RemoteSession {
   #streamId: string | null = null;
   #sequence = 0;
   #streamQueue: Promise<void> = Promise.resolve();
+  #repeatQueue: Promise<void> = Promise.resolve();
+  #repeatGeneration = 0;
+  #repeatArmAttempt = 0;
+  #repeatBridgeArmed = false;
+  #bridgeUnsubscribe: () => void;
 
-  constructor(private readonly manager: ConnectionManager, readonly profile: PointerProfile | null, private readonly id = () => `${Date.now()}-${Math.random()}`, readonly connectionIdentity: string | null = null) {}
+  constructor(
+    private readonly manager: ConnectionManager,
+    readonly profile: PointerProfile | null,
+    private readonly id = () => `${Date.now()}-${Math.random()}`,
+    readonly connectionIdentity: string | null = null,
+    private readonly bridge: SwitchifyBridge = switchifyBridge,
+    private readonly bridgeTimeoutMs = 1_000,
+  ) {
+    this.#bridgeUnsubscribe = bridge.subscribe((event) => {
+      if (event.type === 'repeatStop' && event.generation === this.#repeatGeneration && this.#state.repeat) void this.stopRepeat('ack');
+      if (event.type === 'snapshot') {
+        const available = event.captureAvailable && event.externalSwitches.length > 0;
+        if (!available) {
+          const generation = this.#repeatGeneration;
+          this.#repeatArmAttempt += 1;
+          this.#repeatBridgeArmed = false;
+          this.#repeatGeneration = 0;
+          if (generation > 0) void this.bridge.setRepeatActive(generation, false);
+        } else if (this.#state.repeat && !this.#repeatBridgeArmed && this.#repeatGeneration === 0) void this.#armRepeatBridge();
+      }
+    });
+  }
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
   snapshot = () => this.#state;
 
-  async mouse(type: string, payload: JsonObject = {}, repeatable = false): Promise<boolean> {
+  mouse(type: string, payload: JsonObject = {}, repeatable = false): Promise<boolean> {
+    return this.#enqueueRepeat(() => this.#mouse(type, payload, repeatable));
+  }
+
+  async #mouse(type: string, payload: JsonObject, repeatable: boolean): Promise<boolean> {
     if (!this.supports(type)) return false;
-    if (this.#state.repeat) { await this.stopRepeat(); return true; }
+    if (this.#state.repeat) { await this.#stopRepeat(); return true; }
     if (repeatable && this.supports('mouse.repeat.start') && this.supports('mouse.repeat.stop') && this.profile?.capabilities.mouseRepeat.supported && this.profile.capabilities.mouseRepeat.enabled) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
-      if (ok) this.#set({ repeat: type });
+      if (ok) {
+        this.#set({ repeat: type });
+        await this.#armRepeatBridge();
+      }
       return ok;
     }
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
   }
 
-  async stopRepeat(): Promise<void> {
+  stopRepeat(responseMode: 'ack' | 'none' = 'none'): Promise<void> {
+    return this.#enqueueRepeat(() => this.#stopRepeat(responseMode));
+  }
+
+  async #stopRepeat(responseMode: 'ack' | 'none' = 'none'): Promise<void> {
     if (!this.#state.repeat) return;
-    const [type, payload] = commandPayloads.repeatStop();
-    await this.manager.send(type, payload, 'none');
+    const generation = this.#repeatGeneration;
+    this.#repeatArmAttempt += 1;
+    this.#repeatGeneration = 0;
+    this.#repeatBridgeArmed = false;
     this.#set({ repeat: null });
+    if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
+    const [type, payload] = commandPayloads.repeatStop();
+    await this.manager.send(type, payload, responseMode);
+  }
+
+  async #armRepeatBridge(): Promise<void> {
+    if (!this.#state.repeat || this.#repeatBridgeArmed || this.#repeatGeneration !== 0) return;
+    const attempt = ++this.#repeatArmAttempt;
+    const generation = this.bridge.nextGeneration();
+    this.#repeatGeneration = generation;
+    const accepted = await this.#setRepeatActiveBounded(generation, true);
+    if (attempt !== this.#repeatArmAttempt || !this.#state.repeat) {
+      if (accepted) await this.#setRepeatActiveBounded(generation, false);
+      return;
+    }
+    this.#repeatBridgeArmed = accepted;
+    if (!accepted && this.#repeatGeneration === generation) this.#repeatGeneration = 0;
   }
 
   async toggleDrag(): Promise<boolean> {
@@ -128,6 +186,29 @@ export class RemoteSession {
     return result;
   }
 
+  #enqueueRepeat<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#repeatQueue.catch(() => undefined).then(operation);
+    this.#repeatQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  async #setRepeatActiveBounded(generation: number, active: boolean): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = this.bridge.setRepeatActive(generation, active).catch(() => false);
+    const result = await Promise.race<boolean | null>([
+      update,
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), this.bridgeTimeoutMs); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (result !== null) return result;
+    if (active) {
+      void update.then((accepted) => {
+        if (accepted) void this.#setRepeatActiveBounded(generation, false);
+      });
+    }
+    return false;
+  }
+
   async cleanup(): Promise<void> {
     await this.stopRepeat();
     if (this.#state.dragging) { const [type, payload] = commandPayloads.dragEnd(); await this.manager.send(type, payload, 'none'); }
@@ -135,6 +216,10 @@ export class RemoteSession {
     await this.closeStream();
     this.#state = { repeat: null, dragging: false, modifiers: [], streamOpen: false };
     this.#emit();
+  }
+
+  dispose(): void {
+    this.#bridgeUnsubscribe();
   }
 
   #supportsNoAck(type: string): boolean { return this.profile?.capabilities.noAckCommands.includes(type) === true || (type === 'mouse.move' && this.profile?.capabilities.noAckMouseMove === true); }
