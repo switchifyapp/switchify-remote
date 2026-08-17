@@ -1,5 +1,5 @@
 import { fromByteArray } from 'base64-js';
-import type { BleManager, Descriptor, Device } from 'react-native-ble-plx';
+import type { BleManager, Characteristic, Descriptor, Device } from 'react-native-ble-plx';
 import { ReactNativeBleTransport } from './ReactNativeBleTransport';
 
 const descriptor = (value: string): Descriptor => ({ value } as Descriptor);
@@ -171,7 +171,7 @@ describe('ReactNativeBleTransport', () => {
     expect(found).not.toHaveBeenCalled();
   });
 
-  it('deduplicates rotating addresses for the same named PC while probing', async () => {
+  it('deduplicates rotating addresses for the same named PC while a probe is in flight', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let releaseConnect!: (value: Device) => void;
     const connected = device();
@@ -184,13 +184,39 @@ describe('ReactNativeBleTransport', () => {
 
     scanCallback(null, first);
     await waitFor(() => (first.connect as jest.Mock).mock.calls.length === 1);
-    releaseConnect(connected);
-    await waitFor(() => found.mock.calls.length === 1);
     scanCallback(null, rotated);
     expect(rotated.isConnected).not.toHaveBeenCalled();
 
     stop();
+    releaseConnect(connected);
     await waitFor(() => (connected.cancelConnection as jest.Mock).mock.calls.length === 1);
+    expect(found).not.toHaveBeenCalled();
+  });
+
+  it('can resolve the second of two same-name PCs', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const firstConnected = device();
+    const first = device({ id: 'mac-1', name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => firstConnected) });
+    const secondConfigured = device({ id: 'mac-2', name: 'Switchify PC', mtu: 185 });
+    const secondConnected = device({
+      id: 'mac-2', name: 'Switchify PC',
+      readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc-2","displayName":"Second Mac","platform":"macos"}')) } as Characteristic)),
+      discoverAllServicesAndCharacteristics: jest.fn(async () => secondConfigured),
+    });
+    const second = device({ id: 'mac-2', name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => secondConnected) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+
+    const resolving = transport.resolveAndConnect('pc-2');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, first);
+    await waitFor(() => (firstConnected.cancelConnection as jest.Mock).mock.calls.length === 1);
+    scanCallback(null, second);
+    await expect(resolving).resolves.toMatchObject({ desktopId: 'pc-2', peripheralId: 'mac-2' });
+
+    expect(first.connect).toHaveBeenCalledTimes(1);
+    expect(second.connect).toHaveBeenCalledTimes(1);
+    expect(secondConnected.cancelConnection).not.toHaveBeenCalled();
   });
 
   it('waits for cancelled discovery probe cleanup before a real connection', async () => {

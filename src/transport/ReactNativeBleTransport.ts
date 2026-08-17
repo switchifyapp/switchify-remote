@@ -44,7 +44,10 @@ export class ReactNativeBleTransport implements BleTransport {
       const task = this.#readStatus(device).then((desktop) => {
         if (active && operation === this.#operation && desktop) onDesktop(desktop);
       }).catch(() => undefined).finally(() => {
-        if (operation === this.#operation) this.#scanDevices.delete(device.id);
+        if (operation === this.#operation) {
+          this.#scanDevices.delete(device.id);
+          this.#scanKeys.delete(this.#scanKey(device));
+        }
       });
       this.#scanTasks.add(task);
       void task.finally(() => this.#scanTasks.delete(task));
@@ -142,7 +145,10 @@ export class ReactNativeBleTransport implements BleTransport {
             void cancel(probeError instanceof Error ? probeError : new Error('Saved PC discovery failed.'));
           }
         }).finally(() => {
-          if (operation === this.#operation) this.#scanDevices.delete(device.id);
+          if (operation === this.#operation) {
+            this.#scanDevices.delete(device.id);
+            this.#scanKeys.delete(this.#scanKey(device));
+          }
         });
         this.#scanTasks.add(task);
         void task.finally(() => this.#scanTasks.delete(task));
