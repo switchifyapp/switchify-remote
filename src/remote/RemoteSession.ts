@@ -75,7 +75,7 @@ export class RemoteSession {
     this.#set({ repeat: null });
     if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
     const [type, payload] = commandPayloads.repeatStop();
-    await this.manager.send(type, payload, 'none');
+    await this.manager.send(type, payload, 'ack');
   }
 
   async #armRepeatBridge(): Promise<void> {

@@ -47,8 +47,8 @@ describe('RemoteSession', () => {
   });
 
   it('publishes acknowledged repeat state and stops for the matching Switchify request', async () => {
-    const calls: string[] = [];
-    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const calls: [string, string | undefined][] = [];
+    const manager = { send: async (type: string, _payload: unknown, responseMode?: string) => { calls.push([type, responseMode]); return true; } } as unknown as ConnectionManager;
     const host = fakeBridge();
     const session = new RemoteSession(manager, profile(), undefined, null, host.bridge);
     await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
@@ -60,7 +60,10 @@ describe('RemoteSession', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.snapshot().repeat).toBeNull();
     expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(101, false);
-    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+    expect(calls).toEqual([
+      ['mouse.repeat.start', undefined],
+      ['mouse.repeat.stop', 'ack'],
+    ]);
   });
 
   it('re-arms an active repeat when the Switchify bridge recovers', async () => {
