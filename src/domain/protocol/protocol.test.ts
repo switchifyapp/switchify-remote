@@ -1,5 +1,5 @@
 import { authProof, stableStringify } from './canonical';
-import { authenticatedCommand } from './commands';
+import { authenticatedCommand, commandPayloads } from './commands';
 import { createFrames, createFramesForWriteLimit, decodeFrame, encodeFrame, encodedFrameBytes, FrameReassembler, validateFrame } from './framing';
 import { parseResponse, parseStatus } from './responses';
 
@@ -13,6 +13,17 @@ describe('Switchify PC protocol v1', () => {
     const raw = authenticatedCommand({ id: 'profile-1', deviceId: 'device-1', token: 'shared-token', timestamp: 1000, type: 'pointer.profile' });
     expect(JSON.parse(raw)).toMatchObject({ version: 1, id: 'profile-1', deviceId: 'device-1', type: 'pointer.profile', auth: 'lgHsjgfWbqbrE-ugPTIDzjxm5MjEdNRpbHQV9B4ZNPM' });
     expect(raw).not.toContain('shared-token');
+  });
+
+  it('matches the desktop nested mouse-repeat payload shape', () => {
+    expect(commandPayloads.repeatStart({ type: 'mouse.move', dx: 64, dy: -64 })).toEqual([
+      'mouse.repeat.start',
+      { command: { type: 'mouse.move', payload: { dx: 64, dy: -64 } } },
+    ]);
+    expect(commandPayloads.repeatStart({ type: 'mouse.scroll', dx: 0, dy: 16 })).toEqual([
+      'mouse.repeat.start',
+      { command: { type: 'mouse.scroll', payload: { dx: 0, dy: 16 } } },
+    ]);
   });
 
   it('round trips single and multi-frame UTF-8 messages', () => {

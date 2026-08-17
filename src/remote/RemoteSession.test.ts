@@ -18,13 +18,16 @@ describe('RemoteSession', () => {
     expect(session.snapshot()).toEqual({ repeat: null, dragging: false, modifiers: [], streamOpen: false });
   });
 
-  it('uses PC-side repeat and the next control stops it', async () => {
-    const calls: string[] = [];
-    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+  it('uses the desktop-compatible PC-side repeat payload and the next control stops it', async () => {
+    const calls: [string, unknown][] = [];
+    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
     const session = new RemoteSession(manager, profile());
     await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
     await session.mouse('mouse.click');
-    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+    expect(calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 10, dy: 0 } } }],
+      ['mouse.repeat.stop', {}],
+    ]);
   });
 
   it('serializes stream open and monotonically advances sequence numbers', async () => {
