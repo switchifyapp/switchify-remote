@@ -149,6 +149,23 @@ describe('RemoteSession', () => {
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
   });
 
+  it('uses no-ack repeat stop during lifecycle cleanup', async () => {
+    const calls: [string, string | undefined][] = [];
+    const manager = { send: (type: string, _payload: unknown, responseMode?: string) => {
+      calls.push([type, responseMode]);
+      return responseMode === 'ack' ? new Promise<boolean>(() => undefined) : Promise.resolve(true);
+    } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    await session.cleanup();
+
+    expect(calls).toEqual([
+      ['mouse.repeat.start', undefined],
+      ['mouse.repeat.stop', 'none'],
+    ]);
+  });
+
   it('serializes stream open and monotonically advances sequence numbers', async () => {
     const calls: { type: string; payload: unknown }[] = [];
     let releaseOpen!: () => void;
