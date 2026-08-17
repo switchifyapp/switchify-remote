@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 
 import { authenticatedCommand, commandPayloads, pairingRequest } from '@/domain/protocol/commands';
-import type { JsonObject, PointerProfile } from '@/domain/protocol/types';
+import type { JsonObject, PointerProfile, ProtocolResponse } from '@/domain/protocol/types';
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
@@ -178,22 +178,28 @@ export class ConnectionManager {
   }
 
   async send(type: string, payload: JsonObject = {}, responseMode: 'ack' | 'none' = 'ack'): Promise<boolean> {
-    if (!this.#client || !this.#token || !this.#deviceId) return false;
+    const response = await this.request(type, payload, responseMode);
+    return responseMode === 'none' ? response !== null : response?.kind === 'ack';
+  }
+
+  async request(type: string, payload: JsonObject = {}, responseMode: 'ack' | 'none' = 'ack'): Promise<ProtocolResponse | null> {
+    if (!this.#client || !this.#token || !this.#deviceId) return null;
     const id = this.id();
     const message = authenticatedCommand({ id, deviceId: this.#deviceId, token: this.#token, timestamp: this.now(), type, payload, responseMode });
     try {
-      if (responseMode === 'none') { await this.#client.send(message); return true; }
+      if (responseMode === 'none') { await this.#client.send(message); return { kind: 'ack', id }; }
       const response = await this.#client.request(message, id, 5_000);
       if (response.kind === 'ack') {
         if (type === 'pointer.speed.set' && typeof payload.scalePercent === 'number' && this.#state.kind === 'connected' && this.#state.profile) {
           this.#set({ ...this.#state, profile: { ...this.#state.profile, capabilities: { ...this.#state.profile.capabilities, pointerSpeed: { ...this.#state.profile.capabilities.pointerSpeed, scalePercent: payload.scalePercent } } } });
         }
-        return true;
+        return response;
       }
+      if (response.kind === 'switchProfileCatalog') return response;
       if (response.kind === 'error' && response.code === 'invalid_auth') await this.#fail('Saved access is no longer valid.', this.#operation, true);
     } catch { /* sanitized below */ }
     this.diagnostics.add('command_failed', 'warning');
-    return false;
+    return null;
   }
 
   async #pair(desktop: DiscoveredDesktop, operation: number): Promise<void> {
