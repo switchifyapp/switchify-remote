@@ -171,6 +171,26 @@ describe('ReactNativeBleTransport', () => {
     expect(found).not.toHaveBeenCalled();
   });
 
+  it('deduplicates rotating addresses for the same named PC while probing', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseConnect!: (value: Device) => void;
+    const connected = device();
+    const first = device({ id: 'private-1', name: 'A9_MAX', isConnected: jest.fn(async () => false), connect: jest.fn(() => new Promise<Device>((resolve) => { releaseConnect = resolve; })) });
+    const rotated = device({ id: 'private-2', name: 'A9_MAX', isConnected: jest.fn(async () => false) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const stop = transport.scan(jest.fn(), jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => (first.connect as jest.Mock).mock.calls.length === 1);
+    scanCallback(null, rotated);
+    expect(rotated.isConnected).not.toHaveBeenCalled();
+
+    stop();
+    releaseConnect(connected);
+    await waitFor(() => (connected.cancelConnection as jest.Mock).mock.calls.length === 1);
+  });
+
   it('waits for cancelled discovery probe cleanup before a real connection', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let releaseDiscovery!: (value: Device) => void;

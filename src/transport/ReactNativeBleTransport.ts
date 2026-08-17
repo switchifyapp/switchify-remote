@@ -12,6 +12,7 @@ export class ReactNativeBleTransport implements BleTransport {
   #device: Device | null = null;
   #operation = 0;
   #scanDevices = new Map<string, Device>();
+  #scanKeys = new Set<string>();
   #scanTasks = new Set<Promise<void>>();
   #connectQueue: Promise<void> = Promise.resolve();
   #nativeCancels = new Set<(error: Error) => void>();
@@ -37,12 +38,16 @@ export class ReactNativeBleTransport implements BleTransport {
     this.#manager.startDeviceScan([BLE_UUIDS.service], null, (error, device) => {
       if (!active || operation !== this.#operation) return;
       if (error) { onError(error); return; }
-      if (!device || this.#scanDevices.has(device.id) || this.#scanDevices.size >= 4) return;
+      if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device)) || this.#scanDevices.size >= 4) return;
       this.#scanDevices.set(device.id, device);
+      this.#scanKeys.add(this.#scanKey(device));
       const task = this.#readStatus(device).then((desktop) => {
         if (active && operation === this.#operation && desktop) onDesktop(desktop);
       }).catch(() => undefined).finally(() => {
-        if (operation === this.#operation) this.#scanDevices.delete(device.id);
+        if (operation === this.#operation) {
+          this.#scanDevices.delete(device.id);
+          this.#scanKeys.delete(this.#scanKey(device));
+        }
       });
       this.#scanTasks.add(task);
       void task.finally(() => this.#scanTasks.delete(task));
@@ -55,6 +60,7 @@ export class ReactNativeBleTransport implements BleTransport {
       this.#cancelNativeOperations();
       const probes = [...this.#scanDevices.values()];
       this.#scanDevices.clear();
+      this.#scanKeys.clear();
       probes.forEach((device) => { void device.cancelConnection().catch(() => undefined); });
     };
   }
@@ -79,6 +85,7 @@ export class ReactNativeBleTransport implements BleTransport {
         active = false;
         clearTimeout(timer);
         this.#manager.stopDeviceScan();
+        this.#scanKeys.clear();
         if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
         resolve(desktop);
       };
@@ -91,6 +98,7 @@ export class ReactNativeBleTransport implements BleTransport {
         const retained = this.#device;
         this.#device = null;
         this.#scanDevices.clear();
+        this.#scanKeys.clear();
         this.#cancelNativeOperations();
         const connections = retained && !probes.some((probe) => probe.id === retained.id) ? [...probes, retained] : probes;
         cancellation = Promise.allSettled(connections.map((connection) => this.#bounded(
@@ -107,8 +115,9 @@ export class ReactNativeBleTransport implements BleTransport {
       const onAdvertisement = (error: Error | null, device: Device | null) => {
         if (!active || operation !== this.#operation) return;
         if (error) { void cancel(new Error('Saved PC discovery failed.')); return; }
-        if (!device || this.#scanDevices.has(device.id) || this.#scanDevices.size >= 4) return;
+        if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device)) || this.#scanDevices.size >= 4) return;
         this.#scanDevices.set(device.id, device);
+        this.#scanKeys.add(this.#scanKey(device));
         const task = this.#readStatus(device, (desktop) => {
           if (desktop.desktopId !== desktopId || claimedDeviceId !== null) return false;
           claimedDeviceId = device.id;
@@ -136,7 +145,10 @@ export class ReactNativeBleTransport implements BleTransport {
             void cancel(probeError instanceof Error ? probeError : new Error('Saved PC discovery failed.'));
           }
         }).finally(() => {
-          if (operation === this.#operation) this.#scanDevices.delete(device.id);
+          if (operation === this.#operation) {
+            this.#scanDevices.delete(device.id);
+            this.#scanKeys.delete(this.#scanKey(device));
+          }
         });
         this.#scanTasks.add(task);
         void task.finally(() => this.#scanTasks.delete(task));
@@ -194,6 +206,7 @@ export class ReactNativeBleTransport implements BleTransport {
     this.#manager.stopDeviceScan();
     const probes = [...this.#scanDevices.values()];
     this.#scanDevices.clear();
+    this.#scanKeys.clear();
     probes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
     await Promise.allSettled([...this.#scanTasks]);
     const device = this.#device;
@@ -294,6 +307,10 @@ export class ReactNativeBleTransport implements BleTransport {
   #requireDevice(): Device {
     if (!this.#device) throw new Error('No PC is connected.');
     return this.#device;
+  }
+
+  #scanKey(device: Device): string {
+    return device.name ? `name:${device.name}` : `id:${device.id}`;
   }
 
   #bounded<T>(operation: Promise<T>, timeoutMs = this.nativeTimeoutMs): Promise<T> {

@@ -109,7 +109,8 @@ describe('connection lifecycle', () => {
   it('does not let a stale native connect overwrite explicit disconnect', async () => {
     let release!: () => void;
     const transport = new FakeTransport();
-    transport.connectGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolvedDesktop = { ...pc('pc-1'), rssi: null };
     const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
     const connecting = manager.connect({ ...pc('pc-1'), rssi: null });
     await Promise.resolve();
@@ -117,6 +118,20 @@ describe('connection lifecycle', () => {
     release();
     await Promise.all([connecting, disconnecting]);
     expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('re-resolves a discovered PC and authenticates on the retained GATT connection', async () => {
+    const transport = new FakeTransport();
+    const discovered = { ...pc('pc-1'), peripheralId: 'probed-address', rssi: -50 };
+    transport.resolvedDesktop = { ...discovered, peripheralId: 'fresh-address', rssi: -42 };
+    transport.failReadiness = true;
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+
+    await manager.connect(discovered);
+
+    expect(transport.resolveDesktopIds).toEqual(['pc-1']);
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not connect to this PC.' });
   });
 
   it('resolves a saved PC by stable desktop ID before connecting to its rotating BLE address', async () => {

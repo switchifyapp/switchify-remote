@@ -78,7 +78,15 @@ export class ConnectionManager {
     this.#scanStop?.(); this.#scanStop = null;
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
-    await this.#connectDesktop(desktop, operation);
+    this.#set({ kind: 'connecting', desktop });
+    this.diagnostics.add('connecting');
+    try {
+      const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
+      if (!this.#current(operation)) return;
+      await this.#connectDesktop(resolved, operation, true, true);
+    } catch {
+      if (this.#current(operation)) await this.#fail('Could not connect to this PC.', operation);
+    }
   }
 
   async connectSaved(pc: SavedPc): Promise<void> {
@@ -239,16 +247,16 @@ export class ConnectionManager {
       await this.reconnectDelay(attempt * 500);
       if (!this.#current(operation)) return;
       try {
-        await this.transport.connect(desktop.peripheralId);
+        const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
         if (!this.#current(operation)) return;
-        this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
+        this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(resolved, operation));
         const client = new ProtocolClient(this.transport, this.id);
-        await client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+        await client.start(() => void this.#unexpectedDisconnect(resolved, operation));
         if (!this.#current(operation)) { await client.close(); return; }
         this.#client = client;
         this.#deviceId = await this.storage.getDeviceId();
         if (!this.#current(operation)) return;
-        await this.#authenticate(desktop, token, operation);
+        await this.#authenticate(resolved, token, operation);
         if (this.#current(operation) && this.#state.kind === 'connected') return;
       } catch {
         if (!this.#current(operation)) return;
