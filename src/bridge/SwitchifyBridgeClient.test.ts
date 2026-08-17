@@ -41,6 +41,20 @@ describe('SwitchifyBridgeClient', () => {
     expect(bridge.snapshot().captureAvailable).toBe(false);
   });
 
+  it('ignores a snapshot that completes after disconnect', async () => {
+    const host = nativeBridge();
+    let resolveSnapshot!: (snapshot: { version: number; captureAvailable: boolean; externalSwitches: never[] }) => void;
+    (host.native.snapshotAsync as jest.Mock).mockImplementation(() => new Promise((resolve) => { resolveSnapshot = resolve; }));
+    const bridge = new SwitchifyBridgeClient(host.native);
+    const connecting = bridge.connect();
+    await Promise.resolve();
+    await Promise.resolve();
+    await bridge.disconnect();
+    resolveSnapshot({ version: 1, captureAvailable: true, externalSwitches: [] });
+    expect(await connecting).toBe(false);
+    expect(bridge.snapshot()).toEqual({ version: 0, captureAvailable: false, externalSwitches: [] });
+  });
+
   it('fails closed for an unsupported bridge snapshot version', async () => {
     const host = nativeBridge();
     const bridge = new SwitchifyBridgeClient(host.native);
