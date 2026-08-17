@@ -3,6 +3,7 @@ import { loadNativeSwitchifyAndroidBridge } from './NativeSwitchifyAndroidBridge
 import type { BridgeEvent, BridgeSnapshot, SwitchifyBridge } from './types';
 
 const unavailable: BridgeSnapshot = { version: 0, captureAvailable: false, externalSwitches: [] };
+const supportedVersion = 1;
 
 export class SwitchifyBridgeClient implements SwitchifyBridge {
   #snapshot = unavailable;
@@ -49,11 +50,12 @@ export class SwitchifyBridgeClient implements SwitchifyBridge {
 
   #accept(event: BridgeEvent): void {
     if (event.type === 'snapshot') {
-      this.#snapshot = {
-        version: Number.isInteger(event.version) ? event.version : 0,
+      const version = Number.isInteger(event.version) ? event.version : 0;
+      this.#snapshot = version === supportedVersion ? {
+        version,
         captureAvailable: event.captureAvailable === true,
         externalSwitches: Array.isArray(event.externalSwitches) ? event.externalSwitches.filter((item) => Number.isInteger(item.keyCode) && typeof item.name === 'string') : [],
-      };
+      } : unavailable;
     }
     this.#listeners.forEach((listener) => listener(event));
   }

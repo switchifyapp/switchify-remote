@@ -57,9 +57,10 @@ class SwitchifyAndroidBridgeModule : Module() {
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val service = ISwitchifyRemoteBridge.Stub.asInterface(binder)
-            bridge = service
             binding = false
             runCatching {
+                check(service.version == SUPPORTED_BRIDGE_VERSION)
+                bridge = service
                 service.registerCallback(callback)
                 sendEvent("onBridgeEvent", service.getSnapshot().toEventMap("snapshot"))
             }.onFailure { disconnectInternal() }
@@ -80,6 +81,10 @@ class SwitchifyAndroidBridgeModule : Module() {
 
         AsyncFunction("disconnectAsync") {
             disconnectInternal()
+        }
+
+        AsyncFunction("getVersionAsync") {
+            runCatching { bridge?.version ?: 0 }.getOrDefault(0)
         }
 
         AsyncFunction("snapshotAsync") {
@@ -157,5 +162,6 @@ class SwitchifyAndroidBridgeModule : Module() {
     private companion object {
         const val SWITCHIFY_PACKAGE = "com.enaboapps.switchify"
         const val BRIDGE_ACTION = "com.enaboapps.switchify.remote.BIND_BRIDGE"
+        const val SUPPORTED_BRIDGE_VERSION = 1
     }
 }

@@ -7,6 +7,7 @@ function nativeBridge() {
   const native = {
     addListener: jest.fn((_name: string, next: (event: BridgeEvent) => void) => { listener = next; return { remove: jest.fn() }; }),
     connectAsync: jest.fn(async () => true),
+    getVersionAsync: jest.fn(async () => 1),
     disconnectAsync: jest.fn(async () => undefined),
     snapshotAsync: jest.fn(),
     setRepeatActiveAsync: jest.fn(async () => true),
@@ -38,5 +39,13 @@ describe('SwitchifyBridgeClient', () => {
     host.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [] });
     await bridge.disconnect();
     expect(bridge.snapshot().captureAvailable).toBe(false);
+  });
+
+  it('fails closed for an unsupported bridge snapshot version', async () => {
+    const host = nativeBridge();
+    const bridge = new SwitchifyBridgeClient(host.native);
+    await bridge.connect();
+    host.emit({ type: 'snapshot', version: 2, captureAvailable: true, externalSwitches: [{ keyCode: 42, name: 'Primary' }] });
+    expect(bridge.snapshot()).toEqual({ version: 0, captureAvailable: false, externalSwitches: [] });
   });
 });

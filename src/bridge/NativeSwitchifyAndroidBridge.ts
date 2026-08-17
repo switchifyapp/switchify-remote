@@ -6,6 +6,7 @@ type Events = { onBridgeEvent: (event: BridgeEvent) => void };
 
 export interface NativeSwitchifyAndroidBridge extends NativeModule<Events> {
   connectAsync(): Promise<boolean>;
+  getVersionAsync(): Promise<number>;
   disconnectAsync(): Promise<void>;
   snapshotAsync(): Promise<BridgeSnapshot & { type?: string }>;
   setRepeatActiveAsync(generation: number, active: boolean): Promise<boolean>;
