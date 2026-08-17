@@ -115,9 +115,9 @@ export class ForwardingController {
 
   #accept(event: BridgeEvent): void {
     if (event.type === 'snapshot' && this.#state.phase === 'active') {
-      const configured = [...event.externalSwitches].sort((a, b) => a.keyCode - b.keyCode).slice(0, 8).map((item) => item.keyCode);
-      const mapped = this.#state.mappings.map((item) => item.keyCode);
-      if (!event.captureAvailable || configured.length === 0 || configured.some((keyCode, index) => mapped[index] !== keyCode) || configured.length !== mapped.length) {
+      const configured = [...event.externalSwitches].sort((a, b) => a.keyCode - b.keyCode).slice(0, 8);
+      const mapped = this.#state.mappings;
+      if (!event.captureAvailable || configured.length === 0 || configured.some((item, index) => mapped[index]?.keyCode !== item.keyCode || mapped[index]?.name !== item.name) || configured.length !== mapped.length) {
         void this.stop('Switchify switch configuration changed. Forwarding stopped safely.', true);
         return;
       }

@@ -77,7 +77,7 @@ describe('ForwardingController', () => {
     const safetyStop = jest.fn();
     const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '00000000-0000-4000-8000-000000000003', safetyStop);
     await controller.loadProfiles(); await controller.start();
-    bridge.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 99, name: 'Replacement' }] });
+    bridge.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 20, name: 'Renamed switch' }, ...bridge.value.externalSwitches.slice(1)] });
     for (let index = 0; index < 8; index += 1) await Promise.resolve();
     expect(controller.snapshot().phase).toBe('idle');
     expect(safetyStop).toHaveBeenCalledTimes(1);
