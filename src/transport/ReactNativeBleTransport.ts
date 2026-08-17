@@ -39,14 +39,22 @@ export class ReactNativeBleTransport implements BleTransport {
       if (!active || operation !== this.#operation) return;
       if (error) { onError(error); return; }
       if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device)) || this.#scanDevices.size >= 4) return;
+      const scanKey = this.#scanKey(device);
+      let retainCompletedKey = false;
       this.#scanDevices.set(device.id, device);
-      this.#scanKeys.add(this.#scanKey(device));
+      this.#scanKeys.add(scanKey);
       const task = this.#readStatus(device).then((desktop) => {
+        // Windows commonly rotates its private BLE address while retaining the
+        // computer name. Keep that name claimed for this scan after a
+        // successful probe so one PC cannot repeatedly open GATT connections.
+        // macOS uses the shared name "Switchify PC", so its key must be
+        // released after each probe to allow multiple Macs to be discovered.
+        retainCompletedKey = desktop?.platform === 'windows' && scanKey.startsWith('name:');
         if (active && operation === this.#operation && desktop) onDesktop(desktop);
       }).catch(() => undefined).finally(() => {
         if (operation === this.#operation) {
           this.#scanDevices.delete(device.id);
-          this.#scanKeys.delete(this.#scanKey(device));
+          if (!retainCompletedKey) this.#scanKeys.delete(scanKey);
         }
       });
       this.#scanTasks.add(task);

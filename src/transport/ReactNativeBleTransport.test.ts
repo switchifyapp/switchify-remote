@@ -193,6 +193,52 @@ describe('ReactNativeBleTransport', () => {
     expect(found).not.toHaveBeenCalled();
   });
 
+  it('deduplicates a rotated Windows address after the first probe completes', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const firstConnected = device({
+      readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc-1","displayName":"A9_MAX","platform":"windows"}')) } as Characteristic)),
+    });
+    const first = device({ id: 'private-1', name: 'A9_MAX', isConnected: jest.fn(async () => false), connect: jest.fn(async () => firstConnected) });
+    const rotated = device({ id: 'private-2', name: 'A9_MAX', isConnected: jest.fn(async () => false) });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
+    scanCallback(null, rotated);
+    await Promise.resolve();
+
+    expect(rotated.isConnected).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('discovers multiple Macs that share the Switchify PC Bluetooth name', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const makeMac = (id: string, desktopId: string, displayName: string) => {
+      const connected = device({
+        readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode(JSON.stringify({ protocolVersion: 1, desktopId, displayName, platform: 'macos' }))) } as Characteristic)),
+      });
+      return device({ id, name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
+    };
+    const first = makeMac('mac-1', 'pc-1', 'First Mac');
+    const second = makeMac('mac-2', 'pc-2', 'Second Mac');
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
+    scanCallback(null, second);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-2'));
+
+    expect(first.connect).toHaveBeenCalledTimes(1);
+    expect(second.connect).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
   it('can resolve the second of two same-name PCs', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     const firstConnected = device();
