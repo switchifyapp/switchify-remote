@@ -9,7 +9,7 @@ The app uses Expo SDK 57 with native Bluetooth support. It does **not** run in E
 - Node.js 24
 - npm
 - Android Studio for Android development builds
-- Xcode on macOS for iOS development builds
+- Xcode 26.6 or newer on macOS for iOS development builds
 
 ## Development
 
@@ -28,9 +28,13 @@ npm run validate
 
 Automated tests use fake transports and never require Bluetooth hardware or inject input. Pairing tokens and typed text must never appear in logs, diagnostics, fixtures, or bug reports.
 
+See [protocol compatibility](docs/protocol-compatibility.md), the [accessibility acceptance criteria](docs/accessibility.md), and the [physical-device smoke test](docs/physical-smoke-test.md) for preview validation.
+
 ## Preview scope
 
 The `v0.1.0-alpha.1` milestone is a development preview. It has no accounts, subscriptions, telemetry, Accessibility service, system-wide Switch Forwarding, or store submission.
+
+The generated native projects target Android 7 (API 24) and iOS 16.4 or newer.
 
 ## License
 

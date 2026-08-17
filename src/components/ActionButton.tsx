@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { colors } from '@/constants/colors';
 
-export function ActionButton({ label, onPress, disabled = false, secondary = false }: { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean }) {
+export function ActionButton({ label, onPress, disabled = false, busy = false, secondary = false }: { label: string; onPress: () => void; disabled?: boolean; busy?: boolean; secondary?: boolean }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, pressed && !disabled && styles.pressed, disabled && styles.disabled]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, pressed && !disabled && styles.pressed, disabled && styles.disabled]}>
       <Text style={styles.label}>{label}</Text>
     </Pressable>
   );

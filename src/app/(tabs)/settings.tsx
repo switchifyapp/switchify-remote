@@ -15,7 +15,7 @@ export default function SettingsScreen() {
   const preferences = usePreferences();
   const [saved, setSaved] = useState<SavedPc[]>([]);
   const [defaultId, setDefaultId] = useState<string | null>(null);
-  useEffect(() => { void Promise.all([manager.listSaved(), manager.defaultDesktopId()]).then(([pcs, id]) => { setSaved(pcs); setDefaultId(id); }); }, [manager]);
+  useEffect(() => { void Promise.all([manager.listSaved(), manager.defaultDesktopId()]).then(([pcs, id]) => { setSaved(pcs); setDefaultId(id); }); }, [manager, connection]);
   const setDefault = async (id: string | null) => { await manager.setDefaultDesktopId(id); setDefaultId(id); };
   return (
     <Screen title="Settings" description="Preferences are stored only on this device.">

@@ -32,7 +32,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#050505",
           "image": "./assets/images/switchify-remote-icon.png",
           "imageWidth": 160,
           "dark": {
@@ -48,7 +48,19 @@
           "bluetoothAlwaysPermission": "Allow Switchify Remote to find and connect to Switchify PC."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

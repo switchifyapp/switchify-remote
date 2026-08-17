@@ -26,49 +26,70 @@ export interface PairingStorage {
   setDefaultDesktopId(desktopId: string | null): Promise<void>;
 }
 
+type PublicStorage = Pick<typeof AsyncStorage, 'getItem' | 'setItem' | 'removeItem'>;
+type SecretStorage = Pick<typeof SecureStore, 'getItemAsync' | 'setItemAsync' | 'deleteItemAsync'>;
+
 export class PairingStore implements PairingStorage {
+  constructor(private readonly publicStorage: PublicStorage = AsyncStorage, private readonly secretStorage: SecretStorage = SecureStore) {}
+
   async getDeviceId(): Promise<string> {
-    const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+    const existing = await this.secretStorage.getItemAsync(DEVICE_ID_KEY);
     if (existing) return existing;
     const created = `remote-${Crypto.randomUUID()}`;
-    await SecureStore.setItemAsync(DEVICE_ID_KEY, created, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+    await this.secretStorage.setItemAsync(DEVICE_ID_KEY, created, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
     return created;
   }
 
   async list(): Promise<SavedPc[]> {
-    try {
-      const parsed = JSON.parse(await AsyncStorage.getItem(INDEX_KEY) ?? '[]') as unknown;
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isSavedPc).sort((a, b) => b.lastConnectedAt - a.lastConnectedAt);
-    } catch { return []; }
+    try { return await this.#readIndex(); }
+    catch { return []; }
   }
 
-  token(desktopId: string): Promise<string | null> { return SecureStore.getItemAsync(`${TOKEN_PREFIX}${desktopId}`); }
+  token(desktopId: string): Promise<string | null> { return this.secretStorage.getItemAsync(`${TOKEN_PREFIX}${desktopId}`); }
 
   async save(pc: SavedPc, token: string): Promise<void> {
-    const previousToken = await this.token(pc.desktopId);
-    await SecureStore.setItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`, token, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
-    const next = (await this.list()).filter((item) => item.desktopId !== pc.desktopId);
+    const next = (await this.#readIndex()).filter((item) => item.desktopId !== pc.desktopId);
     next.unshift(pc);
-    try { await AsyncStorage.setItem(INDEX_KEY, JSON.stringify(next)); }
+    const previousToken = await this.token(pc.desktopId);
+    await this.secretStorage.setItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`, token, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+    try { await this.publicStorage.setItem(INDEX_KEY, JSON.stringify(next)); }
     catch (error) {
-      if (previousToken) await SecureStore.setItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`, previousToken, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
-      else await SecureStore.deleteItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`);
+      if (previousToken) await this.secretStorage.setItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`, previousToken, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+      else await this.secretStorage.deleteItemAsync(`${TOKEN_PREFIX}${pc.desktopId}`);
       throw error;
     }
   }
 
   async remove(desktopId: string): Promise<void> {
-    const next = (await this.list()).filter((item) => item.desktopId !== desktopId);
-    await AsyncStorage.setItem(INDEX_KEY, JSON.stringify(next));
-    await SecureStore.deleteItemAsync(`${TOKEN_PREFIX}${desktopId}`);
-    if (await this.defaultDesktopId() === desktopId) await this.setDefaultDesktopId(null);
+    const previous = await this.#readIndex();
+    const previousToken = await this.token(desktopId);
+    const previousDefault = await this.defaultDesktopId();
+    const next = previous.filter((item) => item.desktopId !== desktopId);
+    await this.secretStorage.deleteItemAsync(`${TOKEN_PREFIX}${desktopId}`);
+    try {
+      await this.publicStorage.setItem(INDEX_KEY, JSON.stringify(next));
+      if (previousDefault === desktopId) await this.publicStorage.removeItem(`${INDEX_KEY}.default`);
+    } catch (error) {
+      let indexRestored = false;
+      try { await this.publicStorage.setItem(INDEX_KEY, JSON.stringify(previous)); indexRestored = true; } catch { /* Leave the secret deleted if the public index cannot be restored. */ }
+      if (indexRestored && previousDefault) await this.publicStorage.setItem(`${INDEX_KEY}.default`, previousDefault).catch(() => undefined);
+      if (indexRestored && previousToken) await this.secretStorage.setItemAsync(`${TOKEN_PREFIX}${desktopId}`, previousToken, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }).catch(() => undefined);
+      throw error;
+    }
   }
 
-  defaultDesktopId(): Promise<string | null> { return AsyncStorage.getItem(`${INDEX_KEY}.default`); }
+  defaultDesktopId(): Promise<string | null> { return this.publicStorage.getItem(`${INDEX_KEY}.default`); }
   async setDefaultDesktopId(desktopId: string | null): Promise<void> {
-    if (desktopId) await AsyncStorage.setItem(`${INDEX_KEY}.default`, desktopId);
-    else await AsyncStorage.removeItem(`${INDEX_KEY}.default`);
+    if (desktopId) await this.publicStorage.setItem(`${INDEX_KEY}.default`, desktopId);
+    else await this.publicStorage.removeItem(`${INDEX_KEY}.default`);
+  }
+
+  async #readIndex(): Promise<SavedPc[]> {
+    const raw = await this.publicStorage.getItem(INDEX_KEY);
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) throw new Error('Invalid pairing index.');
+    return parsed.filter(isSavedPc).sort((a, b) => b.lastConnectedAt - a.lastConnectedAt);
   }
 }
 

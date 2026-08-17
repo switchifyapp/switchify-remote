@@ -1,6 +1,6 @@
 import { authProof, stableStringify } from './canonical';
 import { authenticatedCommand } from './commands';
-import { createFrames, decodeFrame, encodeFrame, FrameReassembler, validateFrame } from './framing';
+import { createFrames, createFramesForWriteLimit, decodeFrame, encodeFrame, encodedFrameBytes, FrameReassembler, validateFrame } from './framing';
 import { parseResponse, parseStatus } from './responses';
 
 describe('Switchify PC protocol v1', () => {
@@ -34,11 +34,37 @@ describe('Switchify PC protocol v1', () => {
     expect(reassembler.clearExpired()).toBe(1);
   });
 
+  it('adapts every encoded frame to the negotiated BLE write limit', () => {
+    const frames = createFramesForWriteLimit('🙂'.repeat(300), 'message-with-a-long-identifier', 182);
+    expect(frames.length).toBeGreaterThan(1);
+    expect(Math.max(...frames.map(encodedFrameBytes))).toBeLessThanOrEqual(182);
+    const reassembler = new FrameReassembler();
+    let result = reassembler.accept(frames[0]!);
+    for (const frame of frames.slice(1)) result = reassembler.accept(frame);
+    expect(result).toEqual({ kind: 'complete', message: '🙂'.repeat(300) });
+    expect(() => createFramesForWriteLimit('a', 'message', 20)).toThrow('too small');
+  });
+
+  it('ignores duplicate fragments and completes after out-of-order delivery', () => {
+    const frames = createFrames('fragmented message', 'duplicate-test', 4);
+    const reassembler = new FrameReassembler();
+    expect(reassembler.accept(frames[0]!)).toEqual({ kind: 'incomplete' });
+    expect(reassembler.accept(frames[0]!)).toEqual({ kind: 'incomplete' });
+    expect(reassembler.accept(frames.at(-1)!)).toEqual({ kind: 'incomplete' });
+    let result = reassembler.accept(frames[1]!);
+    for (const frame of frames.slice(2, -1)) result = reassembler.accept(frame);
+    expect(result).toEqual({ kind: 'complete', message: 'fragmented message' });
+  });
+
   it('parses status, acknowledgements, pairing, and sanitized errors', () => {
     expect(parseStatus('{"protocolVersion":1,"desktopId":"pc-1","displayName":"Desk","platform":"windows"}')).toEqual({ desktopId: 'pc-1', displayName: 'Desk', platform: 'windows' });
     expect(parseResponse('{"type":"ack","id":"a","ok":true,"error":null}')).toEqual({ kind: 'ack', id: 'a' });
     expect(parseResponse('{"type":"pairing.complete","id":"p","ok":true,"error":null,"payload":{"desktopId":"pc-1","deviceId":"phone-1","token":"secret"}}')).toEqual({ kind: 'pairingComplete', id: 'p', desktopId: 'pc-1', deviceId: 'phone-1', token: 'secret' });
     expect(parseResponse('{"type":"error","error":{"code":"auth_failed","message":"invalid_signature"}}')).toEqual({ kind: 'error', code: 'auth_failed', message: 'invalid_signature' });
     expect(parseResponse('not json')).toEqual({ kind: 'invalid' });
+  });
+
+  it.each(['duplicate_request', 'expired_timestamp'])('preserves the sanitized %s authentication failure code', (code) => {
+    expect(parseResponse(JSON.stringify({ type: 'error', error: { code, message: code } }))).toEqual({ kind: 'error', code, message: code });
   });
 });
