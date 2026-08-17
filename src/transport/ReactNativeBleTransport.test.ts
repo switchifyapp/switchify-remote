@@ -1,6 +1,8 @@
 import { fromByteArray } from 'base64-js';
-import type { BleManager, Device } from 'react-native-ble-plx';
+import type { BleManager, Descriptor, Device } from 'react-native-ble-plx';
 import { ReactNativeBleTransport } from './ReactNativeBleTransport';
+
+const descriptor = (value: string): Descriptor => ({ value } as Descriptor);
 
 function device(overrides: Partial<Device> = {}): Device {
   const base: Record<string, unknown> = {
@@ -10,6 +12,7 @@ function device(overrides: Partial<Device> = {}): Device {
     discoverAllServicesAndCharacteristics: jest.fn(async () => base),
     connect: jest.fn(async () => base),
     readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc-1","displayName":"Desk","platform":"windows"}')) })),
+    readDescriptorForService: jest.fn(async () => descriptor('AQA=')),
     writeCharacteristicWithResponseForService: jest.fn(async () => ({})),
     monitorCharacteristicForService: jest.fn(() => ({ remove: jest.fn() })),
     ...overrides,
@@ -33,6 +36,35 @@ describe('ReactNativeBleTransport', () => {
     await transport.connect('ble-1');
     expect(connected.requestMTU).toHaveBeenCalledWith(517);
     expect(transport.maxWriteValueBytes()).toBe(514);
+  });
+
+  it('waits for Android notification descriptor readiness after subscribing', async () => {
+    const calls: string[] = [];
+    const connected = device({
+      monitorCharacteristicForService: jest.fn(() => { calls.push('subscribe'); return { remove: jest.fn() }; }),
+      readDescriptorForService: jest.fn(async () => { calls.push('ready'); return descriptor('AQA='); }),
+    });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'android');
+    await transport.connect('ble-1');
+    const unsubscribe = transport.subscribe(jest.fn(), jest.fn());
+    await transport.notificationsReady();
+    expect(calls).toEqual(['subscribe', 'ready']);
+    unsubscribe();
+  });
+
+  it('rejects when Android notifications are not enabled', async () => {
+    const connected = device({ readDescriptorForService: jest.fn(async () => descriptor('AAA=')) });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'android');
+    await transport.connect('ble-1');
+    await expect(transport.notificationsReady()).rejects.toThrow('could not be enabled');
+  });
+
+  it('does not read the Android notification descriptor on iOS', async () => {
+    const connected = device();
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+    await transport.connect('ble-1');
+    await transport.notificationsReady();
+    expect(connected.readDescriptorForService).not.toHaveBeenCalled();
   });
 
   it('cancels a partial native connection when discovery fails', async () => {
@@ -137,6 +169,33 @@ describe('ReactNativeBleTransport', () => {
     await Promise.resolve(); await Promise.resolve();
     expect(advertised.cancelConnection).toHaveBeenCalled();
     expect(found).not.toHaveBeenCalled();
+  });
+
+  it('waits for cancelled discovery probe cleanup before a real connection', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseDiscovery!: (value: Device) => void;
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const probed = device({
+      discoverAllServicesAndCharacteristics: jest.fn(() => new Promise<Device>((resolve) => { releaseDiscovery = resolve; })),
+      cancelConnection: jest.fn(async () => { await cleanupGate; return null as unknown as Device; }),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => probed) });
+    const selected = device();
+    const connectToDevice = jest.fn(async () => selected);
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }), connectToDevice });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const stop = transport.scan(jest.fn(), jest.fn());
+    scanCallback(null, advertised);
+    await waitFor(() => (probed.discoverAllServicesAndCharacteristics as jest.Mock).mock.calls.length === 1);
+    stop();
+    const connecting = transport.connect('selected');
+    releaseDiscovery(probed);
+    await Promise.resolve();
+    expect(connectToDevice).not.toHaveBeenCalled();
+    releaseCleanup();
+    await connecting;
+    expect(connectToDevice).toHaveBeenCalledWith('selected');
   });
 
   it('publishes the actual Windows Bluetooth device name', async () => {

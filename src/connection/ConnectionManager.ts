@@ -85,7 +85,8 @@ export class ConnectionManager {
       if (!this.#current(operation)) return;
       this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
       const client = new ProtocolClient(this.transport, this.id);
-      client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+      await client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+      if (!this.#current(operation)) { await client.close(); return; }
       this.#client = client;
       this.#deviceId = await this.storage.getDeviceId();
       if (!this.#current(operation)) return;
@@ -210,7 +211,8 @@ export class ConnectionManager {
         if (!this.#current(operation)) return;
         this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
         const client = new ProtocolClient(this.transport, this.id);
-        client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+        await client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+        if (!this.#current(operation)) { await client.close(); return; }
         this.#client = client;
         this.#deviceId = await this.storage.getDeviceId();
         if (!this.#current(operation)) return;

@@ -14,9 +14,16 @@ export class ProtocolClient {
 
   constructor(private readonly transport: BleTransport, private readonly messageId = () => Crypto.randomUUID(), private readonly writeTimeoutMs = 5_000) {}
 
-  start(onFailure: () => void): void {
+  async start(onFailure: () => void): Promise<void> {
     this.#unsubscribe?.();
     this.#unsubscribe = this.transport.subscribe((raw) => this.#accept(raw), () => { void this.close().finally(onFailure); });
+    try {
+      await this.transport.notificationsReady();
+    } catch (error) {
+      this.#unsubscribe?.();
+      this.#unsubscribe = null;
+      throw error;
+    }
   }
 
   async request(message: string, requestId: string, timeoutMs = 10_000): Promise<ProtocolResponse> {

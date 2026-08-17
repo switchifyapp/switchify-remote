@@ -13,5 +13,6 @@ export interface BleTransport {
   writeFrame(frameBase64: string): Promise<void>;
   cancelPendingWrites(): Promise<void>;
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe;
+  notificationsReady(): Promise<void>;
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe;
 }

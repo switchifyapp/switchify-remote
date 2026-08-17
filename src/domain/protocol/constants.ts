@@ -10,3 +10,7 @@ export const BLE_UUIDS = {
   transmit: '7a78f7ea-1d6d-4d92-9ef0-1f89d3db21f4',
   status: '7a78f7eb-1d6d-4d92-9ef0-1f89d3db21f4',
 } as const;
+
+export const BLE_DESCRIPTORS = {
+  clientCharacteristicConfiguration: '00002902-0000-1000-8000-00805f9b34fb',
+} as const;
