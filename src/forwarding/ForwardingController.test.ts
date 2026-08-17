@@ -71,4 +71,34 @@ describe('ForwardingController', () => {
     expect(controller.snapshot().phase).toBe('idle');
     expect(safetyStop).toHaveBeenCalledTimes(1);
   });
+
+  it('stops safely when the configured external switch set changes', async () => {
+    const bridge = new FakeBridge(); const connection = { request: jest.fn(async () => catalog), send: jest.fn(async () => true) } as ForwardingConnection;
+    const safetyStop = jest.fn();
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '00000000-0000-4000-8000-000000000003', safetyStop);
+    await controller.loadProfiles(); await controller.start();
+    bridge.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 99, name: 'Replacement' }] });
+    for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    expect(controller.snapshot().phase).toBe('idle');
+    expect(safetyStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('cannot reactivate after cleanup while session start is in flight', async () => {
+    let resolveStart!: (value: boolean) => void;
+    const pendingStart = new Promise<boolean>((resolve) => { resolveStart = resolve; });
+    const bridge = new FakeBridge();
+    const connection = {
+      request: jest.fn(async () => catalog),
+      send: jest.fn((command: string) => command === 'switch.session.start' ? pendingStart : Promise.resolve(true)),
+    } as ForwardingConnection;
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '00000000-0000-4000-8000-000000000004');
+    await controller.loadProfiles();
+    const starting = controller.start();
+    await Promise.resolve();
+    await controller.cleanup();
+    resolveStart(true);
+    expect(await starting).toBe(false);
+    expect(bridge.active.some(([, active]) => active)).toBe(false);
+    expect(controller.snapshot().phase).toBe('idle');
+  });
 });

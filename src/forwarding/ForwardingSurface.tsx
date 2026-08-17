@@ -58,7 +58,7 @@ export function ForwardingSurface({ manager, bridge, profile, desktopId, prefere
   return <View style={styles.root}>
     <Text accessibilityRole="header" style={styles.heading}>PC Switch Forwarding</Text>
     <Text style={styles.body}>Forward configured external switches from Switchify to this PC.</Text>
-    {state.profiles.map((item) => <ControlButton key={item.id} label={item.name} selected={state.selectedProfileId === item.id} disabled={state.phase === 'active'} onPress={() => select(item.id)} />)}
+    {state.profiles.map((item) => <ControlButton key={item.id} label={item.name} selected={state.selectedProfileId === item.id} disabled={state.phase === 'starting' || state.phase === 'active'} onPress={() => select(item.id)} />)}
     <ControlButton label={state.phase === 'active' ? 'Stop forwarding' : 'Start forwarding'} disabled={state.phase === 'starting' || state.profiles.length === 0} danger={state.phase === 'active'} onPress={() => {
       if (state.phase === 'active') { restore.clear(); void controller.stop(); }
       else void controller.start().then((started) => {

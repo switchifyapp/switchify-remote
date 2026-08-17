@@ -31,6 +31,8 @@ export class ForwardingController {
   #sequence = 0;
   #bridgeSequence = 0;
   #legacy = false;
+  #attempt = 0;
+  #disposed = false;
   #sync: ReturnType<typeof setInterval> | null = null;
   #idle: ReturnType<typeof setTimeout> | null = null;
   #queue = Promise.resolve();
@@ -72,6 +74,8 @@ export class ForwardingController {
   report(message: string): void { this.#set({ message }); }
 
   async start(): Promise<boolean> {
+    if (this.#disposed) return false;
+    const attempt = ++this.#attempt;
     const snapshot = this.bridge.snapshot();
     const selected = this.#state.profiles.find((profile) => profile.id === this.#state.selectedProfileId);
     if (!snapshot.captureAvailable || snapshot.externalSwitches.length === 0) { this.#set({ phase: 'failed', message: 'Turn on Switchify Accessibility and configure an external switch first.' }); return false; }
@@ -84,16 +88,20 @@ export class ForwardingController {
     if (!this.#legacy) {
       const ok = await this.connection.send('switch.session.start', { sessionId: this.#sessionId, profileId: selected.id, profileVersion: selected.version, switchCount: mappings.length });
       if (!ok) { this.#set({ phase: 'failed', message: 'Could not start Switch Forwarding.' }); return false; }
+      if (attempt !== this.#attempt || this.#disposed) { await this.#stopPc(); return false; }
     }
-    if (!await this.bridge.setForwardingActive(this.#generation, true)) { await this.#stopPc(); this.#set({ phase: 'failed', message: 'Switchify is not available for forwarding.' }); return false; }
+    if (!await this.bridge.setForwardingActive(this.#generation, true)) { await this.#stopPc(); if (attempt === this.#attempt && !this.#disposed) this.#set({ phase: 'failed', message: 'Switchify is not available for forwarding.' }); return false; }
+    if (attempt !== this.#attempt || this.#disposed) { await this.bridge.setForwardingActive(this.#generation, false); await this.#stopPc(); return false; }
     this.#set({ phase: 'active', mappings, overflow: external.slice(8).map((item) => item.name), message: null });
     await this.#syncNow();
+    if (attempt !== this.#attempt || this.#disposed) return false;
     this.#sync = this.timers.interval(() => { void this.#enqueue(() => this.#syncNow()); }, 1_000);
     this.#resetIdle();
     return true;
   }
 
   async stop(message: string | null = null, safety = false): Promise<void> {
+    this.#attempt += 1;
     if (this.#state.phase !== 'active' && this.#state.phase !== 'starting') return;
     if (safety) this.onSafetyStop();
     const generation = this.#generation;
@@ -103,10 +111,17 @@ export class ForwardingController {
     await this.#enqueue(() => this.#stopPc());
   }
 
-  async cleanup(): Promise<void> { await this.stop(); this.#unsubscribe(); }
+  async cleanup(): Promise<void> { this.#disposed = true; await this.stop(); this.#unsubscribe(); }
 
   #accept(event: BridgeEvent): void {
-    if (event.type === 'snapshot' && this.#state.phase === 'active' && (!event.captureAvailable || event.externalSwitches.length === 0)) { void this.stop('Switchify switch capture became unavailable.', true); return; }
+    if (event.type === 'snapshot' && this.#state.phase === 'active') {
+      const configured = [...event.externalSwitches].sort((a, b) => a.keyCode - b.keyCode).slice(0, 8).map((item) => item.keyCode);
+      const mapped = this.#state.mappings.map((item) => item.keyCode);
+      if (!event.captureAvailable || configured.length === 0 || configured.some((keyCode, index) => mapped[index] !== keyCode) || configured.length !== mapped.length) {
+        void this.stop('Switchify switch configuration changed. Forwarding stopped safely.', true);
+        return;
+      }
+    }
     if (event.type !== 'switchEdge' || event.generation !== this.#generation || this.#state.phase !== 'active') return;
     if (event.sequence !== this.#bridgeSequence + 1) { void this.stop('A switch event was missed. Forwarding stopped safely.', true); return; }
     this.#bridgeSequence = event.sequence;
