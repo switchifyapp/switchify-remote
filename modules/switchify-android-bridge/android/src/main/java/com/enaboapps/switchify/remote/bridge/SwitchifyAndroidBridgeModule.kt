@@ -9,8 +9,10 @@ import android.os.IBinder
 import com.enaboapps.switchify.remotebridge.ISwitchifyRemoteBridge
 import com.enaboapps.switchify.remotebridge.ISwitchifyRemoteBridgeCallback
 import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import kotlinx.coroutines.delay
 
 class SwitchifyAndroidBridgeModule : Module() {
     private var bridge: ISwitchifyRemoteBridge? = null
@@ -75,9 +77,7 @@ class SwitchifyAndroidBridgeModule : Module() {
         Name("SwitchifyAndroidBridge")
         Events("onBridgeEvent")
 
-        AsyncFunction("connectAsync") {
-            connectInternal()
-        }
+        AsyncFunction("connectAsync") Coroutine (suspend { connectAndAwait() })
 
         AsyncFunction("disconnectAsync") {
             disconnectInternal()
@@ -104,18 +104,28 @@ class SwitchifyAndroidBridgeModule : Module() {
         }
     }
 
-    private fun connectInternal(): Boolean {
-        if (bridge != null || binding) return true
-        binding = true
-        val intent = Intent(BRIDGE_ACTION).setPackage(SWITCHIFY_PACKAGE)
-        val started = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
-            .getOrDefault(false)
-        bindRequested = started
-        if (!started) {
-            binding = false
-            sendEvent("onBridgeEvent", unavailableSnapshot())
+    private suspend fun connectAndAwait(): Boolean {
+        if (bridge != null) return true
+        if (!binding) {
+            binding = true
+            val intent = Intent(BRIDGE_ACTION).setComponent(
+                ComponentName(SWITCHIFY_PACKAGE, SWITCHIFY_BRIDGE_SERVICE)
+            )
+            val started = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
+                .getOrDefault(false)
+            bindRequested = started
+            if (!started) {
+                binding = false
+                sendEvent("onBridgeEvent", unavailableSnapshot())
+                return false
+            }
         }
-        return started
+        repeat(CONNECTION_WAIT_ATTEMPTS) {
+            if (bridge != null) return true
+            if (!binding) return false
+            delay(CONNECTION_WAIT_INTERVAL_MS)
+        }
+        return bridge != null
     }
 
     private fun disconnectInternal() {
@@ -161,7 +171,11 @@ class SwitchifyAndroidBridgeModule : Module() {
 
     private companion object {
         const val SWITCHIFY_PACKAGE = "com.enaboapps.switchify"
+        const val SWITCHIFY_BRIDGE_SERVICE =
+            "com.enaboapps.switchify.service.remotebridge.SwitchifyRemoteBridgeService"
         const val BRIDGE_ACTION = "com.enaboapps.switchify.remote.BIND_BRIDGE"
         const val SUPPORTED_BRIDGE_VERSION = 1
+        const val CONNECTION_WAIT_ATTEMPTS = 30
+        const val CONNECTION_WAIT_INTERVAL_MS = 100L
     }
 }

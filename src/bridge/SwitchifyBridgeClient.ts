@@ -24,7 +24,15 @@ export class SwitchifyBridgeClient implements SwitchifyBridge {
     if (!this.native) return false;
     this.#nativeSubscription ??= this.native.addListener('onBridgeEvent', (event) => this.#accept(event));
     const started = await this.native.connectAsync().catch(() => false);
-    if (!started) this.#accept({ type: 'snapshot', ...unavailable });
+    if (started) {
+      const snapshot = await this.native.snapshotAsync().catch(() => unavailable);
+      this.#accept({
+        type: 'snapshot',
+        version: snapshot.version,
+        captureAvailable: snapshot.captureAvailable,
+        externalSwitches: snapshot.externalSwitches,
+      });
+    } else this.#accept({ type: 'snapshot', ...unavailable });
     return started;
   }
 

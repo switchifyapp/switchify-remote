@@ -9,7 +9,7 @@ function nativeBridge() {
     connectAsync: jest.fn(async () => true),
     getVersionAsync: jest.fn(async () => 1),
     disconnectAsync: jest.fn(async () => undefined),
-    snapshotAsync: jest.fn(),
+    snapshotAsync: jest.fn(async () => ({ version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 42, name: 'Primary' }] })),
     setRepeatActiveAsync: jest.fn(async () => true),
     setForwardingActiveAsync: jest.fn(async () => true),
   } as unknown as NativeSwitchifyAndroidBridge;
@@ -23,13 +23,13 @@ describe('SwitchifyBridgeClient', () => {
     const events: BridgeEvent[] = [];
     bridge.subscribe((event) => events.push(event));
     expect(await bridge.connect()).toBe(true);
-    host.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 42, name: 'Primary' }] });
     expect(bridge.snapshot()).toEqual({ version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 42, name: 'Primary' }] });
     const generation = bridge.nextGeneration();
     expect(await bridge.setRepeatActive(generation, true)).toBe(true);
     expect(await bridge.setForwardingActive(generation, true)).toBe(true);
     expect((host.native.setRepeatActiveAsync as jest.Mock)).toHaveBeenCalledWith(generation, true);
     expect(events).toHaveLength(1);
+    expect(host.native.snapshotAsync).toHaveBeenCalledTimes(1);
   });
 
   it('becomes unavailable after disconnect', async () => {
