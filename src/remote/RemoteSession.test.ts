@@ -116,6 +116,36 @@ describe('RemoteSession', () => {
     expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(102, true);
   });
 
+  it('does not let a hung bridge activation block repeat cleanup', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const host = fakeBridge();
+    (host.bridge.setRepeatActive as jest.Mock).mockImplementation(() => new Promise<boolean>(() => undefined));
+    const session = new RemoteSession(manager, profile(), undefined, null, host.bridge, 1);
+
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    await session.cleanup();
+
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
+  it('still stops the PC when bridge deactivation never settles', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const host = fakeBridge();
+    (host.bridge.setRepeatActive as jest.Mock)
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(() => new Promise<boolean>(() => undefined));
+    const session = new RemoteSession(manager, profile(), undefined, null, host.bridge, 1);
+
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    await session.cleanup();
+
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
   it('serializes stream open and monotonically advances sequence numbers', async () => {
     const calls: { type: string; payload: unknown }[] = [];
     let releaseOpen!: () => void;

@@ -24,6 +24,7 @@ export class RemoteSession {
     private readonly id = () => `${Date.now()}-${Math.random()}`,
     readonly connectionIdentity: string | null = null,
     private readonly bridge: SwitchifyBridge = switchifyBridge,
+    private readonly bridgeTimeoutMs = 1_000,
   ) {
     this.#bridgeUnsubscribe = bridge.subscribe((event) => {
       if (event.type === 'repeatStop' && event.generation === this.#repeatGeneration && this.#state.repeat) void this.stopRepeat();
@@ -72,7 +73,7 @@ export class RemoteSession {
     this.#repeatGeneration = 0;
     this.#repeatBridgeArmed = false;
     this.#set({ repeat: null });
-    if (generation > 0) await this.bridge.setRepeatActive(generation, false);
+    if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
     const [type, payload] = commandPayloads.repeatStop();
     await this.manager.send(type, payload, 'none');
   }
@@ -82,9 +83,9 @@ export class RemoteSession {
     const attempt = ++this.#repeatArmAttempt;
     const generation = this.bridge.nextGeneration();
     this.#repeatGeneration = generation;
-    const accepted = await this.bridge.setRepeatActive(generation, true);
+    const accepted = await this.#setRepeatActiveBounded(generation, true);
     if (attempt !== this.#repeatArmAttempt || !this.#state.repeat) {
-      if (accepted) await this.bridge.setRepeatActive(generation, false);
+      if (accepted) await this.#setRepeatActiveBounded(generation, false);
       return;
     }
     this.#repeatBridgeArmed = accepted;
@@ -189,6 +190,23 @@ export class RemoteSession {
     const result = this.#repeatQueue.catch(() => undefined).then(operation);
     this.#repeatQueue = result.then(() => undefined, () => undefined);
     return result;
+  }
+
+  async #setRepeatActiveBounded(generation: number, active: boolean): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = this.bridge.setRepeatActive(generation, active).catch(() => false);
+    const result = await Promise.race<boolean | null>([
+      update,
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), this.bridgeTimeoutMs); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (result !== null) return result;
+    if (active) {
+      void update.then((accepted) => {
+        if (accepted) void this.#setRepeatActiveBounded(generation, false);
+      });
+    }
+    return false;
   }
 
   async cleanup(): Promise<void> {
