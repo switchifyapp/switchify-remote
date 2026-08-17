@@ -12,6 +12,7 @@ export class RemoteSession {
   #streamId: string | null = null;
   #sequence = 0;
   #streamQueue: Promise<void> = Promise.resolve();
+  #repeatQueue: Promise<void> = Promise.resolve();
   #repeatGeneration = 0;
   #repeatArmAttempt = 0;
   #repeatBridgeArmed = false;
@@ -41,9 +42,13 @@ export class RemoteSession {
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
   snapshot = () => this.#state;
 
-  async mouse(type: string, payload: JsonObject = {}, repeatable = false): Promise<boolean> {
+  mouse(type: string, payload: JsonObject = {}, repeatable = false): Promise<boolean> {
+    return this.#enqueueRepeat(() => this.#mouse(type, payload, repeatable));
+  }
+
+  async #mouse(type: string, payload: JsonObject, repeatable: boolean): Promise<boolean> {
     if (!this.supports(type)) return false;
-    if (this.#state.repeat) { await this.stopRepeat(); return true; }
+    if (this.#state.repeat) { await this.#stopRepeat(); return true; }
     if (repeatable && this.supports('mouse.repeat.start') && this.supports('mouse.repeat.stop') && this.profile?.capabilities.mouseRepeat.supported && this.profile.capabilities.mouseRepeat.enabled) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
@@ -56,7 +61,11 @@ export class RemoteSession {
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
   }
 
-  async stopRepeat(): Promise<void> {
+  stopRepeat(): Promise<void> {
+    return this.#enqueueRepeat(() => this.#stopRepeat());
+  }
+
+  async #stopRepeat(): Promise<void> {
     if (!this.#state.repeat) return;
     const generation = this.#repeatGeneration;
     this.#repeatArmAttempt += 1;
@@ -173,6 +182,12 @@ export class RemoteSession {
   #enqueueStream<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#streamQueue.catch(() => undefined).then(operation);
     this.#streamQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  #enqueueRepeat<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#repeatQueue.catch(() => undefined).then(operation);
+    this.#repeatQueue = result.then(() => undefined, () => undefined);
     return result;
   }
 

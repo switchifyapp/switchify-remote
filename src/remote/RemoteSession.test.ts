@@ -57,7 +57,7 @@ describe('RemoteSession', () => {
     await Promise.resolve();
     expect(session.snapshot().repeat).toBe('mouse.move');
     host.emit({ type: 'repeatStop', generation: 101 });
-    await Promise.resolve(); await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.snapshot().repeat).toBeNull();
     expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(101, false);
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
@@ -85,9 +85,35 @@ describe('RemoteSession', () => {
     await Promise.resolve();
     expect(session.snapshot().repeat).toBe('mouse.move');
     host.emit({ type: 'repeatStop', generation: 102 });
-    await Promise.resolve(); await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.snapshot().repeat).toBeNull();
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
+  it('orders a new repeat start after physical-switch stop cleanup', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const host = fakeBridge();
+    let releaseDeactivation!: () => void;
+    const deactivation = new Promise<void>((resolve) => { releaseDeactivation = resolve; });
+    (host.bridge.setRepeatActive as jest.Mock).mockImplementation(async (_generation: number, active: boolean) => {
+      if (!active) await deactivation;
+      return true;
+    });
+    const session = new RemoteSession(manager, profile(), undefined, null, host.bridge);
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+
+    host.emit({ type: 'repeatStop', generation: 101 });
+    await Promise.resolve(); await Promise.resolve();
+    const next = session.mouse('mouse.move', { dx: -10, dy: 0 }, true);
+    await Promise.resolve(); await Promise.resolve();
+    expect(calls).toEqual(['mouse.repeat.start']);
+
+    releaseDeactivation();
+    await next;
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'mouse.repeat.start']);
+    expect(session.snapshot().repeat).toBe('mouse.move');
+    expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(102, true);
   });
 
   it('serializes stream open and monotonically advances sequence numbers', async () => {
@@ -98,7 +124,7 @@ describe('RemoteSession', () => {
     const session = new RemoteSession(manager, profile(), () => 'stream-1');
     const first = session.streamChunk('a');
     const second = session.streamChunk('b');
-    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls.map(({ type }) => type)).toEqual(['keyboard.textStream.open']);
     releaseOpen();
     await Promise.all([first, second]);
