@@ -28,6 +28,7 @@ class LoopbackTransport implements BleTransport {
   requests: string[] = [];
   connectCount = 0;
   connectFailures = 0;
+  readinessGate: Promise<void> | null = null;
   responseGates = new Map<string, Promise<void>>();
   dropResponses = new Set<string>();
   hangWrites = new Set<string>();
@@ -35,6 +36,7 @@ class LoopbackTransport implements BleTransport {
   connect = async () => { this.connectCount += 1; if (this.connectFailures > 0) { this.connectFailures -= 1; throw new Error('connect failed'); } };
   disconnect = async () => undefined;
   cancelPendingWrites = async () => undefined;
+  notificationsReady = async () => { await this.readinessGate; };
   subscribe(onFrame: (frameBase64: string) => void): Unsubscribe { this.onFrame = onFrame; return () => { this.onFrame = null; }; }
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe { this.onDisconnect = onDisconnect; return () => { this.onDisconnect = null; }; }
   async writeFrame(raw: string): Promise<void> {
@@ -83,6 +85,21 @@ describe('pairing and authenticated connection integration', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
     expect(transport.requests.filter((type) => type === 'mouse.click')).toHaveLength(2);
     expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('does not send pairing until notifications are ready', async () => {
+    let ready!: () => void;
+    const transport = new LoopbackTransport();
+    transport.readinessGate = new Promise<void>((resolve) => { ready = resolve; });
+    const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, () => 'request-ready');
+    const connecting = manager.connect(desktop);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(transport.requests).toEqual([]);
+    ready();
+    await connecting;
+    expect(transport.requests[0]).toBe('pairing.request');
+    expect(manager.snapshot().kind).toBe('connected');
   });
 
   it('returns a sanitized failed state for rejection and write failure', async () => {

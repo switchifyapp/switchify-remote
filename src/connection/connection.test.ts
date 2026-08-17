@@ -24,6 +24,7 @@ class FakeTransport implements BleTransport {
   scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe { this.scanCallback = onDesktop; return () => { this.scanCallback = null; }; }
   connect = async () => { await this.connectGate; }; disconnect = async () => undefined; writeFrame = async () => undefined;
   cancelPendingWrites = async () => undefined;
+  notificationsReady = async () => undefined;
   subscribe(): Unsubscribe { return () => undefined; } subscribeDisconnect(): Unsubscribe { return () => undefined; }
 }
 

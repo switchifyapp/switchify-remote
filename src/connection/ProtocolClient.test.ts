@@ -15,6 +15,7 @@ class FakeTransport implements BleTransport {
   scan(): Unsubscribe { return () => undefined; }
   connect = async () => undefined; disconnect = async () => undefined;
   cancelPendingWrites = async () => undefined;
+  notificationsReady = async () => undefined;
   async writeFrame(frame: string) { if (this.fail) throw new Error('write failed'); this.inFlight += 1; this.maxInFlight = Math.max(this.maxInFlight, this.inFlight); await this.writeGate; this.frames.push(frame); this.inFlight -= 1; }
   subscribe(listener: (value: string) => void): Unsubscribe { this.listener = listener; return () => { this.listener = null; }; }
   subscribeDisconnect(): Unsubscribe { return () => undefined; }
@@ -40,7 +41,7 @@ describe('ProtocolClient', () => {
   it('correlates only the requested response and ignores stale notifications', async () => {
     const transport = new FakeTransport();
     const client = new ProtocolClient(transport);
-    client.start(jest.fn());
+    await client.start(jest.fn());
     const request = client.request('{"fixture":true}', 'wanted');
     await Promise.resolve();
     transport.emit({ type: 'ack', id: 'stale', ok: true, error: null });

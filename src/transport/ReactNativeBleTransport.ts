@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import { BleManager, type Device, type Subscription } from 'react-native-ble-plx';
 import { toByteArray } from 'base64-js';
 
-import { BLE_UUIDS } from '@/domain/protocol/constants';
+import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
 import { desktopDisplayName } from './desktopDisplayName';
@@ -12,6 +12,7 @@ export class ReactNativeBleTransport implements BleTransport {
   #device: Device | null = null;
   #operation = 0;
   #scanDevices = new Map<string, Device>();
+  #scanTasks = new Set<Promise<void>>();
   #connectQueue: Promise<void> = Promise.resolve();
   #nativeCancels = new Set<(error: Error) => void>();
   #writeCancels = new Map<string, (error: Error) => void>();
@@ -37,11 +38,13 @@ export class ReactNativeBleTransport implements BleTransport {
       if (error) { onError(error); return; }
       if (!device || this.#scanDevices.has(device.id) || this.#scanDevices.size >= 4) return;
       this.#scanDevices.set(device.id, device);
-      void this.#readStatus(device).then((desktop) => {
+      const task = this.#readStatus(device).then((desktop) => {
         if (active && operation === this.#operation && desktop) onDesktop(desktop);
       }).catch(() => undefined).finally(() => {
         if (operation === this.#operation) this.#scanDevices.delete(device.id);
       });
+      this.#scanTasks.add(task);
+      void task.finally(() => this.#scanTasks.delete(task));
     });
     return () => {
       if (!active) return;
@@ -107,6 +110,7 @@ export class ReactNativeBleTransport implements BleTransport {
     const probes = [...this.#scanDevices.values()];
     this.#scanDevices.clear();
     probes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
+    await Promise.allSettled([...this.#scanTasks]);
     const device = this.#device;
     this.#device = null;
     if (device) await this.#bounded(device.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);
@@ -149,6 +153,16 @@ export class ReactNativeBleTransport implements BleTransport {
       else if (characteristic?.value) onFrame(characteristic.value);
     });
     return () => subscription.remove();
+  }
+
+  async notificationsReady(): Promise<void> {
+    if (this.platform !== 'android') return;
+    const descriptor = await this.#bounded(this.#requireDevice().readDescriptorForService(
+      BLE_UUIDS.service,
+      BLE_UUIDS.transmit,
+      BLE_DESCRIPTORS.clientCharacteristicConfiguration,
+    ));
+    if (descriptor.value !== 'AQA=') throw new Error('Bluetooth notifications could not be enabled.');
   }
 
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe {
