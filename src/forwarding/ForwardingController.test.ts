@@ -101,4 +101,24 @@ describe('ForwardingController', () => {
     expect(bridge.active.some(([, active]) => active)).toBe(false);
     expect(controller.snapshot().phase).toBe('idle');
   });
+
+  it('cancels an in-flight start when configured switches change', async () => {
+    let resolveStart!: (value: boolean) => void;
+    const pendingStart = new Promise<boolean>((resolve) => { resolveStart = resolve; });
+    const bridge = new FakeBridge(); const safetyStop = jest.fn();
+    const connection = {
+      request: jest.fn(async () => catalog),
+      send: jest.fn((command: string) => command === 'switch.session.start' ? pendingStart : Promise.resolve(true)),
+    } as ForwardingConnection;
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5_000, fakeTimers(), () => '00000000-0000-4000-8000-000000000005', safetyStop);
+    await controller.loadProfiles();
+    const starting = controller.start();
+    await Promise.resolve();
+    bridge.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 5, name: 'New first switch' }, ...bridge.value.externalSwitches] });
+    resolveStart(true);
+    expect(await starting).toBe(false);
+    expect(controller.snapshot().phase).toBe('idle');
+    expect(safetyStop).toHaveBeenCalledTimes(1);
+    expect(bridge.active.some(([, active]) => active)).toBe(false);
+  });
 });

@@ -33,6 +33,7 @@ export class ForwardingController {
   #legacy = false;
   #attempt = 0;
   #disposed = false;
+  #expectedSwitches: { keyCode: number; name: string }[] = [];
   #sync: ReturnType<typeof setInterval> | null = null;
   #idle: ReturnType<typeof setTimeout> | null = null;
   #queue = Promise.resolve();
@@ -84,6 +85,7 @@ export class ForwardingController {
     this.#generation = this.bridge.nextGeneration();
     this.#sessionId = this.id(); this.#sequence = 0; this.#bridgeSequence = 0;
     const external = [...snapshot.externalSwitches].sort((a, b) => a.keyCode - b.keyCode);
+    this.#expectedSwitches = external.slice(0, 8).map(({ keyCode, name }) => ({ keyCode, name }));
     const mappings = external.slice(0, 8).map((item, index) => ({ ...item, switchId: index + 1, outputLabel: selected.bindings.find((binding) => binding.switchId === index + 1 && binding.behavior !== 'unassigned')?.label ?? null, pressed: false, downTimeMs: null }));
     if (!this.#legacy) {
       const ok = await this.connection.send('switch.session.start', { sessionId: this.#sessionId, profileId: selected.id, profileVersion: selected.version, switchCount: mappings.length });
@@ -114,9 +116,9 @@ export class ForwardingController {
   async cleanup(): Promise<void> { this.#disposed = true; await this.stop(); this.#unsubscribe(); }
 
   #accept(event: BridgeEvent): void {
-    if (event.type === 'snapshot' && this.#state.phase === 'active') {
+    if (event.type === 'snapshot' && (this.#state.phase === 'starting' || this.#state.phase === 'active')) {
       const configured = [...event.externalSwitches].sort((a, b) => a.keyCode - b.keyCode).slice(0, 8);
-      const mapped = this.#state.mappings;
+      const mapped = this.#state.phase === 'starting' ? this.#expectedSwitches : this.#state.mappings;
       if (!event.captureAvailable || configured.length === 0 || configured.some((item, index) => mapped[index]?.keyCode !== item.keyCode || mapped[index]?.name !== item.name) || configured.length !== mapped.length) {
         void this.stop('Switchify switch configuration changed. Forwarding stopped safely.', true);
         return;
