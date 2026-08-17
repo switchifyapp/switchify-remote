@@ -63,6 +63,33 @@ describe('RemoteSession', () => {
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
   });
 
+  it('re-arms an active repeat when the Switchify bridge recovers', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const host = fakeBridge();
+    (host.bridge.setRepeatActive as jest.Mock)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const session = new RemoteSession(manager, profile(), undefined, null, host.bridge);
+
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    expect(host.bridge.setRepeatActive).toHaveBeenCalledWith(101, true);
+    expect(session.snapshot().repeat).toBe('mouse.move');
+
+    host.emit({ type: 'snapshot', version: 0, captureAvailable: false, externalSwitches: [] });
+    host.emit({ type: 'snapshot', version: 1, captureAvailable: true, externalSwitches: [{ keyCode: 131, name: 'a' }] });
+    await Promise.resolve(); await Promise.resolve();
+    expect(host.bridge.setRepeatActive).toHaveBeenCalledWith(102, true);
+
+    host.emit({ type: 'repeatStop', generation: 101 });
+    await Promise.resolve();
+    expect(session.snapshot().repeat).toBe('mouse.move');
+    host.emit({ type: 'repeatStop', generation: 102 });
+    await Promise.resolve(); await Promise.resolve();
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
   it('serializes stream open and monotonically advances sequence numbers', async () => {
     const calls: { type: string; payload: unknown }[] = [];
     let releaseOpen!: () => void;

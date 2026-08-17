@@ -13,6 +13,8 @@ export class RemoteSession {
   #sequence = 0;
   #streamQueue: Promise<void> = Promise.resolve();
   #repeatGeneration = 0;
+  #repeatArmAttempt = 0;
+  #repeatBridgeArmed = false;
   #bridgeUnsubscribe: () => void;
 
   constructor(
@@ -24,6 +26,16 @@ export class RemoteSession {
   ) {
     this.#bridgeUnsubscribe = bridge.subscribe((event) => {
       if (event.type === 'repeatStop' && event.generation === this.#repeatGeneration && this.#state.repeat) void this.stopRepeat();
+      if (event.type === 'snapshot') {
+        const available = event.captureAvailable && event.externalSwitches.length > 0;
+        if (!available) {
+          const generation = this.#repeatGeneration;
+          this.#repeatArmAttempt += 1;
+          this.#repeatBridgeArmed = false;
+          this.#repeatGeneration = 0;
+          if (generation > 0) void this.bridge.setRepeatActive(generation, false);
+        } else if (this.#state.repeat && !this.#repeatBridgeArmed && this.#repeatGeneration === 0) void this.#armRepeatBridge();
+      }
     });
   }
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
@@ -36,9 +48,8 @@ export class RemoteSession {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
       if (ok) {
-        this.#repeatGeneration = this.bridge.nextGeneration();
         this.#set({ repeat: type });
-        await this.bridge.setRepeatActive(this.#repeatGeneration, true);
+        await this.#armRepeatBridge();
       }
       return ok;
     }
@@ -48,11 +59,27 @@ export class RemoteSession {
   async stopRepeat(): Promise<void> {
     if (!this.#state.repeat) return;
     const generation = this.#repeatGeneration;
+    this.#repeatArmAttempt += 1;
     this.#repeatGeneration = 0;
+    this.#repeatBridgeArmed = false;
     this.#set({ repeat: null });
-    await this.bridge.setRepeatActive(generation, false);
+    if (generation > 0) await this.bridge.setRepeatActive(generation, false);
     const [type, payload] = commandPayloads.repeatStop();
     await this.manager.send(type, payload, 'none');
+  }
+
+  async #armRepeatBridge(): Promise<void> {
+    if (!this.#state.repeat || this.#repeatBridgeArmed || this.#repeatGeneration !== 0) return;
+    const attempt = ++this.#repeatArmAttempt;
+    const generation = this.bridge.nextGeneration();
+    this.#repeatGeneration = generation;
+    const accepted = await this.bridge.setRepeatActive(generation, true);
+    if (attempt !== this.#repeatArmAttempt || !this.#state.repeat) {
+      if (accepted) await this.bridge.setRepeatActive(generation, false);
+      return;
+    }
+    this.#repeatBridgeArmed = accepted;
+    if (!accepted && this.#repeatGeneration === generation) this.#repeatGeneration = 0;
   }
 
   async toggleDrag(): Promise<boolean> {
