@@ -17,7 +17,7 @@ export class ReactNativeBleTransport implements BleTransport {
   #nativeCancels = new Set<(error: Error) => void>();
   #writeCancels = new Map<string, (error: Error) => void>();
   #connectingPeripheralId: string | null = null;
-  #resolutionCancel: ((error: Error) => void) | null = null;
+  #resolutionCancel: ((error: Error) => Promise<void>) | null = null;
   #writeSequence = 0;
   #writePoisoned = false;
 
@@ -73,6 +73,7 @@ export class ReactNativeBleTransport implements BleTransport {
     return new Promise<DiscoveredDesktop>((resolve, reject) => {
       let active = true;
       let claimedDeviceId: string | null = null;
+      let cancellation: Promise<void> | null = null;
       const succeed = (desktop: DiscoveredDesktop) => {
         if (!active) return;
         active = false;
@@ -81,8 +82,8 @@ export class ReactNativeBleTransport implements BleTransport {
         if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
         resolve(desktop);
       };
-      const cancel = (error: Error) => {
-        if (!active) return;
+      const cancel = (error: Error): Promise<void> => {
+        if (!active) return cancellation ?? Promise.resolve();
         active = false;
         clearTimeout(timer);
         this.#manager.stopDeviceScan();
@@ -92,19 +93,20 @@ export class ReactNativeBleTransport implements BleTransport {
         this.#scanDevices.clear();
         this.#cancelNativeOperations();
         const connections = retained && !probes.some((probe) => probe.id === retained.id) ? [...probes, retained] : probes;
-        void Promise.allSettled(connections.map((connection) => this.#bounded(
+        cancellation = Promise.allSettled(connections.map((connection) => this.#bounded(
           connection.cancelConnection(),
           this.#cancellationTimeout(),
         ))).then(() => {
           if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
           reject(error);
         });
+        return cancellation;
       };
       this.#resolutionCancel = cancel;
-      const timer = setTimeout(() => cancel(new Error('Saved PC discovery timed out.')), this.nativeTimeoutMs);
+      const timer = setTimeout(() => { void cancel(new Error('Saved PC discovery timed out.')); }, this.nativeTimeoutMs);
       const onAdvertisement = (error: Error | null, device: Device | null) => {
         if (!active || operation !== this.#operation) return;
-        if (error) { cancel(new Error('Saved PC discovery failed.')); return; }
+        if (error) { void cancel(new Error('Saved PC discovery failed.')); return; }
         if (!device || this.#scanDevices.has(device.id) || this.#scanDevices.size >= 4) return;
         this.#scanDevices.set(device.id, device);
         const task = this.#readStatus(device, (desktop) => {
@@ -131,9 +133,7 @@ export class ReactNativeBleTransport implements BleTransport {
           succeed(desktop);
         }).catch((probeError: unknown) => {
           if (this.#device?.id === device.id) {
-            this.#device = null;
-            void device.cancelConnection().catch(() => undefined);
-            cancel(probeError instanceof Error ? probeError : new Error('Saved PC discovery failed.'));
+            void cancel(probeError instanceof Error ? probeError : new Error('Saved PC discovery failed.'));
           }
         }).finally(() => {
           if (operation === this.#operation) this.#scanDevices.delete(device.id);
@@ -144,7 +144,7 @@ export class ReactNativeBleTransport implements BleTransport {
       try {
         this.#manager.startDeviceScan([BLE_UUIDS.service], null, onAdvertisement);
       } catch {
-        cancel(new Error('Saved PC discovery failed.'));
+        void cancel(new Error('Saved PC discovery failed.'));
       }
     });
   }
@@ -184,8 +184,8 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async disconnect(): Promise<void> {
     this.#operation += 1;
-    this.#resolutionCancel?.(new Error('Bluetooth operation was cancelled.'));
-    this.#resolutionCancel = null;
+    const cancelResolution = this.#resolutionCancel;
+    if (cancelResolution) await cancelResolution(new Error('Bluetooth operation was cancelled.'));
     this.#cancelNativeOperations();
     await this.cancelPendingWrites();
     const connectingPeripheralId = this.#connectingPeripheralId;

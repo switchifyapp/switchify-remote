@@ -268,6 +268,67 @@ describe('ReactNativeBleTransport', () => {
     expect(() => transport.maxWriteValueBytes()).toThrow('No PC is connected');
   });
 
+  it('waits for retained-probe cancellation before starting a replacement connection', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseMtu!: (value: Device) => void;
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const retained = device({
+      isConnected: jest.fn(async () => true),
+      requestMTU: jest.fn(() => new Promise<Device>((resolve) => { releaseMtu = resolve; })),
+      cancelConnection: jest.fn(async () => { await cleanupGate; return null as unknown as Device; }),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => retained) });
+    const replacement = device();
+    const connectToDevice = jest.fn(async () => replacement);
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }), connectToDevice });
+    const transport = new ReactNativeBleTransport(native, 'android');
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    const resolvingRejected = expect(resolving).rejects.toThrow('cancelled');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    await waitFor(() => (retained.requestMTU as jest.Mock).mock.calls.length === 1);
+    const connecting = transport.connect('replacement');
+    await waitFor(() => (retained.cancelConnection as jest.Mock).mock.calls.length === 1);
+    expect(connectToDevice).not.toHaveBeenCalled();
+
+    releaseCleanup();
+    releaseMtu(retained);
+    await resolvingRejected;
+    await connecting;
+    expect(connectToDevice).toHaveBeenCalledWith('replacement');
+  });
+
+  it('waits for failed retained-probe setup cleanup before retrying', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const retained = device({
+      isConnected: jest.fn(async () => true),
+      requestMTU: jest.fn(async () => { throw new Error('MTU failed'); }),
+      cancelConnection: jest.fn(async () => { await cleanupGate; return null as unknown as Device; }),
+    });
+    const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => retained) });
+    const replacement = device();
+    const connectToDevice = jest.fn(async () => replacement);
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }), connectToDevice });
+    const transport = new ReactNativeBleTransport(native, 'android');
+
+    const resolving = transport.resolveAndConnect('pc-1');
+    const resolvingRejected = expect(resolving).rejects.toThrow('MTU failed');
+    await waitFor(() => typeof scanCallback === 'function');
+    scanCallback(null, advertised);
+    await waitFor(() => (retained.cancelConnection as jest.Mock).mock.calls.length === 1);
+    const connecting = transport.connect('replacement');
+    expect(connectToDevice).not.toHaveBeenCalled();
+
+    releaseCleanup();
+    await resolvingRejected;
+    await connecting;
+    expect(connectToDevice).toHaveBeenCalledWith('replacement');
+  });
+
   it('cleans up a scan probe that resolves after its connection timeout', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let resolveConnect!: (value: Device) => void;
