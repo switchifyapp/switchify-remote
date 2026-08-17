@@ -5,6 +5,7 @@ import { toByteArray } from 'base64-js';
 import { BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
+import { desktopDisplayName } from './desktopDisplayName';
 
 export class ReactNativeBleTransport implements BleTransport {
   readonly #manager: BleManager;
@@ -174,7 +175,12 @@ export class ReactNativeBleTransport implements BleTransport {
       if (!characteristic.value) return null;
       const raw = new TextDecoder().decode(toByteArray(characteristic.value));
       const status = parseStatus(raw);
-      return status ? { ...status, peripheralId: device.id, rssi: device.rssi ?? null } : null;
+      return status ? {
+        ...status,
+        displayName: desktopDisplayName(status, device.name),
+        peripheralId: device.id,
+        rssi: device.rssi ?? null,
+      } : null;
     } finally {
       probeFinished = true;
       if (connectedHere) await this.#bounded(target.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);

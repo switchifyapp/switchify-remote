@@ -4,7 +4,7 @@ import { ReactNativeBleTransport } from './ReactNativeBleTransport';
 
 function device(overrides: Partial<Device> = {}): Device {
   const base: Record<string, unknown> = {
-    id: 'ble-1', mtu: 185, rssi: -42,
+    id: 'ble-1', name: null, mtu: 185, rssi: -42,
     isConnected: jest.fn(async () => true), cancelConnection: jest.fn(async () => null as unknown as Device),
     requestMTU: jest.fn(async () => ({ ...base, mtu: 517 })),
     discoverAllServicesAndCharacteristics: jest.fn(async () => base),
@@ -137,6 +137,19 @@ describe('ReactNativeBleTransport', () => {
     await Promise.resolve(); await Promise.resolve();
     expect(advertised.cancelConnection).toHaveBeenCalled();
     expect(found).not.toHaveBeenCalled();
+  });
+
+  it('publishes the actual Windows Bluetooth device name', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const advertised = device({ name: 'Oliver Laptop' });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+    scanCallback(null, advertised);
+    await waitFor(() => found.mock.calls.length === 1);
+    expect(found).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Oliver Laptop', platform: 'windows' }));
+    stop();
   });
 
   it('cleans up a scan probe that resolves after its connection timeout', async () => {
