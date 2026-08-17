@@ -20,10 +20,15 @@ export type PointerProfile = {
   };
 };
 
+export type SwitchBinding = { switchId: number; label: string; behavior: 'stateful' | 'pulse' | 'unassigned' };
+export type SwitchProfile = { id: string; version: number; name: string; kind: 'grid3' | 'mapped'; bindings: SwitchBinding[] };
+export type SwitchProfileCatalog = { catalogRevision: number; profiles: SwitchProfile[] };
+
 export type ProtocolResponse =
   | { kind: 'ack'; id: string }
   | { kind: 'pairingComplete'; id: string; desktopId: string; deviceId: string; token: string }
   | { kind: 'pointerProfile'; id: string; profile: PointerProfile }
+  | { kind: 'switchProfileCatalog'; id: string; catalog: SwitchProfileCatalog }
   | { kind: 'error'; id?: string; code: string; message: string }
   | { kind: 'invalid' };
 

@@ -75,6 +75,10 @@ describe('Switchify PC protocol v1', () => {
     expect(parseResponse('not json')).toEqual({ kind: 'invalid' });
   });
 
+  it('parses switch profile catalogs', () => {
+    expect(parseResponse(JSON.stringify({ type: 'switch.profile.list', id: 'profiles', ok: true, error: null, payload: { catalogRevision: 4, profiles: [{ id: 'keyboard', version: 1, name: 'Keyboard', kind: 'mapped', bindings: [{ switchId: 1, label: 'Space', behavior: 'stateful' }] }] } }))).toEqual({ kind: 'switchProfileCatalog', id: 'profiles', catalog: { catalogRevision: 4, profiles: [{ id: 'keyboard', version: 1, name: 'Keyboard', kind: 'mapped', bindings: [{ switchId: 1, label: 'Space', behavior: 'stateful' }] }] } });
+  });
+
   it.each(['duplicate_request', 'expired_timestamp'])('preserves the sanitized %s authentication failure code', (code) => {
     expect(parseResponse(JSON.stringify({ type: 'error', error: { code, message: code } }))).toEqual({ kind: 'error', code, message: code });
   });

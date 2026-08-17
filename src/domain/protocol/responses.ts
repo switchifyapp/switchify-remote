@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, PcStatus, PointerProfile, ProtocolResponse } from './types';
+import type { JsonObject, JsonValue, PcStatus, PointerProfile, ProtocolResponse, SwitchProfileCatalog } from './types';
 
 function object(value: JsonValue | undefined): JsonObject | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
@@ -48,10 +48,35 @@ export function parseResponse(raw: string): ProtocolResponse {
       const profile = parsePointerProfile(payload);
       return profile ? { kind: 'pointerProfile', id, profile } : { kind: 'invalid' };
     }
+    if (value.type === 'switch.profile.list') {
+      const catalog = parseSwitchProfileCatalog(payload);
+      return catalog ? { kind: 'switchProfileCatalog', id, catalog } : { kind: 'invalid' };
+    }
     return { kind: 'invalid' };
   } catch {
     return { kind: 'invalid' };
   }
+}
+
+function parseSwitchProfileCatalog(payload: JsonObject): SwitchProfileCatalog | null {
+  const revision = number(payload.catalogRevision);
+  if (revision === null || !Number.isInteger(revision) || revision < 0 || !Array.isArray(payload.profiles) || payload.profiles.length > 34) return null;
+  const profiles = payload.profiles.map((entry) => {
+    const profile = object(entry);
+    if (!profile) return null;
+    const id = string(profile.id), version = number(profile.version), name = string(profile.name);
+    if (!id || !name || !version || !Number.isInteger(version) || (profile.kind !== 'grid3' && profile.kind !== 'mapped') || !Array.isArray(profile.bindings) || profile.bindings.length > 8) return null;
+    const bindings = profile.bindings.map((entry) => {
+      const binding = object(entry);
+      if (!binding) return null;
+      const switchId = number(binding.switchId), label = string(binding.label);
+      if (!switchId || !Number.isInteger(switchId) || switchId < 1 || switchId > 8 || !label || !['stateful', 'pulse', 'unassigned'].includes(String(binding.behavior))) return null;
+      return { switchId, label, behavior: binding.behavior as 'stateful' | 'pulse' | 'unassigned' };
+    });
+    if (bindings.some((binding) => binding === null)) return null;
+    return { id, version, name, kind: profile.kind as 'grid3' | 'mapped', bindings: bindings as NonNullable<(typeof bindings)[number]>[] };
+  });
+  return profiles.some((profile) => profile === null) ? null : { catalogRevision: revision, profiles: profiles as NonNullable<(typeof profiles)[number]>[] };
 }
 
 function parsePointerProfile(payload: JsonObject): PointerProfile | null {
