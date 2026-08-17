@@ -20,15 +20,26 @@ class FakeTransport implements BleTransport {
   availability = async () => this.currentAvailability;
   maxWriteValueBytes = () => 182;
   scanCallback: ((pc: DiscoveredDesktop) => void) | null = null;
+  connectedPeripheralIds: string[] = [];
+  failConnect = false;
   connectGate: Promise<void> | null = null;
   scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe { this.scanCallback = onDesktop; return () => { this.scanCallback = null; }; }
-  connect = async () => { await this.connectGate; }; disconnect = async () => undefined; writeFrame = async () => undefined;
+  connect = async (peripheralId: string) => {
+    this.connectedPeripheralIds.push(peripheralId);
+    await this.connectGate;
+    if (this.failConnect) throw new Error('connect failed');
+  }; disconnect = async () => undefined; writeFrame = async () => undefined;
   cancelPendingWrites = async () => undefined;
   notificationsReady = async () => undefined;
   subscribe(): Unsubscribe { return () => undefined; } subscribeDisconnect(): Unsubscribe { return () => undefined; }
 }
 
 const pc = (id: string, lastConnectedAt = 1): SavedPc => ({ desktopId: id, displayName: id, platform: 'windows', peripheralId: `ble-${id}`, lastConnectedAt });
+
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 20 && !condition(); attempt += 1) await Promise.resolve();
+  expect(condition()).toBe(true);
+};
 
 describe('connection lifecycle', () => {
   it('matches the Android pairing verification algorithm', () => {
@@ -89,6 +100,39 @@ describe('connection lifecycle', () => {
     const disconnecting = manager.disconnect();
     release();
     await Promise.all([connecting, disconnecting]);
+    expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('resolves a saved PC by stable desktop ID before connecting to its rotating BLE address', async () => {
+    const storage = new FakeStorage();
+    const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    transport.failConnect = true;
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    const connecting = manager.connectSaved(saved);
+    await waitFor(() => transport.scanCallback !== null);
+    transport.scanCallback?.({ ...saved, peripheralId: 'current-private-address', rssi: -42 });
+    await connecting;
+
+    expect(transport.connectedPeripheralIds).toEqual(['current-private-address']);
+    expect(transport.connectedPeripheralIds).not.toContain('old-private-address');
+  });
+
+  it('cancels saved-PC rediscovery without trying the stale address', async () => {
+    const storage = new FakeStorage();
+    const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    const connecting = manager.connectSaved(saved);
+    await waitFor(() => transport.scanCallback !== null);
+    await manager.disconnect();
+    await connecting;
+
+    expect(transport.connectedPeripheralIds).toEqual([]);
     expect(manager.snapshot().kind).toBe('idle');
   });
 });

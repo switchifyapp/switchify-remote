@@ -41,6 +41,7 @@ export class ConnectionManager {
     private readonly now = Date.now,
     private readonly id = () => `remote-${Crypto.randomUUID()}`,
     private readonly reconnectDelay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+    private readonly savedPcDiscoveryTimeoutMs = 10_000,
   ) {}
 
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
@@ -78,8 +79,44 @@ export class ConnectionManager {
     this.#scanStop?.(); this.#scanStop = null;
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
-    this.#set({ kind: 'connecting', desktop });
+    await this.#connectDesktop(desktop, operation);
+  }
+
+  async connectSaved(pc: SavedPc): Promise<void> {
+    const operation = ++this.#operation;
+    this.#scanStop?.(); this.#scanStop = null;
+    await this.#teardownConnection();
+    if (!this.#current(operation)) return;
+
+    const saved = await this.#orderedSaved();
+    if (!this.#current(operation)) return;
+    if (!await this.requestPermission()) {
+      if (this.#current(operation)) this.#set({ kind: 'permissionDenied', saved });
+      return;
+    }
+    if (!this.#current(operation)) return;
+    const availability = await this.transport.availability();
+    if (!this.#current(operation)) return;
+    if (availability !== 'ready') {
+      this.#set(this.#availabilityState(availability, saved));
+      return;
+    }
+
+    const savedDesktop: DiscoveredDesktop = { ...pc, rssi: null };
+    this.#set({ kind: 'connecting', desktop: savedDesktop });
     this.diagnostics.add('connecting');
+    const resolved = await this.#discoverSavedDesktop(pc.desktopId, operation);
+    if (!this.#current(operation)) return;
+    if (!resolved) {
+      await this.#fail('Could not find this PC nearby.', operation);
+      return;
+    }
+    await this.#connectDesktop(resolved, operation, true);
+  }
+
+  async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false): Promise<void> {
+    this.#set({ kind: 'connecting', desktop });
+    if (!announced) this.diagnostics.add('connecting');
     try {
       await this.transport.connect(desktop.peripheralId);
       if (!this.#current(operation)) return;
@@ -97,10 +134,6 @@ export class ConnectionManager {
     } catch {
       if (this.#current(operation)) await this.#fail('Could not connect to this PC.', operation);
     }
-  }
-
-  async connectSaved(pc: SavedPc): Promise<void> {
-    await this.connect({ desktopId: pc.desktopId, displayName: pc.displayName, platform: pc.platform, peripheralId: pc.peripheralId, rssi: null });
   }
 
   async unpair(desktopId: string): Promise<boolean> {
@@ -256,6 +289,33 @@ export class ConnectionManager {
     if (!this.#current(operation)) return;
     this.diagnostics.add('scan_failed', 'error');
     this.#set(availability === 'ready' ? { kind: 'failed', message: 'Bluetooth discovery could not start.', saved } : this.#availabilityState(availability, saved));
+  }
+
+  #discoverSavedDesktop(desktopId: string, operation: number): Promise<DiscoveredDesktop | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      let nativeStop: Unsubscribe = () => undefined;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const finish = (desktop: DiscoveredDesktop | null) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        nativeStop();
+        if (this.#scanStop === stop) this.#scanStop = null;
+        resolve(desktop);
+      };
+      const stop = () => finish(null);
+      this.#scanStop = stop;
+      try {
+        nativeStop = this.transport.scan((desktop) => {
+          if (this.#current(operation) && desktop.desktopId === desktopId) finish(desktop);
+        }, () => finish(null));
+        if (settled) nativeStop();
+        else timeout = setTimeout(() => finish(null), this.savedPcDiscoveryTimeoutMs);
+      } catch {
+        finish(null);
+      }
+    });
   }
 
   #availabilityState(availability: Exclude<BleAvailability, 'ready'>, saved: SavedPc[]): ConnectionState {
