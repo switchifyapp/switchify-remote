@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Switchify Remote",
+    "slug": "switchify-remote",
+    "version": "0.1.0-alpha.1",
+    "orientation": "default",
+    "icon": "./assets/images/switchify-remote-icon.png",
+    "scheme": "switchify-remote",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.enaboapps.switchify.remote",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Allow Switchify Remote to find and connect to Switchify PC."
+      }
+    },
+    "android": {
+      "package": "com.enaboapps.switchify.remote",
+      "adaptiveIcon": {
+        "backgroundColor": "#050505",
+        "foregroundImage": "./assets/images/switchify-remote-icon.png",
+        "monochromeImage": "./assets/images/switchify-remote-icon.png"
+      },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "image": "./assets/images/switchify-remote-icon.png",
+          "imageWidth": 160,
+          "dark": {
+            "backgroundColor": "#050505"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
