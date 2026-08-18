@@ -16,6 +16,7 @@
     },
     "android": {
       "package": "com.enaboapps.switchify.remote",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#050505",
         "foregroundImage": "./assets/images/switchify-remote-icon.png",
@@ -49,6 +50,7 @@
         }
       ],
       "expo-secure-store",
+      "./plugins/withAndroidReleaseSigning",
       [
         "expo-build-properties",
         {

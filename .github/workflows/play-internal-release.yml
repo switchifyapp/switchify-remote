@@ -1,0 +1,103 @@
+name: Play Internal Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish-internal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out released tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate internal release
+        shell: bash
+        env:
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="$(node -p "require('./app.json').expo.version")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          if [[ "$RELEASE_TAG" != "v$VERSION" || "$PACKAGE_VERSION" != "$VERSION" ]]; then
+            echo "Release tag, Expo version, and package version must match." >&2
+            exit 1
+          fi
+          if [[ "$IS_PRERELEASE" != "true" || "$VERSION" != *-* ]]; then
+            echo "Switchify Remote Play releases must be prereleases." >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "The released commit must be contained in origin/main." >&2
+            exit 1
+          fi
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Android project
+        run: npx expo prebuild --clean --platform android --no-install
+
+      - name: Decode upload keystore
+        shell: bash
+        run: printf '%s' '${{ secrets.UPLOAD_KEYSTORE_BASE64 }}' | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      - name: Build signed release bundle
+        working-directory: android
+        env:
+          NODE_ENV: production
+          UPLOAD_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Verify signed bundle
+        shell: bash
+        run: |
+          jarsigner -verify android/app/build/outputs/bundle/release/app-release.aab > "$RUNNER_TEMP/jarsigner.txt" 2>&1
+          grep -q '^jar verified' "$RUNNER_TEMP/jarsigner.txt"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: switchify-remote-release-${{ github.run_id }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Upload to Play internal testing
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.enaboapps.switchify.remote
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          tracks: internal
+          status: completed
+          releaseName: ${{ github.event.release.tag_name }}
+
+      - name: Clean up keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/upload.jks"
