@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.enaboapps.switchify.remote",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "supportsTablet": true,
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "Allow Switchify Remote to find and connect to Switchify PC."
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.enaboapps.switchify.remote",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#050505",
         "foregroundImage": "./assets/images/switchify-remote-icon.png",
