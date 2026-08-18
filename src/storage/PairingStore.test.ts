@@ -15,8 +15,9 @@ class PublicMemory {
 
 class SecretMemory {
   values = new Map<string, string>();
+  failGet = 0;
   failDelete = 0;
-  getItemAsync = async (key: string) => this.values.get(key) ?? null;
+  getItemAsync = async (key: string) => { if (this.failGet-- > 0) throw new Error('secret get failed'); return this.values.get(key) ?? null; };
   setItemAsync = async (key: string, value: string) => { this.values.set(key, value); };
   deleteItemAsync = async (key: string) => { if (this.failDelete-- > 0) throw new Error('delete failed'); this.values.delete(key); };
 }
@@ -93,5 +94,37 @@ describe('PairingStore transactions', () => {
     await expect(store.remove('pc-1')).rejects.toThrow();
     expect(publicStorage.values.get(indexKey)).toBe('{malformed');
     expect(secretStorage.values.get(tokenKey)).toBe('secret');
+  });
+
+  it('removes confirmed orphaned metadata and its default without deleting other pairings', async () => {
+    const { store, publicStorage, secretStorage } = fixture();
+    const second = { ...pc, desktopId: 'pc-2', displayName: 'Studio' };
+    publicStorage.values.set(indexKey, JSON.stringify([pc, second]));
+    secretStorage.values.set('switchify.remote.token.pc-2', 'second-secret');
+    secretStorage.values.delete(tokenKey);
+
+    expect(await store.list()).toEqual([second]);
+    expect(JSON.parse(publicStorage.values.get(indexKey)!)).toEqual([second]);
+    expect(publicStorage.values.has(`${indexKey}.default`)).toBe(false);
+  });
+
+  it('does not reconcile or delete metadata when secure token reads fail', async () => {
+    const { store, publicStorage, secretStorage } = fixture();
+    secretStorage.failGet = 1;
+
+    expect(await store.list()).toEqual([]);
+    expect(publicStorage.values.get(indexKey)).toBe(JSON.stringify([pc]));
+    expect(publicStorage.values.get(`${indexKey}.default`)).toBe('pc-1');
+    expect(secretStorage.values.get(tokenKey)).toBe('secret');
+  });
+
+  it('rolls back orphan reconciliation when the default cannot be cleared', async () => {
+    const { store, publicStorage, secretStorage } = fixture();
+    secretStorage.values.delete(tokenKey);
+    publicStorage.failRemove = 1;
+
+    expect(await store.list()).toEqual([]);
+    expect(publicStorage.values.get(indexKey)).toBe(JSON.stringify([pc]));
+    expect(publicStorage.values.get(`${indexKey}.default`)).toBe('pc-1');
   });
 });
