@@ -29,19 +29,11 @@ jobs:
         env:
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/versioning.cjs release
+
+      - name: Validate released commit
+        shell: bash
         run: |
-          VERSION="$(node -p "require('./app.json').expo.version")"
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-
-          if [[ "$RELEASE_TAG" != "v$VERSION" || "$PACKAGE_VERSION" != "$VERSION" ]]; then
-            echo "Release tag, Expo version, and package version must match." >&2
-            exit 1
-          fi
-          if [[ "$IS_PRERELEASE" != "true" || "$VERSION" != *-* ]]; then
-            echo "Switchify Remote Play releases must be prereleases." >&2
-            exit 1
-          fi
-
           git fetch --no-tags origin main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor HEAD origin/main; then
             echo "The released commit must be contained in origin/main." >&2
