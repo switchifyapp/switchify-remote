@@ -66,6 +66,40 @@ describe('capability-driven remote surfaces', () => {
     }
   });
 
+  it('uses the desktop-compatible scroll step for direct and repeated scrolling', async () => {
+    const directSend = jest.fn(async () => true);
+    const directSession = new RemoteSession(
+      { send: directSend } as unknown as ConnectionManager,
+      profile(['mouse.scroll']),
+    );
+    const directMouse = await render(<MouseSurface session={directSession} state={directSession.snapshot()} />);
+
+    await act(async () => { fireEvent.press(directMouse.getByLabelText('Scroll up')); await Promise.resolve(); });
+    await act(async () => { fireEvent.press(directMouse.getByLabelText('Scroll down')); await Promise.resolve(); });
+
+    expect(directSend.mock.calls).toEqual([
+      ['mouse.scroll', { dx: 0, dy: 5 }, 'ack'],
+      ['mouse.scroll', { dx: 0, dy: -5 }, 'ack'],
+    ]);
+
+    const repeatSend = jest.fn(async () => true);
+    const repeatSession = new RemoteSession(
+      { send: repeatSend } as unknown as ConnectionManager,
+      profile(['mouse.scroll', 'mouse.repeat.start', 'mouse.repeat.stop']),
+    );
+    const repeatMouse = await render(<MouseSurface session={repeatSession} state={repeatSession.snapshot()} />);
+
+    await act(async () => { fireEvent.press(repeatMouse.getByLabelText('Scroll up')); await Promise.resolve(); });
+    await repeatSession.stopRepeat();
+    await act(async () => { fireEvent.press(repeatMouse.getByLabelText('Scroll down')); await Promise.resolve(); });
+
+    expect(repeatSend.mock.calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'mouse.scroll', payload: { dx: 0, dy: 5 } } }],
+      ['mouse.repeat.stop', {}, 'none'],
+      ['mouse.repeat.start', { command: { type: 'mouse.scroll', payload: { dx: 0, dy: -5 } } }],
+    ]);
+  });
+
   it('routes every displayed remote action through the capability-approved session', async () => {
     const send = jest.fn(async (_type: string, _payload?: unknown, _mode?: unknown) => true);
     const actionManager = { send } as unknown as ConnectionManager;
