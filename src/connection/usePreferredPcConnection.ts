@@ -18,6 +18,10 @@ export function usePreferredPcConnection(manager: ConnectionManager): void {
       if (state !== 'active') { wasInactive = true; return; }
       if (wasInactive) { wasInactive = false; connect(); }
     });
-    return () => { focused = false; subscription.remove(); };
+    return () => {
+      focused = false;
+      subscription.remove();
+      void manager.cancelPreferredConnection();
+    };
   }, [manager]));
 }

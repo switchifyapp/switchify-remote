@@ -157,6 +157,11 @@ export class ConnectionManager {
     finally { if (this.#preferredConnect === attempt) this.#preferredConnect = null; }
   }
 
+  async cancelPreferredConnection(): Promise<void> {
+    if (!this.#preferredConnect || this.#state.kind === 'connected') return;
+    await this.disconnect(false);
+  }
+
   async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false, transportConnected = false, savedToken: string | null = null): Promise<void> {
     this.#set({ kind: 'connecting', desktop });
     if (!announced) this.diagnostics.add('connecting');

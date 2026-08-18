@@ -19,6 +19,7 @@ describe('preferred PC focus lifecycle', () => {
 
   it('connects once on focus and once after a foreground return without render retries', async () => {
     const connectPreferred = jest.fn(async () => undefined);
+    const cancelPreferredConnection = jest.fn(async () => undefined);
     let appStateListener: ((state: AppStateStatus) => void) | null = null;
     const remove = jest.fn();
     jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
@@ -26,7 +27,7 @@ describe('preferred PC focus lifecycle', () => {
       return { remove };
     });
     Object.defineProperty(AppState, 'currentState', { configurable: true, value: 'active' });
-    const manager = { connectPreferred } as unknown as ConnectionManager;
+    const manager = { connectPreferred, cancelPreferredConnection } as unknown as ConnectionManager;
 
     const view = await renderHook(() => usePreferredPcConnection(manager));
     expect(connectPreferred).toHaveBeenCalledTimes(1);
@@ -39,5 +40,6 @@ describe('preferred PC focus lifecycle', () => {
 
     await view.unmount();
     expect(remove).toHaveBeenCalledTimes(1);
+    expect(cancelPreferredConnection).toHaveBeenCalledTimes(1);
   });
 });

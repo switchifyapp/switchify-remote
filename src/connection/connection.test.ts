@@ -223,6 +223,26 @@ describe('connection lifecycle', () => {
     expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not find this PC nearby.' });
   });
 
+  it('cancels a pending preferred-PC connection when Remote loses focus', async () => {
+    let release!: () => void;
+    const storage = new FakeStorage();
+    storage.saved = [pc('preferred')];
+    storage.tokens.set('preferred', 'preferred-token');
+    const transport = new FakeTransport();
+    transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolvedDesktop = { ...pc('preferred'), rssi: -40 };
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    const connecting = manager.connectPreferred();
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    const cancelling = manager.cancelPreferredConnection();
+    release();
+    await Promise.all([connecting, cancelling]);
+
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'idle', saved: [{ desktopId: 'preferred' }] });
+  });
+
   it('never opens pairing when saved metadata has no token', async () => {
     const storage = new FakeStorage();
     const saved = pc('orphan');
