@@ -60,7 +60,9 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:ci": "jest --ci --runInBand",
-    "validate": "npm run lint && npm run typecheck && npm run test:ci && npx expo-doctor"
+    "version:check": "node scripts/versioning.cjs check",
+    "version:bump": "node scripts/versioning.cjs bump",
+    "validate": "npm run version:check && npm run lint && npm run typecheck && npm run test:ci && npx expo-doctor"
   },
   "private": true
 }

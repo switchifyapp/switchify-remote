@@ -84,8 +84,9 @@ Do not silently include unrelated working-tree changes. Do not rewrite, discard,
 
 ## Release safety
 
-- Keep `package.json` and `app.json` versions aligned for releases. Preserve semantic prerelease versions while the app remains in preview.
-- Treat Android `versionCode`, signing configuration, bundle identifiers, and store credentials as release-critical configuration.
-- Published GitHub releases trigger the Play internal-testing workflow. The release tag must match the Expo and package versions, be marked as a prerelease, contain a prerelease version, and point to a commit contained in `main`.
+- Follow `docs/versioning.md`. Keep the full semantic release identifier in `package.json`, its numeric `MAJOR.MINOR.PATCH` core in the Expo version, and one matching positive build ordinal in Android `versionCode` and iOS `buildNumber`.
+- Prepare versions manually with `npm run version:bump -- <version>`. Increment the release identifier and shared build ordinal for every store upload; do not derive builds from commit counts or reset them for a new marketing version.
+- Treat platform build numbers, signing configuration, bundle identifiers, and store credentials as release-critical configuration.
+- Published GitHub releases trigger the Play internal-testing workflow. The release tag must match the package version, be marked as a prerelease, contain a prerelease version, use a build greater than all earlier releases, and point to a commit contained in `main`.
 - Never expose, print, or commit the upload keystore, its passwords, the key alias, or the Play service-account JSON.
 - Before handoff, confirm the draft PR targets the intended base, CI is green, validation evidence is recorded, and no merge has occurred without explicit approval.
