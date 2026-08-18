@@ -125,6 +125,22 @@ describe('pairing and authenticated connection integration', () => {
     expect(transport.requests).not.toContain('pairing.request');
   });
 
+  it('keeps an established preferred connection when Remote loses focus', async () => {
+    const transport = new LoopbackTransport();
+    const storage = new MemoryStorage();
+    storage.saved = [{ ...desktop, lastConnectedAt: 1 }];
+    storage.tokens.set(desktop.desktopId, 'fixture-secret');
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `preferred-${++id}`; })());
+
+    await manager.connectPreferred();
+    expect(manager.snapshot().kind).toBe('connected');
+
+    await manager.cancelPreferredConnection();
+
+    expect(manager.snapshot().kind).toBe('connected');
+    expect(await manager.send('mouse.click', { button: 'left' })).toBe(true);
+  });
+
   it('invalidates rejected saved access without silently reopening pairing', async () => {
     const transport = new LoopbackTransport();
     transport.rejectAuthentication = true;
