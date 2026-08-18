@@ -4,14 +4,15 @@ import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
+import { mergePcList, pcListAction, type PcListItem } from '@/connection/pcList';
 import { colors } from '@/constants/colors';
-import type { SavedPc } from '@/storage/PairingStore';
-import type { DiscoveredDesktop } from '@/transport/BleTransport';
 
 export default function PcsScreen() {
   const manager = useConnectionManager();
   const state = useConnectionState();
   const saved = 'saved' in state ? state.saved : [];
+  const discovered = state.kind === 'scanning' ? state.discovered : [];
+  const pcs = mergePcList(saved, discovered);
   const announcement = state.kind === 'scanning' ? 'Searching for nearby PCs.' : state.kind === 'connecting' ? `Connecting to ${state.desktop.displayName}.` : state.kind === 'reconnecting' ? `Reconnecting to ${state.desktop.displayName}, attempt ${state.attempt}.` : state.kind === 'pairing' ? `Approve the pairing request on your PC. Verification code ${state.verificationCode.split('').join(' ')}.` : state.kind === 'connected' ? `Connected to ${state.desktop.displayName}.` : state.kind === 'failed' ? state.message : null;
   useAccessibilityAnnouncement(announcement);
 
@@ -25,19 +26,16 @@ export default function PcsScreen() {
       {state.kind === 'permissionDenied' ? <><EmptyState title="Bluetooth permission needed" body="Allow Bluetooth and nearby-device access in system settings, then try again." /><ActionButton label="Open settings" secondary onPress={() => void Linking.openSettings()} /></> : null}
       {state.kind === 'bluetoothOff' ? <EmptyState title="Turn on Bluetooth" body="Turn on Bluetooth, then search again." /> : null}
       {state.kind === 'unsupported' ? <EmptyState title="Bluetooth unavailable" body="This device cannot use the Bluetooth features required by Switchify Remote." /> : null}
-      {state.kind === 'scanning' && state.discovered.length === 0 ? <EmptyState title="Looking for PCs" body="Open Switchify PC and keep Bluetooth enabled." /> : null}
-      {state.kind === 'scanning' && state.discovered.map((pc) => <PcCard key={pc.desktopId} pc={pc} connect={() => void manager.connect(pc)} />)}
-      {saved.length > 0 ? <View style={styles.list}><Text accessibilityRole="header" style={styles.section}>Saved PCs</Text>{saved.map((pc, index) => <SavedPcCard key={pc.desktopId} pc={pc} isDefault={index === 0} connect={() => void manager.connectSaved(pc)} unpair={() => void manager.unpair(pc.desktopId)} />)}</View> : null}
+      {state.kind === 'scanning' && discovered.length === 0 ? <EmptyState title="Looking for PCs" body="Open Switchify PC and keep Bluetooth enabled." /> : null}
+      {pcs.length > 0 ? <View style={styles.list}><Text accessibilityRole="header" style={styles.section}>PCs</Text>{pcs.map((pc, index) => <PcCard key={pc.desktopId} pc={pc} preferred={pc.saved !== null && index === 0} connect={() => { if (pc.saved) void manager.connectSaved({ ...pc.saved, displayName: pc.displayName, platform: pc.platform, peripheralId: pc.peripheralId }); else void manager.connect(pc); }} unpair={pc.saved ? () => void manager.unpair(pc.desktopId) : null} />)}</View> : null}
     </Screen>
   );
 }
 
-function PcCard({ pc, connect }: { pc: DiscoveredDesktop; connect: () => void }) {
-  return <View style={styles.card}><Text style={styles.heading}>{pc.displayName}</Text><Text style={styles.body}>{pc.platform === 'macos' ? 'macOS' : pc.platform === 'windows' ? 'Windows' : 'Switchify PC'}</Text><ActionButton label="Connect" onPress={connect} /></View>;
-}
-
-function SavedPcCard({ pc, isDefault, connect, unpair }: { pc: SavedPc; isDefault: boolean; connect: () => void; unpair: () => void }) {
-  return <View style={styles.card}><Text style={styles.heading}>{pc.displayName}</Text>{isDefault ? <Text style={styles.connected}>Preferred</Text> : null}<View style={styles.actions}><View style={styles.flex}><ActionButton label={`Connect to ${pc.displayName}`} onPress={connect} /></View><View style={styles.flex}><ActionButton label={`Unpair ${pc.displayName}`} secondary onPress={unpair} /></View></View></View>;
+function PcCard({ pc, preferred, connect, unpair }: { pc: PcListItem; preferred: boolean; connect: () => void; unpair: (() => void) | null }) {
+  const platform = pc.platform === 'macos' ? 'macOS' : pc.platform === 'windows' ? 'Windows' : 'Switchify PC';
+  const status = pc.saved ? (pc.nearby ? 'Saved and nearby' : 'Saved PC') : 'New PC';
+  return <View style={styles.card}><Text style={styles.heading}>{pc.displayName}</Text>{preferred ? <Text style={styles.connected}>Preferred</Text> : null}<Text style={styles.body}>{platform} · {status}</Text><View style={styles.actions}><View style={styles.flex}><ActionButton label={pcListAction(pc)} onPress={connect} /></View>{unpair ? <View style={styles.flex}><ActionButton label={`Unpair ${pc.displayName}`} secondary onPress={unpair} /></View> : null}</View></View>;
 }
 
 const styles = StyleSheet.create({

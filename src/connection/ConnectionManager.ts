@@ -32,6 +32,9 @@ export class ConnectionManager {
   #deviceId: string | null = null;
   #cleanups = new Set<Cleanup>();
   #operation = 0;
+  #preferredConnect: Promise<void> | null = null;
+  #disconnecting: Promise<void> | null = null;
+  #invalidSavedDesktopIds = new Set<string>();
 
   constructor(
     private readonly transport: BleTransport,
@@ -48,7 +51,7 @@ export class ConnectionManager {
   registerCleanup(cleanup: Cleanup): Unsubscribe { this.#cleanups.add(cleanup); return () => this.#cleanups.delete(cleanup); }
 
   async load(): Promise<void> {
-    const operation = ++this.#operation;
+    const operation = this.#operation;
     const saved = await this.#orderedSaved();
     if (this.#current(operation)) this.#set({ kind: 'idle', saved });
   }
@@ -95,6 +98,20 @@ export class ConnectionManager {
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
 
+    let token: string | null;
+    try { token = await this.storage.token(pc.desktopId); }
+    catch {
+      if (this.#current(operation)) await this.#fail('Could not load saved access. Try again.', operation);
+      return;
+    }
+    if (!this.#current(operation)) return;
+    if (!token) {
+      this.#invalidSavedDesktopIds.add(pc.desktopId);
+      await this.storage.remove(pc.desktopId).catch(() => undefined);
+      if (this.#current(operation)) await this.#fail('Saved access is no longer available. Request access again.', operation, true);
+      return;
+    }
+
     const saved = await this.#orderedSaved();
     if (!this.#current(operation)) return;
     if (!await this.requestPermission()) {
@@ -115,13 +132,37 @@ export class ConnectionManager {
     try {
       const resolved = await this.transport.resolveAndConnect(pc.desktopId);
       if (!this.#current(operation)) return;
-      await this.#connectDesktop(resolved, operation, true, true);
+      await this.#connectDesktop(resolved, operation, true, true, token);
     } catch {
       if (this.#current(operation)) await this.#fail('Could not find this PC nearby.', operation);
     }
   }
 
-  async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false, transportConnected = false): Promise<void> {
+  async connectPreferred(): Promise<void> {
+    if (this.#preferredConnect) return this.#preferredConnect;
+    const attempt = (async () => {
+      await this.#disconnecting;
+      if (this.#state.kind === 'connected' || this.#state.kind === 'connecting' || this.#state.kind === 'pairing' || this.#state.kind === 'reconnecting' || this.#state.kind === 'scanning') return;
+      const sourceOperation = this.#operation;
+      const saved = await this.#orderedSaved();
+      if (sourceOperation !== this.#operation) return;
+      if (saved.length === 0) {
+        this.#set({ kind: 'idle', saved: [] });
+        return;
+      }
+      await this.connectSaved(saved[0]!);
+    })();
+    this.#preferredConnect = attempt;
+    try { await attempt; }
+    finally { if (this.#preferredConnect === attempt) this.#preferredConnect = null; }
+  }
+
+  async cancelPreferredConnection(): Promise<void> {
+    if (!this.#preferredConnect || this.#state.kind === 'connected') return;
+    await this.disconnect(false);
+  }
+
+  async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false, transportConnected = false, savedToken: string | null = null): Promise<void> {
     this.#set({ kind: 'connecting', desktop });
     if (!announced) this.diagnostics.add('connecting');
     try {
@@ -134,12 +175,14 @@ export class ConnectionManager {
       this.#client = client;
       this.#deviceId = await this.storage.getDeviceId();
       if (!this.#current(operation)) return;
-      const token = await this.storage.token(desktop.desktopId);
+      const token = this.#invalidSavedDesktopIds.has(desktop.desktopId) ? null : savedToken ?? await this.storage.token(desktop.desktopId);
       if (!this.#current(operation)) return;
       if (token) await this.#authenticate(desktop, token, operation);
       else await this.#pair(desktop, operation);
-    } catch {
-      if (this.#current(operation)) await this.#fail('Could not connect to this PC.', operation);
+    } catch (error) {
+      if (!this.#current(operation)) return;
+      if (error instanceof InvalidSavedAccessError) await this.#fail('Saved access is no longer valid. Request access again.', operation, true);
+      else await this.#fail('Could not connect to this PC.', operation);
     }
   }
 
@@ -147,6 +190,7 @@ export class ConnectionManager {
     if ('desktop' in this.#state && this.#state.desktop.desktopId === desktopId) await this.disconnect();
     try {
       await this.storage.remove(desktopId);
+      this.#invalidSavedDesktopIds.delete(desktopId);
       await this.load();
       return true;
     } catch {
@@ -164,6 +208,15 @@ export class ConnectionManager {
   }
 
   async disconnect(record = true): Promise<void> {
+    if (this.#disconnecting) return this.#disconnecting;
+    this.#preferredConnect = null;
+    const attempt = this.#disconnect(record);
+    this.#disconnecting = attempt;
+    try { await attempt; }
+    finally { if (this.#disconnecting === attempt) this.#disconnecting = null; }
+  }
+
+  async #disconnect(record: boolean): Promise<void> {
     const operation = ++this.#operation;
     this.#scanStop?.(); this.#scanStop = null;
     // Cancel older acknowledgement waits, then send best-effort cleanup while
@@ -225,7 +278,11 @@ export class ConnectionManager {
     const response = await this.#client!.request(ping, pingId);
     if (!this.#current(operation)) return;
     if (response.kind !== 'ack') {
-      if (response.kind === 'error' && response.code === 'invalid_auth') { this.diagnostics.add('authentication_failed', 'error'); await this.storage.remove(desktop.desktopId); }
+      if (response.kind === 'error' && response.code === 'invalid_auth') {
+        this.#invalidSavedDesktopIds.add(desktop.desktopId);
+        await this.storage.remove(desktop.desktopId).catch(() => undefined);
+        throw new InvalidSavedAccessError();
+      }
       throw new Error('Authentication failed.');
     }
     this.#token = token;
@@ -236,6 +293,7 @@ export class ConnectionManager {
     const profile = profileResponse?.kind === 'pointerProfile' ? profileResponse.profile : null;
     const saved = { desktopId: desktop.desktopId, displayName: desktop.displayName, platform: desktop.platform, peripheralId: desktop.peripheralId, lastConnectedAt: this.now() };
     await this.storage.save(saved, token);
+    this.#invalidSavedDesktopIds.delete(desktop.desktopId);
     if (!this.#current(operation)) return;
     this.diagnostics.add('connected');
     this.#set({ kind: 'connected', desktop, profile });
@@ -291,8 +349,8 @@ export class ConnectionManager {
   }
 
   async #orderedSaved(): Promise<SavedPc[]> {
-    const saved = await this.storage.list();
-    const defaultId = await this.storage.defaultDesktopId();
+    const saved = (await this.storage.list()).filter((pc) => !this.#invalidSavedDesktopIds.has(pc.desktopId));
+    const defaultId = await this.storage.defaultDesktopId().catch(() => null);
     return defaultId ? [...saved].sort((a, b) => Number(b.desktopId === defaultId) - Number(a.desktopId === defaultId)) : saved;
   }
 
@@ -314,3 +372,5 @@ export class ConnectionManager {
 
   #set(state: ConnectionState): void { this.#state = state; this.#listeners.forEach((listener) => listener()); }
 }
+
+class InvalidSavedAccessError extends Error {}

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useBridgeSnapshot, useSwitchifyBridge } from '@/bridge/BridgeContext';
 import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
+import { usePreferredPcConnection } from '@/connection/usePreferredPcConnection';
 import { MouseSurface } from '@/remote/MouseSurface';
+import { DisconnectedRemote } from '@/remote/DisconnectedRemote';
 import { RemoteSession } from '@/remote/RemoteSession';
 import { SurfaceSelector } from '@/remote/SurfaceSelector';
 import { TypingSurface } from '@/remote/TypingSurface';
@@ -15,6 +17,7 @@ import { ForwardingRestoreState, ForwardingSurface, shouldClearForwardingRestore
 
 export default function RemoteScreen() {
   const manager = useConnectionManager();
+  const router = useRouter();
   const bridge = useSwitchifyBridge();
   const bridgeSnapshot = useBridgeSnapshot();
   const params = useLocalSearchParams<{ surface?: string }>();
@@ -25,13 +28,14 @@ export default function RemoteScreen() {
   const desktopId = connection.kind === 'connected' ? connection.desktop.desktopId : null;
   const session = useMemo(() => new RemoteSession(manager, profile, undefined, desktopId, bridge), [manager, desktopId, profile, bridge]);
   const sessionState = useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
+  usePreferredPcConnection(manager);
   useEffect(() => { if (params.surface === 'mouse' || params.surface === 'forwarding') void preferencesStore.update({ surface: params.surface }); }, [params.surface]);
   useEffect(() => manager.registerCleanup(() => session.cleanup()), [manager, session]);
   useEffect(() => () => { void session.cleanup(); session.dispose(); }, [session]);
   useEffect(() => {
     if (shouldClearForwardingRestore(preferences.surface, connection.kind)) forwardingRestore.clear();
   }, [connection.kind, forwardingRestore, preferences.surface]);
-  if (connection.kind !== 'connected') return <Screen title="Remote"><EmptyState title="Connect a PC" body="Choose a saved or nearby PC before opening remote controls." /></Screen>;
+  if (connection.kind !== 'connected') return <DisconnectedRemote connection={connection} selectedSurface={preferences.surface} retry={() => void manager.connectPreferred()} choose={() => router.navigate('/')} />;
   if (!connection.profile) return <Screen title="Remote"><EmptyState title="Controls unavailable" body="This PC did not provide a compatible remote-control profile. Reconnect after updating Switchify PC." /></Screen>;
   return (
     <Screen title="Remote" description={`Connected to ${connection.desktop.displayName}`}>

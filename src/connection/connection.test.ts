@@ -9,7 +9,9 @@ class FakeStorage implements PairingStorage {
   tokens = new Map<string, string>();
   defaultId: string | null = null;
   failRemove = false;
-  getDeviceId = async () => 'device-1'; list = async () => this.saved; token = async (id: string) => this.tokens.get(id) ?? null;
+  failTokenRead = false;
+  listGate: Promise<void> | null = null;
+  getDeviceId = async () => 'device-1'; list = async () => { await this.listGate; return this.saved; }; token = async (id: string) => { if (this.failTokenRead) throw new Error('secure read failed'); return this.tokens.get(id) ?? null; };
   save = async (pc: SavedPc, token: string) => { this.saved = [pc]; this.tokens.set(pc.desktopId, token); };
   remove = async (id: string) => { if (this.failRemove) throw new Error('remove failed'); this.saved = this.saved.filter((pc) => pc.desktopId !== id); this.tokens.delete(id); };
   defaultDesktopId = async () => this.defaultId; setDefaultDesktopId = async (id: string | null) => { this.defaultId = id; };
@@ -138,6 +140,7 @@ describe('connection lifecycle', () => {
     const storage = new FakeStorage();
     const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
     storage.saved = [saved];
+    storage.tokens.set(saved.desktopId, 'saved-token');
     const transport = new FakeTransport();
     transport.resolvedDesktop = { ...saved, peripheralId: 'current-private-address', rssi: -42 };
     transport.failReadiness = true;
@@ -154,6 +157,7 @@ describe('connection lifecycle', () => {
     const storage = new FakeStorage();
     const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
     storage.saved = [saved];
+    storage.tokens.set(saved.desktopId, 'saved-token');
     const transport = new FakeTransport();
     let release!: () => void;
     transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
@@ -174,6 +178,7 @@ describe('connection lifecycle', () => {
     const storage = new FakeStorage();
     const saved = { ...pc('pc-1'), peripheralId: 'old-private-address' };
     storage.saved = [saved];
+    storage.tokens.set(saved.desktopId, 'saved-token');
     const transport = new FakeTransport();
     transport.resolveError = new Error('Saved PC discovery timed out.');
     const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
@@ -182,5 +187,126 @@ describe('connection lifecycle', () => {
 
     expect(transport.connectedPeripheralIds).toEqual([]);
     expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not find this PC nearby.' });
+  });
+
+  it('connects the explicit default and otherwise the most recent saved PC', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('recent', 2), pc('default', 1)];
+    storage.tokens.set('recent', 'recent-token');
+    storage.tokens.set('default', 'default-token');
+    storage.defaultId = 'default';
+    const transport = new FakeTransport();
+    transport.resolvedDesktop = { ...pc('default'), rssi: -40 };
+    transport.failReadiness = true;
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectPreferred();
+    expect(transport.resolveDesktopIds).toEqual(['default']);
+
+    storage.defaultId = null;
+    transport.resolvedDesktop = { ...pc('recent'), rssi: -40 };
+    await manager.connectPreferred();
+    expect(transport.resolveDesktopIds).toEqual(['default', 'recent']);
+  });
+
+  it('does not cascade through other saved PCs when the preferred PC is unavailable', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('preferred', 2), pc('other', 1)];
+    storage.tokens.set('preferred', 'preferred-token');
+    storage.tokens.set('other', 'other-token');
+    const transport = new FakeTransport();
+    transport.resolveError = new Error('not nearby');
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectPreferred();
+    expect(transport.resolveDesktopIds).toEqual(['preferred']);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not find this PC nearby.' });
+  });
+
+  it('cancels a pending preferred-PC connection when Remote loses focus', async () => {
+    let release!: () => void;
+    const storage = new FakeStorage();
+    storage.saved = [pc('preferred')];
+    storage.tokens.set('preferred', 'preferred-token');
+    const transport = new FakeTransport();
+    transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolvedDesktop = { ...pc('preferred'), rssi: -40 };
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    const connecting = manager.connectPreferred();
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    const cancelling = manager.cancelPreferredConnection();
+    release();
+    await Promise.all([connecting, cancelling]);
+
+    expect(transport.connectedPeripheralIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'idle', saved: [{ desktopId: 'preferred' }] });
+  });
+
+  it('never opens pairing when saved metadata has no token', async () => {
+    const storage = new FakeStorage();
+    const saved = pc('orphan');
+    storage.saved = [saved];
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectSaved(saved);
+    expect(transport.resolveDesktopIds).toEqual([]);
+    expect(storage.saved).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Saved access is no longer available. Request access again.' });
+  });
+
+  it('does not remove saved metadata when secure token loading fails', async () => {
+    const storage = new FakeStorage();
+    const saved = pc('pc-1');
+    storage.saved = [saved];
+    storage.tokens.set(saved.desktopId, 'saved-token');
+    storage.failTokenRead = true;
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectSaved(saved);
+    expect(storage.saved).toEqual([saved]);
+    expect(storage.tokens.get(saved.desktopId)).toBe('saved-token');
+    expect(transport.resolveDesktopIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not load saved access. Try again.' });
+  });
+
+  it('waits for foreground cleanup before auto-connecting again', async () => {
+    let finishCleanup!: () => void;
+    const storage = new FakeStorage();
+    storage.saved = [pc('pc-1')];
+    storage.tokens.set('pc-1', 'saved-token');
+    const transport = new FakeTransport();
+    transport.resolvedDesktop = { ...pc('pc-1'), rssi: -40 };
+    transport.failReadiness = true;
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+    manager.registerCleanup(() => new Promise<void>((resolve) => { finishCleanup = resolve; }));
+
+    const disconnecting = manager.disconnect();
+    const connecting = manager.connectPreferred();
+    await Promise.resolve();
+    expect(transport.resolveDesktopIds).toEqual([]);
+    finishCleanup();
+    await Promise.all([disconnecting, connecting]);
+    expect(transport.resolveDesktopIds).toEqual(['pc-1']);
+  });
+
+  it('does not let initial pairing load invalidate an early Remote focus connection', async () => {
+    let finishLoad!: () => void;
+    const storage = new FakeStorage();
+    storage.saved = [pc('pc-1')];
+    storage.tokens.set('pc-1', 'saved-token');
+    storage.listGate = new Promise<void>((resolve) => { finishLoad = resolve; });
+    const transport = new FakeTransport();
+    transport.resolvedDesktop = { ...pc('pc-1'), rssi: -40 };
+    transport.failReadiness = true;
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    const connecting = manager.connectPreferred();
+    const loading = manager.load();
+    finishLoad();
+    await Promise.all([connecting, loading]);
+    expect(transport.resolveDesktopIds).toEqual(['pc-1']);
   });
 });
