@@ -36,6 +36,7 @@ class LoopbackTransport implements BleTransport {
   responseGateQueues = new Map<string, Promise<void>[]>();
   dropResponses = new Set<string>();
   dropResponseCounts = new Map<string, number>();
+  invalidResponseCounts = new Map<string, number>();
   hangWrites = new Set<string>();
   scan(): Unsubscribe { return () => undefined; }
   resolveAndConnect = async () => {
@@ -76,7 +77,11 @@ class LoopbackTransport implements BleTransport {
     } else if (request.type === 'connection.ping' && this.rejectAuthentication) {
       response = { type: 'error', id: request.id, ok: false, error: { code: 'invalid_auth', message: 'invalid_auth' }, payload: {} };
     } else if (request.type === 'pointer.profile') {
-      response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {
+      const invalidResponsesRemaining = this.invalidResponseCounts.get(request.type) ?? 0;
+      if (invalidResponsesRemaining > 0) {
+        this.invalidResponseCounts.set(request.type, invalidResponsesRemaining - 1);
+        response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {} };
+      } else response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {
         displayId: 'display-1', scaleFactor: 1.5, bounds: { x: -1280, y: 0, width: 1280, height: 720 }, maxDelta: 256,
         recommendedDeltas: { small: 32, medium: 128, large: 256 }, capabilities: { noAckMouseMove: true, noAckCommands: ['mouse.move'], supportedCommands: ['mouse.move', 'mouse.click', 'pointer.display.move', 'pointer.speed.set', 'keyboard.typeText', 'keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close'], mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 128, effectiveMoveDelta: 128 }, displayNavigation: { supported: true, displayCount: 2 } },
       } };
@@ -113,6 +118,27 @@ describe('pairing and authenticated connection integration', () => {
       const transport = new LoopbackTransport();
       transport.dropResponseCounts.set('pointer.profile', 1);
       const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-retry-${++id}`; })());
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: { displayId: 'display-1' } });
+      const profileRequests = transport.requestIds.filter(({ type }) => type === 'pointer.profile');
+      expect(profileRequests).toHaveLength(2);
+      expect(new Set(profileRequests.map(({ id }) => id)).size).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('retries an invalid pointer profile once with a fresh request id', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.invalidResponseCounts.set('pointer.profile', 1);
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-invalid-${++id}`; })());
 
       const connecting = manager.connect(desktop);
       await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
