@@ -28,11 +28,15 @@ class LoopbackTransport implements BleTransport {
   rejectPairing = false;
   rejectAuthentication = false;
   requests: string[] = [];
+  requestIds: { id: string; type: string }[] = [];
   connectCount = 0;
   connectFailures = 0;
   readinessGate: Promise<void> | null = null;
   responseGates = new Map<string, Promise<void>>();
+  responseGateQueues = new Map<string, Promise<void>[]>();
   dropResponses = new Set<string>();
+  dropResponseCounts = new Map<string, number>();
+  invalidResponseCounts = new Map<string, number>();
   hangWrites = new Set<string>();
   scan(): Unsubscribe { return () => undefined; }
   resolveAndConnect = async () => {
@@ -55,8 +59,15 @@ class LoopbackTransport implements BleTransport {
     if (result.kind !== 'complete') return;
     const request = JSON.parse(result.message) as { id: string; type: string; payload: { deviceId?: string; desktopId?: string } };
     this.requests.push(request.type);
+    this.requestIds.push({ id: request.id, type: request.type });
     if (this.hangWrites.has(request.type)) await new Promise<void>(() => undefined);
+    await this.responseGateQueues.get(request.type)?.shift();
     await this.responseGates.get(request.type);
+    const dropsRemaining = this.dropResponseCounts.get(request.type) ?? 0;
+    if (dropsRemaining > 0) {
+      this.dropResponseCounts.set(request.type, dropsRemaining - 1);
+      return;
+    }
     if (this.dropResponses.has(request.type)) return;
     let response: object;
     if (request.type === 'pairing.request') {
@@ -66,7 +77,11 @@ class LoopbackTransport implements BleTransport {
     } else if (request.type === 'connection.ping' && this.rejectAuthentication) {
       response = { type: 'error', id: request.id, ok: false, error: { code: 'invalid_auth', message: 'invalid_auth' }, payload: {} };
     } else if (request.type === 'pointer.profile') {
-      response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {
+      const invalidResponsesRemaining = this.invalidResponseCounts.get(request.type) ?? 0;
+      if (invalidResponsesRemaining > 0) {
+        this.invalidResponseCounts.set(request.type, invalidResponsesRemaining - 1);
+        response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {} };
+      } else response = { type: 'pointer.profile', id: request.id, ok: true, error: null, payload: {
         displayId: 'display-1', scaleFactor: 1.5, bounds: { x: -1280, y: 0, width: 1280, height: 720 }, maxDelta: 256,
         recommendedDeltas: { small: 32, medium: 128, large: 256 }, capabilities: { noAckMouseMove: true, noAckCommands: ['mouse.move'], supportedCommands: ['mouse.move', 'mouse.click', 'pointer.display.move', 'pointer.speed.set', 'keyboard.typeText', 'keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close'], mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 128, effectiveMoveDelta: 128 }, displayNavigation: { supported: true, displayCount: 2 } },
       } };
@@ -88,12 +103,101 @@ describe('pairing and authenticated connection integration', () => {
     manager.registerCleanup(cleanup);
     await manager.connect(desktop);
     expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: { scaleFactor: 1.5, capabilities: { displayNavigation: { displayCount: 2 } } } });
+    expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(1);
     expect(storage.tokens.get('pc-1')).toBe('fixture-secret');
     expect(await manager.send('mouse.click', { button: 'left' })).toBe(true);
     await manager.disconnect();
     expect(cleanup).toHaveBeenCalledTimes(1);
     expect(transport.requests.filter((type) => type === 'mouse.click')).toHaveLength(2);
     expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('retries a missing pointer profile once with a fresh request id', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.dropResponseCounts.set('pointer.profile', 1);
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-retry-${++id}`; })());
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: { displayId: 'display-1' } });
+      const profileRequests = transport.requestIds.filter(({ type }) => type === 'pointer.profile');
+      expect(profileRequests).toHaveLength(2);
+      expect(new Set(profileRequests.map(({ id }) => id)).size).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('retries an invalid pointer profile once with a fresh request id', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.invalidResponseCounts.set('pointer.profile', 1);
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-invalid-${++id}`; })());
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: { displayId: 'display-1' } });
+      const profileRequests = transport.requestIds.filter(({ type }) => type === 'pointer.profile');
+      expect(profileRequests).toHaveLength(2);
+      expect(new Set(profileRequests.map(({ id }) => id)).size).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses the safe unavailable state after both pointer profile attempts time out', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.dropResponseCounts.set('pointer.profile', 2);
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-missing-${++id}`; })());
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: null });
+      expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps disconnect authoritative while the pointer profile retry is pending', async () => {
+    jest.useFakeTimers();
+    try {
+      let resumeRetry!: () => void;
+      const retryGate = new Promise<void>((resolve) => { resumeRetry = resolve; });
+      const transport = new LoopbackTransport();
+      transport.dropResponseCounts.set('pointer.profile', 1);
+      transport.responseGateQueues.set('pointer.profile', [Promise.resolve(), retryGate]);
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-cancel-${++id}`; })());
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 2);
+      const disconnecting = manager.disconnect();
+      resumeRetry();
+      await Promise.all([connecting, disconnecting]);
+
+      expect(manager.snapshot().kind).toBe('idle');
+      expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('does not send pairing until notifications are ready', async () => {
@@ -280,6 +384,14 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('condition was not reached');
+}
+
+async function waitForMicrotasks(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await jest.advanceTimersByTimeAsync(0);
   }
   throw new Error('condition was not reached');
 }

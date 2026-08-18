@@ -286,17 +286,26 @@ export class ConnectionManager {
       throw new Error('Authentication failed.');
     }
     this.#token = token;
-    const [profileType, profilePayload] = commandPayloads.pointerProfile();
-    const profileId = this.id();
-    const profileResponse = await this.#client!.request(authenticatedCommand({ id: profileId, deviceId: this.#deviceId!, token, timestamp: this.now(), type: profileType, payload: profilePayload }), profileId, 5_000).catch(() => null);
+    const profile = await this.#requestPointerProfile(token, operation);
     if (!this.#current(operation)) return;
-    const profile = profileResponse?.kind === 'pointerProfile' ? profileResponse.profile : null;
     const saved = { desktopId: desktop.desktopId, displayName: desktop.displayName, platform: desktop.platform, peripheralId: desktop.peripheralId, lastConnectedAt: this.now() };
     await this.storage.save(saved, token);
     this.#invalidSavedDesktopIds.delete(desktop.desktopId);
     if (!this.#current(operation)) return;
     this.diagnostics.add('connected');
     this.#set({ kind: 'connected', desktop, profile });
+  }
+
+  async #requestPointerProfile(token: string, operation: number): Promise<PointerProfile | null> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!this.#current(operation)) return null;
+      const [type, payload] = commandPayloads.pointerProfile();
+      const id = this.id();
+      const response = await this.#client!.request(authenticatedCommand({ id, deviceId: this.#deviceId!, token, timestamp: this.now(), type, payload }), id, 5_000).catch(() => null);
+      if (!this.#current(operation)) return null;
+      if (response?.kind === 'pointerProfile') return response.profile;
+    }
+    return null;
   }
 
   async #unexpectedDisconnect(desktop: DiscoveredDesktop, sourceOperation: number): Promise<void> {
