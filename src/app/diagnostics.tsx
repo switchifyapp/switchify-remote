@@ -17,7 +17,8 @@ export default function DiagnosticsScreen() {
   const entries = useSyncExternalStore(log.subscribe, log.snapshot, log.snapshot);
   const { colors, spacing } = useTheme();
   return (
-    <Screen title="Diagnostics" description="Activity stays on this device. Typed text and credentials are never recorded.">
+    <Screen nativeHeader title="Diagnostics">
+      <AppText muted>Activity stays on this device. Typed text and credentials are never recorded.</AppText>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         <View style={{ flex: 1, minWidth: 110 }}><ActionButton icon="content-copy" label="Copy" disabled={entries.length === 0} onPress={() => void Clipboard.setStringAsync(log.export())} /></View>
         <View style={{ flex: 1, minWidth: 110 }}><ActionButton icon="share" label="Export" tone="secondary" disabled={entries.length === 0} onPress={() => void exportDiagnostics(log.export())} /></View>

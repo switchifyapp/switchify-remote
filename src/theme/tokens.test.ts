@@ -1,4 +1,4 @@
-import { classifyLayout } from './ThemeContext';
+import { classifyLayout, shouldUseTwoColumns } from './ThemeContext';
 import { palettes } from './tokens';
 
 function luminance(hex: string): number {
@@ -24,5 +24,7 @@ describe('theme', () => {
     expect(classifyLayout(390, 844)).toMatchObject({ isCompact: true, isLandscape: false });
     expect(classifyLayout(700, 390)).toMatchObject({ isMedium: true, isLandscape: true });
     expect(classifyLayout(840, 1100)).toMatchObject({ isExpanded: true, isLandscape: false });
+    expect(shouldUseTwoColumns(classifyLayout(768, 1024))).toBe(true);
+    expect(shouldUseTwoColumns(classifyLayout(768, 1024, 2))).toBe(false);
   });
 });

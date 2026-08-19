@@ -32,17 +32,22 @@ export function useTheme(): ThemeValue {
 }
 
 export function useLayout() {
-  const { width, height } = useWindowDimensions();
-  return classifyLayout(width, height);
+  const { width, height, fontScale } = useWindowDimensions();
+  return classifyLayout(width, height, fontScale);
 }
 
-export function classifyLayout(width: number, height: number) {
+export function classifyLayout(width: number, height: number, fontScale = 1) {
   return {
     isCompact: width < 600,
     isMedium: width >= 600 && width < 840,
     isExpanded: width >= 840,
     isLandscape: width > height,
+    isLargeText: fontScale >= 1.5,
   };
+}
+
+export function shouldUseTwoColumns(layout: ReturnType<typeof classifyLayout>): boolean {
+  return !layout.isCompact && !layout.isLargeText;
 }
 
 export function useReducedMotionPreference(): boolean {
