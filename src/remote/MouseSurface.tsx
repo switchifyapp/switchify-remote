@@ -36,7 +36,7 @@ export function MouseSurface({ session, state, physicalSwitchStopAvailable = tru
     {state.repeat ? <ActionButton icon="stop-circle" label="Stop movement" tone="danger" onPress={() => void session.stopRepeat()} /> : null}
   </View>;
 
-  const secondary = <View style={{ flex: 1, gap: spacing.md, minWidth: twoPane ? 300 : undefined }}>
+  const secondary = <View testID="mouse-secondary" style={{ flex: 1, gap: spacing.md, minWidth: twoPane ? 300 : undefined, width: twoPane ? undefined : '100%' }}>
     <AppText accessibilityRole="header" variant="heading">Clicks and scroll</AppText>
     <ResponsiveGrid minItemWidth={140}><ControlButton icon="ads-click" label="Double click" disabled={!session.supports('mouse.doubleClick')} onPress={() => sendTuple(commandPayloads.doubleClick())} /><ControlButton icon="mouse" label="Right click" disabled={!session.supports('mouse.rightClick')} onPress={() => sendTuple(commandPayloads.rightClick())} /><ControlButton icon="pan-tool" label={state.dragging ? 'End drag' : 'Start drag'} disabled={!session.supports(state.dragging ? 'mouse.dragEnd' : 'mouse.dragStart')} selected={state.dragging} onPress={() => void session.toggleDrag()} /></ResponsiveGrid>
     <ResponsiveGrid maxColumns={2} minItemWidth={140}><ControlButton icon="arrow-upward" label="Scroll up" disabled={!session.supports('mouse.scroll')} onPress={() => void session.mouse('mouse.scroll', { dx: 0, dy: scrollStep }, true)} /><ControlButton icon="arrow-downward" label="Scroll down" disabled={!session.supports('mouse.scroll')} onPress={() => void session.mouse('mouse.scroll', { dx: 0, dy: -scrollStep }, true)} /></ResponsiveGrid>

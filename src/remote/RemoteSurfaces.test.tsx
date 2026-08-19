@@ -1,5 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { RenderResult } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
 import { MouseSurface } from './MouseSurface';
@@ -22,6 +23,7 @@ describe('capability-driven remote surfaces', () => {
     expect(view.getByLabelText('Double click').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('Move up').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('Faster').props.accessibilityState.disabled).toBe(true);
+    expect(StyleSheet.flatten(view.getByTestId('mouse-secondary').props.style).width).toBe('100%');
   });
 
   it('falls back to draft typing when streams are unsupported', async () => {
