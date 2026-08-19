@@ -43,6 +43,7 @@ export function classifyLayout(width: number, height: number, fontScale = 1) {
     isExpanded: width >= 840,
     isLandscape: width > height,
     isLargeText: fontScale >= 1.5,
+    fontScale,
   };
 }
 

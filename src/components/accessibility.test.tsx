@@ -12,6 +12,7 @@ describe('accessibility primitives', () => {
     const style = StyleSheet.flatten(control.props.style);
     expect(style.minHeight).toBeGreaterThanOrEqual(48);
     expect(style.minWidth).toBeGreaterThanOrEqual(48);
+    expect(view.getByText('Mouse').props.numberOfLines).toBeUndefined();
   });
 
   it('keeps content in one labelled, scrollable screen hierarchy', async () => {
@@ -21,10 +22,11 @@ describe('accessibility primitives', () => {
   });
 
   it('keeps read-only status text out of switch scanning', async () => {
-    const view = await render(<StatusBadge label="Connected to Office" tone="success" />);
+    const label = 'Connected to an office computer with an intentionally long localized display name';
+    const view = await render(<StatusBadge label={label} tone="success" />);
 
-    expect(view.getByText('Connected to Office')).toBeTruthy();
-    expect(view.queryByLabelText('Connected to Office')).toBeNull();
+    expect(view.getByText(label)).toBeTruthy();
+    expect(view.queryByLabelText(label)).toBeNull();
     expect(view.queryByRole('button')).toBeNull();
   });
 
