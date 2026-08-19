@@ -26,5 +26,6 @@ describe('theme', () => {
     expect(classifyLayout(840, 1100)).toMatchObject({ isExpanded: true, isLandscape: false });
     expect(shouldUseTwoColumns(classifyLayout(768, 1024))).toBe(true);
     expect(shouldUseTwoColumns(classifyLayout(768, 1024, 2))).toBe(false);
+    expect(classifyLayout(390, 844, 1.75).fontScale).toBe(1.75);
   });
 });

@@ -12,8 +12,8 @@ export function StatusBadge({ label, tone = 'neutral', icon }: { label: string; 
   const { colors, radii, spacing } = useTheme();
   const foreground = tone === 'neutral' ? colors.textMuted : tone === 'brand' ? colors.brandText : colors[tone];
   const background = tone === 'neutral' ? colors.surfaceRaised : tone === 'brand' ? colors.brandTint : colors[`${tone}Tint`];
-  return <View style={{ alignItems: 'center', alignSelf: 'flex-start', backgroundColor: background, borderRadius: radii.pill, flexDirection: 'row', gap: spacing.xs, minHeight: 28, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+  return <View style={{ alignItems: 'center', alignSelf: 'flex-start', backgroundColor: background, borderRadius: radii.pill, flexDirection: 'row', flexShrink: 1, gap: spacing.xs, maxWidth: '100%', minHeight: 28, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
     <MaterialIcons color={foreground} importantForAccessibility="no" name={icon ?? 'circle'} size={icon ? 16 : 8} />
-    <AppText style={{ color: foreground }} variant="caption">{label}</AppText>
+    <AppText style={{ color: foreground, flexShrink: 1 }} variant="caption">{label}</AppText>
   </View>;
 }

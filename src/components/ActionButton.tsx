@@ -17,7 +17,7 @@ export function ActionButton({ label, onPress, disabled = false, busy = false, s
     <Animated.View style={{ transform: [{ scale: press.scale }], width: '100%' }}><Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} onPressIn={press.pressIn} onPressOut={press.pressOut} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed && !disabled ? (resolvedTone === 'primary' ? colors.brandPressed : colors.surfacePressed) : background, borderColor: resolvedTone === 'tertiary' ? 'transparent' : resolvedTone === 'danger' ? colors.danger : colors.border, borderRadius: radii.md, borderWidth: resolvedTone === 'primary' ? 0 : 1, justifyContent: 'center', minHeight: 52, opacity: disabled ? 0.4 : 1, paddingHorizontal: spacing.lg })}>
       <View style={{ alignItems: 'center', flexDirection: 'row', gap: spacing.sm }}>
         {busy ? <ActivityIndicator color={foreground} /> : icon ? <MaterialIcons color={foreground} importantForAccessibility="no" name={icon} size={20} /> : null}
-        <Text style={[typography.label, { color: foreground }]}>{label}</Text>
+        <Text style={[typography.label, { color: foreground, flexShrink: 1, textAlign: 'center' }]}>{label}</Text>
       </View>
     </Pressable></Animated.View>
   );

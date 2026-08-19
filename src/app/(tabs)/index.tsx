@@ -6,6 +6,7 @@ import { AppText } from '@/components/AppText';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
+import { ResponsiveGrid } from '@/components/ResponsiveGrid';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
@@ -42,5 +43,5 @@ function PcCard({ pc, preferred, connect, unpair }: { pc: PcListItem; preferred:
   const { spacing } = useTheme();
   const platform = pc.platform === 'macos' ? 'macOS' : pc.platform === 'windows' ? 'Windows' : 'Switchify PC';
   const status = pc.saved ? (pc.nearby ? 'Saved and nearby' : 'Saved PC') : 'New PC';
-  return <Card><View style={{ flexDirection: 'row', gap: spacing.sm, justifyContent: 'space-between' }}><AppText variant="title">{pc.displayName}</AppText>{preferred ? <StatusBadge icon="star" label="Preferred" tone="brand" /> : null}</View><StatusBadge icon={pc.nearby ? 'bluetooth-connected' : 'computer'} label={`${platform} · ${status}`} /><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}><View style={{ flex: 1, minWidth: 120 }}><ActionButton label={pcListAction(pc)} onPress={connect} /></View>{unpair ? <View style={{ flex: 1, minWidth: 120 }}><ActionButton icon="link-off" label={`Unpair ${pc.displayName}`} tone="tertiary" onPress={unpair} /></View> : null}</View></Card>;
+  return <Card><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'space-between' }}><AppText style={{ flexShrink: 1 }} variant="title">{pc.displayName}</AppText>{preferred ? <StatusBadge icon="star" label="Preferred" tone="brand" /> : null}</View><StatusBadge icon={pc.nearby ? 'bluetooth-connected' : 'computer'} label={`${platform} · ${status}`} /><ResponsiveGrid minItemWidth={160}><ActionButton label={pcListAction(pc)} onPress={connect} />{unpair ? <ActionButton icon="link-off" label={`Unpair ${pc.displayName}`} tone="tertiary" onPress={unpair} /> : null}</ResponsiveGrid></Card>;
 }
