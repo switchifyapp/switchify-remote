@@ -150,13 +150,33 @@ describe('SelectorField', () => {
     expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the modal open without success feedback when persistence fails', async () => {
+  it('keeps the modal open and gives sanitized failure feedback when persistence fails', async () => {
     const view = await render(<SelectorField label="Surface" options={options} selectedKey="mouse" onSelect={() => Promise.reject(new Error('write failed'))} />);
     await act(async () => fireEvent.press(view.getByRole('button', { name: 'Surface' })));
     await act(async () => fireEvent.press(view.getByRole('button', { name: 'Typing' })));
 
     expect(view.getByTestId('selector-modal')).toBeTruthy();
     expect(view.getByRole('button', { name: 'Surface', hidden: true }).props.accessibilityValue).toEqual({ text: 'Mouse' });
+    expect(view.getByText('Surface could not be saved. Try again.')).toBeTruthy();
+    expect(AccessibilityInfo.announceForAccessibilityWithOptions).toHaveBeenCalledWith('Surface could not be saved. Try again.', { queue: true });
+    expect(AccessibilityInfo.announceForAccessibilityWithOptions).not.toHaveBeenCalledWith(expect.stringContaining('write failed'), expect.anything());
+  });
+
+  it('suppresses stale completion after dismissal during persistence', async () => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    let resolveSelection: (() => void) | undefined;
+    const onSelect = jest.fn(() => new Promise<void>((resolve) => { resolveSelection = resolve; }));
+    const view = await render(<SelectorField label="Surface" options={options} selectedKey="mouse" onSelect={onSelect} />);
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Surface' })));
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Typing' })));
+    await act(async () => fireEvent.press(view.getByTestId('selector-scrim', { includeHiddenElements: true })));
+    await act(async () => jest.runOnlyPendingTimers());
+    expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveSelection?.());
+    await act(async () => jest.runOnlyPendingTimers());
+    expect(view.queryByTestId('selector-modal')).toBeNull();
     expect(AccessibilityInfo.announceForAccessibilityWithOptions).not.toHaveBeenCalled();
+    expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(1);
   });
 });
