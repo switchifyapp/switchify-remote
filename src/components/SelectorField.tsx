@@ -14,18 +14,25 @@ export function SelectorField<T extends string | number>({ label, options, selec
   label: string;
   options: readonly SelectorOption<T>[];
   selectedKey: T;
-  onSelect: (key: T) => void;
+  onSelect: (key: T) => void | Promise<void>;
   hint?: string;
   modalTitle?: string;
 }) {
   const { colors, radii, reducedMotion, spacing } = useTheme();
   const [visible, setVisible] = useState(false);
+  const [displayedKey, setDisplayedKey] = useState(selectedKey);
+  const [previousSelectedKey, setPreviousSelectedKey] = useState(selectedKey);
+  const [selecting, setSelecting] = useState(false);
   const fieldRef = useRef<View>(null);
   const selectedOptionRef = useRef<View>(null);
   const mounted = useRef(true);
   const restorePending = useRef(false);
   const frame = useRef<number | null>(null);
-  const selected = options.find((option) => option.key === selectedKey) ?? options[0];
+  if (previousSelectedKey !== selectedKey) {
+    setPreviousSelectedKey(selectedKey);
+    setDisplayedKey(selectedKey);
+  }
+  const selected = options.find((option) => option.key === displayedKey) ?? options[0];
 
   useEffect(() => () => {
     mounted.current = false;
@@ -54,10 +61,20 @@ export function SelectorField<T extends string | number>({ label, options, selec
     setVisible(false);
     if (Platform.OS === 'android') restoreFieldFocus();
   };
-  const choose = (option: SelectorOption<T>) => {
-    onSelect(option.key);
-    AccessibilityInfo.announceForAccessibilityWithOptions(`${label}: ${option.label}`, { queue: true });
-    close();
+  const choose = async (option: SelectorOption<T>) => {
+    if (selecting) return;
+    setSelecting(true);
+    try {
+      await onSelect(option.key);
+      if (!mounted.current) return;
+      setDisplayedKey(option.key);
+      AccessibilityInfo.announceForAccessibilityWithOptions(`${label}: ${option.label}`, { queue: true });
+      close();
+    } catch {
+      // Keep the selector open and do not announce a value that was not saved.
+    } finally {
+      if (mounted.current) setSelecting(false);
+    }
   };
 
   return <>
@@ -71,7 +88,7 @@ export function SelectorField<T extends string | number>({ label, options, selec
         <View testID="selector-dialog" accessibilityViewIsModal onAccessibilityEscape={close} style={{ backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, gap: spacing.md, maxHeight: '80%', maxWidth: 480, padding: spacing.xl, width: '100%' }}>
           <AppText accessibilityRole="header" variant="heading">{modalTitle}</AppText>
           <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
-            {options.map((option) => <ControlButton key={String(option.key)} {...(option.key === selectedKey ? { controlRef: selectedOptionRef } : {})} label={option.label} selected={option.key === selectedKey} disabled={option.disabled ?? false} onPress={() => choose(option)} />)}
+            {options.map((option) => <ControlButton key={String(option.key)} {...(option.key === displayedKey ? { controlRef: selectedOptionRef } : {})} label={option.label} selected={option.key === displayedKey} disabled={selecting || (option.disabled ?? false)} onPress={() => void choose(option)} />)}
           </ScrollView>
           <ActionButton icon="close" label="Close" tone="secondary" onPress={close} />
         </View>

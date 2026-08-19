@@ -17,6 +17,7 @@ describe('SelectorField', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.spyOn(AccessibilityInfo, 'announceForAccessibilityWithOptions').mockImplementation(() => undefined);
+    jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions).mockClear();
     jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => undefined);
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
     mockFocusAccessibilityTarget.mockClear();
@@ -126,5 +127,36 @@ describe('SelectorField', () => {
     await act(async () => jest.runOnlyPendingTimers());
     expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(1);
     expect(mockFocusAccessibilityTarget.mock.calls[0]![0]).not.toBeNull();
+  });
+
+  it('waits for asynchronous persistence before exposing, announcing, and focusing the new value', async () => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    let resolveSelection: (() => void) | undefined;
+    const onSelect = jest.fn(() => new Promise<void>((resolve) => { resolveSelection = resolve; }));
+    const view = await render(<SelectorField label="Surface" options={options} selectedKey="mouse" onSelect={onSelect} />);
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Surface' })));
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Typing' })));
+
+    expect(view.getByTestId('selector-modal')).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Surface', hidden: true }).props.accessibilityValue).toEqual({ text: 'Mouse' });
+    expect(AccessibilityInfo.announceForAccessibilityWithOptions).not.toHaveBeenCalled();
+    expect(mockFocusAccessibilityTarget).not.toHaveBeenCalled();
+
+    await act(async () => resolveSelection?.());
+    expect(view.getByRole('button', { name: 'Surface' }).props.accessibilityValue).toEqual({ text: 'Typing' });
+    expect(AccessibilityInfo.announceForAccessibilityWithOptions).toHaveBeenCalledWith('Surface: Typing', { queue: true });
+    expect(mockFocusAccessibilityTarget).not.toHaveBeenCalled();
+    await act(async () => jest.runOnlyPendingTimers());
+    expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the modal open without success feedback when persistence fails', async () => {
+    const view = await render(<SelectorField label="Surface" options={options} selectedKey="mouse" onSelect={() => Promise.reject(new Error('write failed'))} />);
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Surface' })));
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Typing' })));
+
+    expect(view.getByTestId('selector-modal')).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Surface', hidden: true }).props.accessibilityValue).toEqual({ text: 'Mouse' });
+    expect(AccessibilityInfo.announceForAccessibilityWithOptions).not.toHaveBeenCalled();
   });
 });
