@@ -13,8 +13,9 @@ Switchify Remote is designed for VoiceOver, TalkBack, iOS Switch Control, and An
 - The primary tab bar contains PCs, Remote, and Settings. Diagnostics is available from Settings and uses a standard back action.
 - Selected controls combine color with a check icon and selected accessibility state.
 - Repeating pointer movement exposes a dedicated Stop movement button alongside the existing stop-on-control behavior.
+- Switch scanning stops on actionable controls and scroll containers, not read-only headings, descriptions, status badges, summaries, or capability values.
 - No essential interaction depends on animation, gestures, precise timing, or simultaneous touch.
 
 ## Manual smoke test
 
-On both platforms, enable the screen reader and then the platform switch-access feature. Navigate PCs, pairing, every available remote surface, Settings, and Diagnostics in logical order. Confirm every action can be selected, pointer repeat exposes Stop movement, held modifiers and drag expose state, disabled controls are announced, and backgrounding returns the desktop to a neutral input state. Repeat in light and dark appearance, at 200% text scaling, and with reduced motion enabled.
+On both platforms, enable the screen reader and then the platform switch-access feature. Navigate PCs, pairing, every available remote screen, Settings, and Diagnostics in logical order. Confirm every action can be selected, read-only text does not become a switch-scan stop, pointer repeat exposes Stop movement, held modifiers and drag expose state, disabled controls are announced, and backgrounding returns the desktop to a neutral input state. Repeat in light and dark appearance, at 200% text scaling, and with reduced motion enabled.

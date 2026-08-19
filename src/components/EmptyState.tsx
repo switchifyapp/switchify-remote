@@ -12,9 +12,9 @@ export function EmptyState({ title, body, icon = 'info-outline', action }: { tit
   const { colors, radii, spacing } = useTheme();
   return (
     <Card>
-      <View accessible accessibilityLabel={`${title}. ${body}`} style={{ gap: spacing.md }}>
+      <View style={{ gap: spacing.md }}>
         <View importantForAccessibility="no" style={{ alignItems: 'center', backgroundColor: colors.brandTint, borderRadius: radii.pill, height: 48, justifyContent: 'center', width: 48 }}><MaterialIcons color={colors.brandText} name={icon} size={26} /></View>
-        <View importantForAccessibility="no" style={{ gap: spacing.xs }}><AppText variant="title">{title}</AppText><AppText muted>{body}</AppText></View>
+        <View style={{ gap: spacing.xs }}><AppText accessibilityRole="header" variant="title">{title}</AppText><AppText muted>{body}</AppText></View>
       </View>
       {action}
     </Card>
