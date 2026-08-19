@@ -17,6 +17,10 @@ describe('ResponsiveGrid', () => {
     expect(computeGridColumns(320, 150, 8, 1)).toBe(2);
     expect(computeGridColumns(320, 150, 8, 1.5)).toBe(1);
     expect(computeGridColumns(320, 150, 8, 2)).toBe(1);
+    expect(computeGridColumns(320, 140, 8, 1.5)).toBe(2);
+    expect(computeGridColumns(320, 140, 8, 2)).toBe(1);
+    expect(computeGridColumns(325, 100, 8, 1)).toBe(3);
+    expect(computeGridColumns(325, 100, 8, 1.5)).toBe(2);
     expect(computeGridColumns(0, 150, 8, 1)).toBe(1);
     expect(computeGridColumns(1000, 80, 8, 1, 4)).toBe(4);
   });
@@ -31,6 +35,15 @@ describe('ResponsiveGrid', () => {
 
     fireEvent(view.getByTestId('grid'), 'layout', { nativeEvent: { layout: { width: 640 } } });
     await waitFor(() => expect(StyleSheet.flatten(view.getByTestId('grid-cell-0').props.style).width).toBe(154));
+  });
+
+  it('keeps phone action controls in two columns at 150% text', async () => {
+    mockWindowDimensions.mockReturnValue({ width: 360, height: 800, scale: 3, fontScale: 1.5 });
+    const view = await render(<ResponsiveGrid minItemWidth={140} testID="actions"><Text>Double click</Text><Text>Right click</Text><Text>Start drag</Text></ResponsiveGrid>);
+
+    fireEvent(view.getByTestId('actions'), 'layout', { nativeEvent: { layout: { width: 320 } } });
+    await waitFor(() => expect(StyleSheet.flatten(view.getByTestId('actions-cell-0').props.style).width).toBe(156));
+    expect(StyleSheet.flatten(view.getByTestId('actions-cell-2').props.style).width).toBe(156);
   });
 
   it('keeps the movement layout at exactly three columns', async () => {

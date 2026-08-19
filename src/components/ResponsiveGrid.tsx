@@ -6,7 +6,10 @@ import { useLayout, useTheme } from '@/theme/ThemeContext';
 export function computeGridColumns(width: number, minItemWidth: number, gap: number, fontScale: number, maxColumns = Number.MAX_SAFE_INTEGER): number {
   if (!Number.isFinite(width) || width <= 0) return 1;
   const scale = Number.isFinite(fontScale) && fontScale > 0 ? Math.max(1, fontScale) : 1;
-  const effectiveMinimum = Math.round(minItemWidth * scale);
+  // Labels wrap and controls grow vertically, so only a small share of text
+  // scaling needs extra horizontal room. Scaling the whole control width makes
+  // ordinary phone action rows collapse to one column at 150% text.
+  const effectiveMinimum = Math.round(minItemWidth * (1 + (scale - 1) * 0.2));
   return Math.max(1, Math.min(maxColumns, Math.floor((width + gap) / (effectiveMinimum + gap))));
 }
 
