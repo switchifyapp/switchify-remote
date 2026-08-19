@@ -1,8 +1,8 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Tabs } from 'expo-router';
 
+import { tabDefinitions } from '@/navigation/tabDefinitions';
 import { useTheme } from '@/theme/ThemeContext';
-import { tabDefinitions } from '@/app/tabDefinitions';
 
 const icons = { index: 'computer', remote: 'settings-remote', settings: 'settings' } as const;
 
