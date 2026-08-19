@@ -1,18 +1,22 @@
-import { StyleSheet, Text, View } from 'react-native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import type { ComponentProps, ReactNode } from 'react';
+import { View } from 'react-native';
 
-import { colors } from '@/constants/colors';
+import { AppText } from './AppText';
+import { Card } from './Card';
+import { useTheme } from '@/theme/ThemeContext';
 
-export function EmptyState({ title, body }: { title: string; body: string }) {
+type IconName = ComponentProps<typeof MaterialIcons>['name'];
+
+export function EmptyState({ title, body, icon = 'info-outline', action }: { title: string; body: string; icon?: IconName; action?: ReactNode }) {
+  const { colors, radii, spacing } = useTheme();
   return (
-    <View style={styles.card} accessible accessibilityLabel={`${title}. ${body}`}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.body}>{body}</Text>
-    </View>
+    <Card>
+      <View style={{ gap: spacing.md }}>
+        <View importantForAccessibility="no" style={{ alignItems: 'center', backgroundColor: colors.brandTint, borderRadius: radii.pill, height: 48, justifyContent: 'center', width: 48 }}><MaterialIcons color={colors.brandText} name={icon} size={26} /></View>
+        <View style={{ gap: spacing.xs }}><AppText accessibilityRole="header" variant="title">{title}</AppText><AppText muted>{body}</AppText></View>
+      </View>
+      {action}
+    </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  card: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 20, borderWidth: 1, gap: 8, padding: 20 },
-  title: { color: colors.text, fontSize: 20, fontWeight: '700' },
-  body: { color: colors.textMuted, fontSize: 16, lineHeight: 24 },
-});

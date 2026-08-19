@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useBridgeSnapshot, useSwitchifyBridge } from '@/bridge/BridgeContext';
 import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
+import { StatusBadge } from '@/components/StatusBadge';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
 import { usePreferredPcConnection } from '@/connection/usePreferredPcConnection';
 import { MouseSurface } from '@/remote/MouseSurface';
@@ -36,9 +37,9 @@ export default function RemoteScreen() {
     if (shouldClearForwardingRestore(preferences.surface, connection.kind)) forwardingRestore.clear();
   }, [connection.kind, forwardingRestore, preferences.surface]);
   if (connection.kind !== 'connected') return <DisconnectedRemote connection={connection} selectedSurface={preferences.surface} retry={() => void manager.connectPreferred()} choose={() => router.navigate('/')} />;
-  if (!connection.profile) return <Screen title="Remote"><EmptyState title="Controls unavailable" body="This PC did not provide a compatible remote-control profile. Reconnect after updating Switchify PC." /></Screen>;
+  if (!connection.profile) return <Screen title="Remote"><EmptyState icon="portable-wifi-off" title="Controls unavailable" body="This PC did not provide a compatible remote-control profile. Reconnect after updating Switchify PC." /></Screen>;
   return (
-    <Screen title="Remote" description={`Connected to ${connection.desktop.displayName}`}>
+    <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />}>
       <SurfaceSelector selected={preferences.surface} />
       {preferences.surface === 'mouse' ? <MouseSurface session={session} state={sessionState} physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} /> : null}
       {preferences.surface === 'typing' ? <TypingSurface session={session} mode={preferences.typingMode} draft={preferences.draft} /> : null}

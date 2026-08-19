@@ -1,27 +1,34 @@
-import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { colors } from '@/constants/colors';
 import { BridgeProvider } from '@/bridge/BridgeContext';
 import { ConnectionProvider } from '@/connection/ConnectionContext';
-
-const theme = {
-  ...DarkTheme,
-  colors: { ...DarkTheme.colors, background: colors.background, card: colors.surface, primary: colors.brand, text: colors.text, border: colors.border },
-};
+import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <BridgeProvider>
-        <ConnectionProvider>
-          <ThemeProvider value={theme}>
-            <Stack screenOptions={{ headerShown: false }} />
-            <StatusBar style="light" />
-          </ThemeProvider>
-        </ConnectionProvider>
-      </BridgeProvider>
+      <ThemeProvider><ThemedApp /></ThemeProvider>
     </SafeAreaProvider>
+  );
+}
+
+function ThemedApp() {
+  const { colors, scheme } = useTheme();
+  const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+  const theme = { ...base, colors: { ...base.colors, background: colors.background, card: colors.surface, primary: colors.brand, text: colors.text, border: colors.border } };
+  return (
+    <BridgeProvider>
+      <ConnectionProvider>
+        <NavigationThemeProvider value={theme}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="diagnostics" options={{ headerShown: true, title: 'Diagnostics' }} />
+          </Stack>
+          <StatusBar style="auto" />
+        </NavigationThemeProvider>
+      </ConnectionProvider>
+    </BridgeProvider>
   );
 }

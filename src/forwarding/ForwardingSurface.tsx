@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import type { SwitchifyBridge } from '@/bridge/types';
+import { AppText } from '@/components/AppText';
+import { Card } from '@/components/Card';
 import { ControlButton } from '@/components/ControlButton';
-import { colors } from '@/constants/colors';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
 import { preferencesStore, type Preferences } from '@/storage/PreferencesStore';
+import { useTheme } from '@/theme/ThemeContext';
 import { ForwardingController } from './ForwardingController';
 
 export type ForwardingRestoreIntent = { desktopId: string; profileId: string; profileVersion: number };
@@ -21,6 +23,7 @@ export function shouldClearForwardingRestore(surface: string, connectionKind: st
 }
 
 export function ForwardingSurface({ manager, bridge, profile, desktopId, preferences, restore }: { manager: ConnectionManager; bridge: SwitchifyBridge; profile: PointerProfile; desktopId: string; preferences: Preferences; restore: ForwardingRestoreState }) {
+  const { colors, radii, spacing } = useTheme();
   const controller = useMemo(() => new ForwardingController(
     manager,
     bridge,
@@ -55,9 +58,9 @@ export function ForwardingSurface({ manager, bridge, profile, desktopId, prefere
       controller.report('Could not save the forwarding profile selection.');
     }
   };
-  return <View style={styles.root}>
-    <Text accessibilityRole="header" style={styles.heading}>PC Switch Forwarding</Text>
-    <Text style={styles.body}>Forward configured external switches from Switchify to this PC.</Text>
+  return <View style={{ gap: spacing.md }}>
+    <AppText accessibilityRole="header" variant="title">PC Switch Forwarding</AppText>
+    <AppText muted>Forward configured external switches from Switchify to this PC.</AppText>
     {state.profiles.map((item) => <ControlButton key={item.id} label={item.name} selected={state.selectedProfileId === item.id} disabled={state.phase === 'starting' || state.phase === 'active'} onPress={() => select(item.id)} />)}
     <ControlButton label={state.phase === 'active' ? 'Stop forwarding' : 'Start forwarding'} disabled={state.phase === 'starting' || state.profiles.length === 0} danger={state.phase === 'active'} onPress={() => {
       if (state.phase === 'active') { restore.clear(); void controller.stop(); }
@@ -66,10 +69,8 @@ export function ForwardingSurface({ manager, bridge, profile, desktopId, prefere
         if (started && selected) restore.set({ desktopId, profileId: selected.id, profileVersion: selected.version });
       });
     }} />
-    {state.message ? <Text accessibilityLiveRegion="polite" style={styles.warning}>{state.message}</Text> : null}
-    {state.overflow.length ? <Text style={styles.warning}>{state.overflow.length} additional switches are not forwarded. Only the first eight are supported.</Text> : null}
-    {state.mappings.map((mapping) => <View key={mapping.keyCode} accessible accessibilityLabel={`${mapping.name}, ${mapping.outputLabel ?? 'unassigned'}, ${mapping.pressed ? 'pressed' : 'released'}`} style={[styles.mapping, mapping.pressed && styles.pressed]}><Text style={styles.body}>{mapping.name}</Text><Text style={styles.output}>{mapping.outputLabel ?? 'Unassigned'}</Text></View>)}
+    {state.message ? <AppText accessibilityLiveRegion="polite" style={{ color: colors.warning }}>{state.message}</AppText> : null}
+    {state.overflow.length ? <AppText style={{ color: colors.warning }}>{state.overflow.length} additional switches are not forwarded. Only the first eight are supported.</AppText> : null}
+    <Card>{state.mappings.map((mapping) => <View key={mapping.keyCode} accessible accessibilityLabel={`${mapping.name}, ${mapping.outputLabel ?? 'unassigned'}, ${mapping.pressed ? 'pressed' : 'released'}`} style={{ backgroundColor: mapping.pressed ? colors.brandTint : colors.surface, borderColor: mapping.pressed ? colors.brand : colors.border, borderRadius: radii.md, borderWidth: mapping.pressed ? 2 : 1, flexDirection: 'row', gap: spacing.md, justifyContent: 'space-between', padding: spacing.md }}><AppText>{mapping.name}</AppText><AppText muted>{mapping.outputLabel ?? 'Unassigned'}{mapping.pressed ? ' · Pressed' : ''}</AppText></View>)}</Card>
   </View>;
 }
-
-const styles = StyleSheet.create({ root: { gap: 10 }, heading: { color: colors.text, fontSize: 22, fontWeight: '800' }, body: { color: colors.text, fontSize: 16 }, warning: { color: colors.warning, fontSize: 16 }, mapping: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', padding: 14 }, pressed: { borderColor: colors.brand, borderWidth: 3 }, output: { color: colors.textMuted, fontSize: 16 } });
