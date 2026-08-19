@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AccessibilityInfo, Platform } from 'react-native';
 
 export function announceAccessibilityTransition(platform: string, message: string | null, previous: string | null, announce: (value: string) => void): string | null {
-  if (platform === 'ios' && message && message !== previous) announce(message);
+  if ((platform === 'ios' || platform === 'android') && message && message !== previous) announce(message);
   return message;
 }
 
