@@ -65,7 +65,7 @@ export function SelectorField<T extends string | number>({ label, options, selec
       <AppText style={{ flex: 1, flexShrink: 1 }} variant="label">{label}: {selected?.label ?? ''}</AppText>
       <MaterialIcons color={colors.textMuted} importantForAccessibility="no" name="unfold-more" size={20} />
     </Pressable>
-    <Modal testID="selector-modal" animationType={reducedMotion ? 'none' : 'fade'} onDismiss={restoreFieldFocus} onRequestClose={close} onShow={() => scheduleFocus(selectedOptionRef)} supportedOrientations={['portrait', 'landscape']} transparent visible={visible}>
+    <Modal testID="selector-modal" animationType={reducedMotion || Platform.OS === 'android' ? 'none' : 'fade'} onDismiss={restoreFieldFocus} onRequestClose={close} onShow={() => scheduleFocus(selectedOptionRef)} supportedOrientations={['portrait', 'landscape']} transparent visible={visible}>
       <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', padding: spacing.xl }}>
         <Pressable testID="selector-scrim" accessible={false} importantForAccessibility="no" onPress={close} style={{ backgroundColor: 'rgba(0, 0, 0, 0.58)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }} />
         <View testID="selector-dialog" accessibilityViewIsModal onAccessibilityEscape={close} style={{ backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, gap: spacing.md, maxHeight: '80%', maxWidth: 480, padding: spacing.xl, width: '100%' }}>

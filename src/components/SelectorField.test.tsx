@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { AccessibilityInfo, StyleSheet, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Platform, StyleSheet, useWindowDimensions } from 'react-native';
 
 import { SelectorField } from './SelectorField';
 import { focusAccessibilityTarget } from './accessibilityFocus';
@@ -11,6 +11,7 @@ jest.mock('./accessibilityFocus', () => ({ focusAccessibilityTarget: jest.fn() }
 const mockFocusAccessibilityTarget = focusAccessibilityTarget as jest.MockedFunction<typeof focusAccessibilityTarget>;
 const mockWindowDimensions = useWindowDimensions as jest.MockedFunction<typeof useWindowDimensions>;
 const options = [{ key: 'mouse', label: 'Mouse' }, { key: 'typing', label: 'Typing' }, { key: 'window', label: 'Window' }] as const;
+const originalPlatform = Platform.OS;
 
 describe('SelectorField', () => {
   beforeEach(() => {
@@ -24,6 +25,7 @@ describe('SelectorField', () => {
   });
 
   afterEach(() => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
@@ -111,5 +113,18 @@ describe('SelectorField', () => {
     const field = await view.findByRole('button', { name: 'Surface' });
     await act(async () => fireEvent.press(field));
     await waitFor(() => expect(view.getByTestId('selector-modal').props.animationType).toBe('none'));
+  });
+
+  it('tears down the Android modal without animation before restoring focus', async () => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    const view = await render(<SelectorField label="Surface" options={options} selectedKey="mouse" onSelect={() => undefined} />);
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Surface' })));
+    expect(view.getByTestId('selector-modal').props.animationType).toBe('none');
+
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Close' })));
+    expect(mockFocusAccessibilityTarget).not.toHaveBeenCalled();
+    await act(async () => jest.runOnlyPendingTimers());
+    expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(1);
+    expect(mockFocusAccessibilityTarget.mock.calls[0]![0]).not.toBeNull();
   });
 });
