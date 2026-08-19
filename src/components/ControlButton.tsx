@@ -1,16 +1,18 @@
-import { Pressable, StyleSheet, Text, type AccessibilityRole } from 'react-native';
-import { colors } from '@/constants/colors';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import type { ComponentProps } from 'react';
+import { Pressable, Text, type AccessibilityRole } from 'react-native';
+import { useReducedMotionPreference, useTheme } from '@/theme/ThemeContext';
 
-export function ControlButton({ label, accessibilityLabel = label, hint, onPress, selected = false, disabled = false, danger = false, role = 'button' }: { label: string; accessibilityLabel?: string; hint?: string; onPress: () => void; selected?: boolean; disabled?: boolean; danger?: boolean; role?: AccessibilityRole }) {
+type IconName = ComponentProps<typeof MaterialIcons>['name'];
+
+export function ControlButton({ label, accessibilityLabel = label, hint, onPress, selected = false, disabled = false, danger = false, role = 'button', icon, size = 'standard', compact = false, emphasized = false }: { label: string; accessibilityLabel?: string; hint?: string; onPress: () => void; selected?: boolean; disabled?: boolean; danger?: boolean; role?: AccessibilityRole; icon?: IconName; size?: 'standard' | 'key'; compact?: boolean; emphasized?: boolean }) {
+  const { colors, radii, spacing, typography } = useTheme();
+  const reducedMotion = useReducedMotionPreference();
   return (
-    <Pressable accessibilityRole={role} accessibilityLabel={accessibilityLabel} accessibilityHint={hint} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, selected && styles.selected, danger && styles.danger, pressed && styles.pressed, disabled && styles.disabled]}>
-      <Text numberOfLines={2} style={styles.label}>{label}</Text>
+    <Pressable accessibilityRole={role} accessibilityLabel={accessibilityLabel} accessibilityHint={hint} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: selected ? colors.brand : emphasized ? colors.brandTint : pressed ? colors.surfacePressed : compact ? 'transparent' : colors.surfaceRaised, borderColor: danger ? colors.danger : selected ? colors.brand : compact ? 'transparent' : colors.border, borderRadius: radii.md, borderWidth: 1, flex: 1, flexDirection: icon || selected ? 'row' : undefined, gap: spacing.xs, justifyContent: 'center', minHeight: compact ? 48 : size === 'key' ? 64 : 58, minWidth: 48, opacity: disabled ? 0.4 : 1, paddingHorizontal: compact ? spacing.sm : spacing.md, paddingVertical: spacing.sm, transform: [{ scale: pressed && !disabled && !reducedMotion ? 0.98 : 1 }] })}>
+      {icon ? <MaterialIcons color={selected ? colors.onBrand : danger ? colors.danger : colors.text} importantForAccessibility="no" name={icon} size={20} /> : null}
+      <Text numberOfLines={2} style={[typography.label, { color: selected ? colors.onBrand : danger ? colors.danger : colors.text, textAlign: 'center' }]}>{label}</Text>
+      {selected ? <MaterialIcons color={colors.onBrand} importantForAccessibility="no" name="check" size={18} /> : null}
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  button: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: 15, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 58, minWidth: 58, paddingHorizontal: 8, paddingVertical: 12 },
-  selected: { backgroundColor: colors.brand, borderColor: colors.brand }, danger: { borderColor: colors.danger }, pressed: { opacity: 0.72 }, disabled: { opacity: 0.35 },
-  label: { color: colors.text, fontSize: 16, fontWeight: '700', textAlign: 'center' },
-});

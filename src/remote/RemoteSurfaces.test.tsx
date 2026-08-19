@@ -100,6 +100,22 @@ describe('capability-driven remote surfaces', () => {
     ]);
   });
 
+  it('offers a dedicated stop action while pointer movement repeats', async () => {
+    const send = jest.fn(async () => true);
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      profile(['mouse.move', 'mouse.repeat.start', 'mouse.repeat.stop']),
+    );
+    const mouse = await render(<MouseSurface session={session} state={session.snapshot()} />);
+    await act(async () => { fireEvent.press(mouse.getByLabelText('Move up')); await Promise.resolve(); });
+    await act(async () => { mouse.rerender(<MouseSurface session={session} state={session.snapshot()} />); });
+    await act(async () => { fireEvent.press(mouse.getByRole('button', { name: 'Stop movement' })); await Promise.resolve(); });
+    expect(send.mock.calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 0, dy: -64 } } }],
+      ['mouse.repeat.stop', {}, 'none'],
+    ]);
+  });
+
   it('routes every displayed remote action through the capability-approved session', async () => {
     const send = jest.fn(async (_type: string, _payload?: unknown, _mode?: unknown) => true);
     const actionManager = { send } as unknown as ConnectionManager;
