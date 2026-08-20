@@ -14,6 +14,8 @@ This document is the source of truth for the initial English (United Kingdom) Go
 - Public phone: none
 - External marketing: keep the existing Play Console setting unchanged
 
+The current privacy-policy page describes analytics and third-party services used by the broader Switchify Android app without distinguishing Switchify Remote. Do not save the Data safety declaration or submit this app until the page has an explicit Remote-specific section or a separate Remote policy URL is available. The app must also expose the applicable privacy policy from within its UI before submission.
+
 ### Short description
 
 ```text
@@ -76,7 +78,9 @@ Switchify Remote has no account, membership, payment or login credentials. Its r
 
 ### Data safety
 
-Declare that the app does not collect or share required user-data types. Switchify Remote has no account, analytics, telemetry, advertising, cloud sync, or app-originated internet transport. Preferences and sanitized diagnostics stay on the device. The device identifier and pairing tokens use secure device storage. User-directed text and control commands travel over Bluetooth only to the PC that the user pairs and approves; they are not sent to the developer or a third party.
+The intended declaration is that the app does not collect or share required user-data types. Switchify Remote has no account, analytics, telemetry, advertising, cloud sync, or app-originated internet transport. Preferences stay on the device. Sanitized diagnostics stay on the device unless the user explicitly copies or exports them through the operating system. The device identifier and pairing tokens use secure device storage. User-directed text and control commands travel over Bluetooth only to the PC that the user pairs and approves; they are not sent to the developer or a third party.
+
+Do not save this declaration while the linked privacy policy still describes analytics and third-party services without distinguishing Switchify Remote. Resolve the privacy-policy and in-app-link blockers first, then re-verify the current app and dependency behavior before saving.
 
 Re-evaluate this declaration before saving if dependencies, diagnostics, networking, storage, or data handling change.
 
