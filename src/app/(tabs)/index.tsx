@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
 import { ResponsiveGrid } from '@/components/ResponsiveGrid';
 import { StatusBadge } from '@/components/StatusBadge';
+import { UnpairButton } from '@/components/UnpairButton';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
 import { mergePcList, pcListAction, type PcListItem } from '@/connection/pcList';
@@ -43,5 +44,5 @@ function PcCard({ pc, preferred, connect, unpair }: { pc: PcListItem; preferred:
   const { spacing } = useTheme();
   const platform = pc.platform === 'macos' ? 'macOS' : pc.platform === 'windows' ? 'Windows' : 'Switchify PC';
   const status = pc.saved ? (pc.nearby ? 'Saved and nearby' : 'Saved PC') : 'New PC';
-  return <Card><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'space-between' }}><AppText style={{ flexShrink: 1 }} variant="title">{pc.displayName}</AppText>{preferred ? <StatusBadge icon="star" label="Preferred" tone="brand" /> : null}</View><StatusBadge icon={pc.nearby ? 'bluetooth-connected' : 'computer'} label={`${platform} · ${status}`} /><ResponsiveGrid minItemWidth={160}><ActionButton label={pcListAction(pc)} onPress={connect} />{unpair ? <ActionButton icon="link-off" label={`Unpair ${pc.displayName}`} tone="tertiary" onPress={unpair} /> : null}</ResponsiveGrid></Card>;
+  return <Card><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'space-between' }}><AppText style={{ flexShrink: 1 }} variant="title">{pc.displayName}</AppText>{preferred ? <StatusBadge icon="star" label="Preferred" tone="brand" /> : null}</View><StatusBadge icon={pc.nearby ? 'bluetooth-connected' : 'computer'} label={`${platform} · ${status}`} /><ResponsiveGrid minItemWidth={160}><ActionButton label={pcListAction(pc)} onPress={connect} />{unpair ? <UnpairButton displayName={pc.displayName} onConfirm={unpair} /> : null}</ResponsiveGrid></Card>;
 }
