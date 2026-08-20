@@ -19,13 +19,13 @@ The current privacy-policy page describes analytics and third-party services use
 ### Short description
 
 ```text
-Accessible mouse, typing and window controls for Switchify PC on Windows.
+Accessible mouse, typing and window controls for Windows PCs and Macs.
 ```
 
 ### Full description
 
 ```text
-Switchify Remote lets you control a Windows PC from an Android phone or tablet over Bluetooth Low Energy. It is the companion app for Switchify PC.
+Switchify Remote lets you control a Windows PC or Mac from an Android phone or tablet over Bluetooth Low Energy. It is the companion app for Switchify PC.
 
 Pair securely with your PC, then choose the controls you need:
 
@@ -49,7 +49,7 @@ Privacy and security:
 • Typed text and control commands go only to the paired PC
 • Diagnostics are stored locally and exclude typed text, commands and pairing secrets
 
-Requires Switchify PC on a Windows 10 or later computer with Bluetooth Low Energy. Download Switchify PC from switchifyapp.com.
+Requires Switchify PC on Windows 10 or later, or an Apple-silicon Mac running macOS 13 or later, with Bluetooth Low Energy. Download Switchify PC from github.com/switchifyapp/switchify-pc/releases.
 ```
 
 ## App-content declarations
@@ -59,7 +59,7 @@ Requires Switchify PC on a Windows 10 or later computer with Bluetooth Low Energ
 Declare that some functionality is restricted because the remote-control actions require Switchify PC on another device. Provide these reviewer instructions:
 
 ```text
-Switchify Remote has no account, membership, payment or login credentials. Its remote-control functions require a Windows 10 or later PC with Bluetooth Low Energy running Switchify PC. Install Switchify PC from https://switchifyapp.com/download/pc, open it, enable Bluetooth and input access, then select PCs > Find nearby PCs in Switchify Remote. Choose the PC, compare the six-digit code on both devices, and approve the request on the PC. The Mouse, Typing and Window controls become available after pairing.
+Switchify Remote has no account, membership, payment or login credentials. Its remote-control functions require a Bluetooth Low Energy computer running Switchify PC: Windows 10 or later, or macOS 13 or later on Apple silicon. Install the appropriate Windows setup or macOS DMG from https://github.com/switchifyapp/switchify-pc/releases, open Switchify PC, enable Bluetooth and input access, then select PCs > Find nearby PCs in Switchify Remote. Choose the computer, compare the six-digit code on both devices, and approve the request on the computer. The Mouse, Typing and Window controls become available after pairing.
 ```
 
 ### Ads and identifiers
