@@ -10,6 +10,7 @@
     "ios": {
       "bundleIdentifier": "com.enaboapps.switchify.remote",
       "buildNumber": "4",
+      "icon": "./assets/images/switchify-remote-ios-icon.png",
       "supportsTablet": true,
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "Allow Switchify Remote to find and connect to Switchify PC."
@@ -18,16 +19,17 @@
     "android": {
       "package": "com.enaboapps.switchify.remote",
       "versionCode": 4,
+      "icon": "./assets/images/switchify-remote-android-legacy.png",
       "adaptiveIcon": {
         "backgroundColor": "#050505",
-        "foregroundImage": "./assets/images/switchify-remote-icon.png",
-        "monochromeImage": "./assets/images/switchify-remote-icon.png"
+        "foregroundImage": "./assets/images/switchify-remote-android-foreground.png",
+        "monochromeImage": "./assets/images/switchify-remote-android-monochrome.png"
       },
       "predictiveBackGestureEnabled": true
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/switchify-remote-icon.png"
+      "favicon": "./assets/images/switchify-remote-favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -35,7 +37,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#050505",
-          "image": "./assets/images/switchify-remote-icon.png",
+          "image": "./assets/images/switchify-remote-splash.png",
           "imageWidth": 160,
           "dark": {
             "backgroundColor": "#050505"

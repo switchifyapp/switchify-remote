@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Switchify Remote icon</title>
+  <description id="description">A red directional control ring, a white switch, and an audio jack on a near-black background.</description>
+  <rect id="background" width="1024" height="1024" fill="#050505" />
+  <!-- Android's guaranteed 66/108 safe zone maps to x=199..825 and y=199..825. -->
+  <!-- Finished square icons export with viewBox 100 100 824 824; adaptive layers retain this full viewBox. -->
+  <g id="switchify-mark" transform="translate(28 21)">
+    <path
+      d="M 578 685 A 250 250 0 1 1 681 588"
+      fill="none"
+      stroke="#D90429"
+      stroke-linecap="round"
+      stroke-width="40"
+    />
+
+    <g fill="#D90429" stroke="#D90429" stroke-linejoin="round" stroke-width="14">
+      <path d="M 470 294 L 520 392 H 420 Z" />
+      <path d="M 631 455 L 533 505 V 405 Z" />
+      <path d="M 470 616 L 420 518 H 520 Z" />
+      <path d="M 309 455 L 407 405 V 505 Z" />
+    </g>
+    <circle cx="470" cy="455" r="43" fill="#FFFFFF" />
+
+    <g id="audio-jack" transform="rotate(-45 650 668)">
+      <path d="M 620 582 H 680 V 608 H 620 Z" fill="#D90429" />
+      <rect x="603" y="608" width="94" height="98" rx="16" fill="#D90429" />
+      <path d="M 626 706 H 674 V 744 H 626 Z" fill="#D90429" />
+      <path d="M 626 754 H 674 V 784 H 626 Z" fill="#D90429" />
+      <path d="M 634 794 H 666 V 822 Q 666 830 658 830 H 642 Q 634 830 634 822 Z" fill="#D90429" />
+    </g>
+  </g>
+</svg>
