@@ -22,12 +22,12 @@
     </g>
     <circle cx="470" cy="455" r="43" fill="#FFFFFF" />
 
-    <g id="audio-jack" transform="rotate(-45 650 668)">
-      <path d="M 620 582 H 680 V 608 H 620 Z" fill="#D90429" />
-      <rect x="603" y="608" width="94" height="98" rx="16" fill="#D90429" />
-      <path d="M 626 706 H 674 V 744 H 626 Z" fill="#D90429" />
-      <path d="M 626 754 H 674 V 784 H 626 Z" fill="#D90429" />
-      <path d="M 634 794 H 666 V 822 Q 666 830 658 830 H 642 Q 634 830 634 822 Z" fill="#D90429" />
+    <g id="audio-jack" transform="rotate(45 640 640)" fill="#D90429">
+      <path d="M 590 632 H 613 V 648 H 590 Z" />
+      <rect x="608" y="610" width="76" height="60" rx="14" />
+      <path d="M 688 620 H 710 V 660 H 688 Z" />
+      <path d="M 714 630 H 722 V 650 H 714 Z" />
+      <path d="M 727 630 H 734 V 650 H 727 Z" />
     </g>
   </g>
 </svg>
