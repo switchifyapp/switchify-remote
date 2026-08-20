@@ -1,0 +1,105 @@
+# Google Play listing
+
+This document is the source of truth for the initial English (United Kingdom) Google Play listing and its app-content declarations. It does not authorize publishing, review submission, track changes, or release creation.
+
+## Store listing
+
+- Language: English (United Kingdom) (`en-GB`)
+- App name: Switchify Remote
+- Category: Tools
+- Tag: Remote control
+- Privacy policy: https://switchifyapp.com/privacy
+- Public email: owen@switchifyapp.com
+- Public website: https://switchifyapp.com
+- Public phone: none
+- External marketing: keep the existing Play Console setting unchanged
+
+The current privacy-policy page describes analytics and third-party services used by the broader Switchify Android app without distinguishing Switchify Remote. Do not save the Data safety declaration or submit this app until the page has an explicit Remote-specific section or a separate Remote policy URL is available. The app must also expose the applicable privacy policy from within its UI before submission.
+
+### Short description
+
+```text
+Accessible mouse, typing and window controls for Windows PCs and Macs.
+```
+
+### Full description
+
+```text
+Switchify Remote lets you control a Windows PC or Mac from an Android phone or tablet over Bluetooth Low Energy. It is the companion app for Switchify PC.
+
+Pair securely with your computer, then choose the controls you need:
+
+• Mouse controls for pointer movement, clicks, dragging, scrolling, pointer speed and multiple monitors
+• Typing controls for live text, drafts and common computer keys
+• Window controls for switching apps, task view, desktop, minimize, maximize, close and shortcuts
+• Optional Switch Forwarding from the main Switchify Android app when supported
+
+Built for access:
+
+• Works with TalkBack and Switch Access
+• Large touch targets and labels that scale without being cut off
+• Light and dark themes, reduced-motion support, and phone and tablet layouts
+• Clear selected, disabled, busy and connection states
+
+Privacy and security:
+
+• No account, ads, analytics or cloud sync in Switchify Remote
+• Authenticated Bluetooth pairing with approval on the computer
+• Pairing credentials are stored securely on your Android device
+• Typed text and control commands go only to the paired computer
+• Diagnostics are stored locally and exclude typed text, commands and pairing secrets
+
+Requires Switchify PC on Windows 10 or later, or an Apple-silicon Mac running macOS 13 or later, with Bluetooth Low Energy. Download Switchify PC from github.com/switchifyapp/switchify-pc/releases.
+```
+
+## App-content declarations
+
+### App access
+
+Declare that some functionality is restricted because the remote-control actions require Switchify PC on another device. Provide these reviewer instructions:
+
+```text
+Switchify Remote has no account or login. It requires a Bluetooth Low Energy computer running Switchify PC: Windows 10 or later, or macOS 13 or later on Apple silicon. Download the Windows setup or macOS DMG from https://github.com/switchifyapp/switchify-pc/releases. Open Switchify PC and enable Bluetooth and input access. In Remote, select PCs > Find nearby PCs, choose the computer, compare the six-digit code, and approve it there. Mouse, Typing and Window controls then become available.
+```
+
+### Ads and identifiers
+
+- Ads: No, the app does not contain ads.
+- Advertising ID: No, the app does not use the Advertising ID.
+- Confirm that the generated release manifest does not request `com.google.android.gms.permission.AD_ID` before saving this answer for a new native build.
+
+### Audience and regulated content
+
+- Target age groups: 13–15, 16–17, and 18 and over.
+- The app is not directed at children and is not designed to appeal to children.
+- Government app: No.
+- Financial features: None.
+- Health features: None.
+
+### Data safety
+
+The intended declaration is that the app does not collect or share required user-data types. Switchify Remote has no account, analytics, telemetry, advertising, cloud sync, or app-originated internet transport. Preferences stay on the device. Sanitized diagnostics stay on the device unless the user explicitly copies or exports them through the operating system. The device identifier and pairing tokens use secure device storage. User-directed text and control commands travel over Bluetooth only to the computer that the user pairs and approves; they are not sent to the developer or a third party.
+
+Do not save this declaration while the linked privacy policy still describes analytics and third-party services without distinguishing Switchify Remote. Resolve the privacy-policy and in-app-link blockers first, then re-verify the current app and dependency behavior before saving.
+
+Re-evaluate this declaration before saving if dependencies, diagnostics, networking, storage, or data handling change.
+
+### Content rating
+
+- Category: All Other App Types.
+- Rating contact email: owen@switchifyapp.com.
+- Answer No to questionnaire items about violence, sexuality, language, controlled substances, gambling, user-generated content, user communication, purchases, location sharing, and unrestricted web access.
+- Review the calculated rating before saving. A materially higher result than the general-audience rating expected for this utility requires investigation.
+
+## Deferred visual assets
+
+Leave every visual asset unchanged in this pass:
+
+- App icon
+- Feature graphic
+- Promotional video
+- Phone screenshots
+- Seven-inch tablet screenshots
+- Ten-inch tablet screenshots
+
+Add sanitized screenshots only after device capture and accessibility review. Screenshots must not contain pairing tokens, authentication material, typed text, credentials, or identifying diagnostics.
