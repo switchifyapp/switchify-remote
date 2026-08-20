@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.enaboapps.switchify.remote",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "icon": "./assets/images/switchify-remote-ios-icon.png",
       "supportsTablet": true,
       "infoPlist": {
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.enaboapps.switchify.remote",
-      "versionCode": 4,
+      "versionCode": 5,
       "icon": "./assets/images/switchify-remote-android-legacy.png",
       "adaptiveIcon": {
         "backgroundColor": "#050505",
