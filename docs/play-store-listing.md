@@ -30,7 +30,7 @@ Switchify Remote lets you control a Windows PC or Mac from an Android phone or t
 Pair securely with your computer, then choose the controls you need:
 
 • Mouse controls for pointer movement, clicks, dragging, scrolling, pointer speed and multiple monitors
-• Typing controls for live text, drafts and common PC keys
+• Typing controls for live text, drafts and common computer keys
 • Window controls for switching apps, task view, desktop, minimize, maximize, close and shortcuts
 • Optional Switch Forwarding from the main Switchify Android app when supported
 
@@ -78,7 +78,7 @@ Switchify Remote has no account or login. It requires a Bluetooth Low Energy com
 
 ### Data safety
 
-The intended declaration is that the app does not collect or share required user-data types. Switchify Remote has no account, analytics, telemetry, advertising, cloud sync, or app-originated internet transport. Preferences stay on the device. Sanitized diagnostics stay on the device unless the user explicitly copies or exports them through the operating system. The device identifier and pairing tokens use secure device storage. User-directed text and control commands travel over Bluetooth only to the PC that the user pairs and approves; they are not sent to the developer or a third party.
+The intended declaration is that the app does not collect or share required user-data types. Switchify Remote has no account, analytics, telemetry, advertising, cloud sync, or app-originated internet transport. Preferences stay on the device. Sanitized diagnostics stay on the device unless the user explicitly copies or exports them through the operating system. The device identifier and pairing tokens use secure device storage. User-directed text and control commands travel over Bluetooth only to the computer that the user pairs and approves; they are not sent to the developer or a third party.
 
 Do not save this declaration while the linked privacy policy still describes analytics and third-party services without distinguishing Switchify Remote. Resolve the privacy-policy and in-app-link blockers first, then re-verify the current app and dependency behavior before saving.
 
