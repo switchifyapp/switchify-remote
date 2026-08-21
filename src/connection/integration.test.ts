@@ -27,7 +27,9 @@ class LoopbackTransport implements BleTransport {
   failWrites = false;
   rejectPairing = false;
   rejectAuthentication = false;
+  rejectPingCount = 0;
   requests: string[] = [];
+  requestPayloads: { type: string; payload: Record<string, unknown> }[] = [];
   requestIds: { id: string; type: string; authenticated: boolean }[] = [];
   connectCount = 0;
   connectFailures = 0;
@@ -57,8 +59,9 @@ class LoopbackTransport implements BleTransport {
     if (!frame) throw new Error('invalid fixture frame');
     const result = this.outbound.accept(frame);
     if (result.kind !== 'complete') return;
-    const request = JSON.parse(result.message) as { id: string; type: string; auth?: string; payload: { deviceId?: string; desktopId?: string } };
+    const request = JSON.parse(result.message) as { id: string; type: string; auth?: string; payload: { deviceId?: string; desktopId?: string; [key: string]: unknown } };
     this.requests.push(request.type);
+    this.requestPayloads.push({ type: request.type, payload: request.payload });
     this.requestIds.push({ id: request.id, type: request.type, authenticated: typeof request.auth === 'string' && request.auth.length > 0 });
     if (this.hangWrites.has(request.type)) await new Promise<void>(() => undefined);
     await this.responseGateQueues.get(request.type)?.shift();
@@ -76,6 +79,9 @@ class LoopbackTransport implements BleTransport {
         : { type: 'pairing.complete', id: request.id, ok: true, error: null, payload: { desktopId: request.payload.desktopId, deviceId: request.payload.deviceId, token: 'fixture-secret' } };
     } else if (request.type === 'connection.ping' && this.rejectAuthentication) {
       response = { type: 'error', id: request.id, ok: false, error: { code: 'invalid_auth', message: 'invalid_auth' }, payload: {} };
+    } else if (request.type === 'connection.ping' && this.rejectPingCount > 0) {
+      this.rejectPingCount -= 1;
+      response = { type: 'error', id: request.id, ok: false, error: { code: 'invalid_payload', message: 'invalid_payload' }, payload: {} };
     } else if (request.type === 'pointer.profile') {
       const invalidResponsesRemaining = this.invalidResponseCounts.get(request.type) ?? 0;
       if (invalidResponsesRemaining > 0) {
@@ -93,6 +99,51 @@ class LoopbackTransport implements BleTransport {
 const desktop: DiscoveredDesktop = { desktopId: 'pc-1', displayName: 'Office', platform: 'windows', peripheralId: 'ble-1', rssi: -45 };
 
 describe('pairing and authenticated connection integration', () => {
+  it('uses the resolved Remote name for pairing and authenticated synchronization', async () => {
+    const transport = new LoopbackTransport();
+    const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `named-${++id}`; })(), async () => undefined, async () => 'OPD2403');
+
+    await manager.connect(desktop);
+
+    expect(transport.requestPayloads.find(({ type }) => type === 'pairing.request')?.payload).toMatchObject({ deviceName: 'OPD2403' });
+    expect(transport.requestPayloads.find(({ type }) => type === 'connection.ping')?.payload).toEqual({ deviceName: 'OPD2403' });
+  });
+
+  it('updates a connected PC and defers when offline', async () => {
+    let remoteName = 'OPD2403';
+    const transport = new LoopbackTransport();
+    const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `rename-${++id}`; })(), async () => undefined, async () => remoteName);
+
+    expect(await manager.syncRemoteName()).toBe('deferred');
+    await manager.connect(desktop);
+    remoteName = 'Kitchen Remote';
+    expect(await manager.syncRemoteName()).toBe('synced');
+
+    const pings = transport.requestPayloads.filter(({ type }) => type === 'connection.ping');
+    expect(pings.map(({ payload }) => payload)).toEqual([{ deviceName: 'OPD2403' }, { deviceName: 'Kitchen Remote' }]);
+  });
+
+  it('keeps a failed name update non-blocking and retries the saved name on reconnect', async () => {
+    let remoteName = 'OPD2403';
+    const transport = new LoopbackTransport();
+    const storage = new MemoryStorage();
+    const diagnostics = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, storage, diagnostics, async () => true, () => 1000, (() => { let id = 0; return () => `retry-name-${++id}`; })(), async () => undefined, async () => remoteName);
+    await manager.connect(desktop);
+
+    remoteName = 'Office Remote';
+    transport.rejectPingCount = 1;
+    expect(await manager.syncRemoteName()).toBe('failed');
+    expect(manager.snapshot().kind).toBe('connected');
+    expect(diagnostics.snapshot().map(({ code }) => code)).toContain('command_failed');
+
+    await manager.disconnect();
+    await manager.connectSaved(storage.saved[0]!);
+    const pings = transport.requestPayloads.filter(({ type }) => type === 'connection.ping');
+    expect(pings.at(-1)?.payload).toEqual({ deviceName: 'Office Remote' });
+    expect(manager.snapshot().kind).toBe('connected');
+  });
+
   it('pairs, persists, negotiates capabilities, sends a command, and cleans up', async () => {
     const transport = new LoopbackTransport();
     const storage = new MemoryStorage();
