@@ -100,7 +100,7 @@ try {
         : fileName === "02-mouse.png"
           ? "[0:v]crop=1080:1598:0:760,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:0:color=#0B0B0D[shot]"
           : fileName === "04-window.png"
-            ? `[0:v]drawbox=x=53:y=195:w=450:h=76:color=#143C25:t=fill,drawtext=${ffmpegFont}:text='Connected · Demo PC':fontcolor=#72E58F:fontsize=30:x=137:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`
+            ? `[0:v]drawbox=x=300:y=195:w=185:h=76:color=#12291B:t=fill,drawtext=${ffmpegFont}:text='· Demo PC':fontcolor=#4ADE80:fontsize=30:x=303:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`
           : fileName === "05-access.png"
             ? "[0:v]crop=1080:1998:0:360,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]"
             : `[0:v]drawbox=x=130:y=198:w=360:h=66:color=#143C25:t=fill,drawtext=${ffmpegFont}:text='Connected · Demo PC':fontcolor=#72E58F:fontsize=30:x=137:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`;
