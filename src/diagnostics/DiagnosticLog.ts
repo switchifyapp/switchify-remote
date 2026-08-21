@@ -14,6 +14,7 @@ const messages = {
   authentication_failed: 'Saved access is no longer valid.',
   disconnected: 'Disconnected from the PC.',
   command_failed: 'A remote command failed.',
+  remote_name_sync_failed: 'The Remote name could not be updated on the PC.',
   unpair_failed: 'A saved PC could not be removed.',
   cleanup_complete: 'Remote input state was cleaned up.',
 } as const;

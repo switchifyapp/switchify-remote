@@ -252,6 +252,10 @@ export class ConnectionManager {
       }
       if (response.kind === 'switchProfileCatalog') return response;
       if (response.kind === 'error' && response.code === 'invalid_auth') await this.#fail('Saved access is no longer valid.', this.#operation, true);
+      if (response.kind === 'error' && response.code === 'name_update_failed') {
+        this.diagnostics.add('remote_name_sync_failed', 'warning');
+        return response;
+      }
     } catch { /* sanitized below */ }
     this.diagnostics.add('command_failed', 'warning');
     return null;
@@ -290,7 +294,7 @@ export class ConnectionManager {
     const ping = authenticatedCommand({ id: pingId, deviceId: this.#deviceId!, token, timestamp: this.now(), type: pingType, payload: pingPayload });
     const response = await this.#client!.request(ping, pingId);
     if (!this.#current(operation)) return;
-    if (response.kind !== 'ack') {
+    if (response.kind !== 'ack' && !(response.kind === 'error' && response.code === 'name_update_failed')) {
       if (response.kind === 'error' && response.code === 'invalid_auth') {
         this.#invalidSavedDesktopIds.add(desktop.desktopId);
         await this.storage.remove(desktop.desktopId).catch(() => undefined);
@@ -298,6 +302,7 @@ export class ConnectionManager {
       }
       throw new Error('Authentication failed.');
     }
+    if (response.kind === 'error') this.diagnostics.add('remote_name_sync_failed', 'warning');
     this.#token = token;
     const profile = await this.#requestPointerProfile(token, operation);
     if (!this.#current(operation)) return;

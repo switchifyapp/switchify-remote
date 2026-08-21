@@ -6,6 +6,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { ActionButton } from './ActionButton';
 import { AppText } from './AppText';
 import { ResponsiveGrid } from './ResponsiveGrid';
+import { useAccessibilityAnnouncement } from './useAccessibilityAnnouncement';
 
 export type RemoteNameSaveResult = 'synced' | 'deferred' | 'failed';
 
@@ -38,6 +39,7 @@ export function RemoteNameEditor({ remoteName, onSave, modelName }: { remoteName
 
   const unchanged = validation.valid && (remoteName === null ? validation.value === automaticName : validation.value === remoteName);
   const error = draft.length > 0 && !validation.valid ? validation.error : '';
+  useAccessibilityAnnouncement(error || status || null);
 
   return <View style={{ gap: spacing.sm }}>
     <TextInput
@@ -51,11 +53,11 @@ export function RemoteNameEditor({ remoteName, onSave, modelName }: { remoteName
       style={[typography.body, { backgroundColor: colors.surfaceRaised, borderColor: error ? colors.danger : colors.border, borderRadius: radii.md, borderWidth: 1, color: colors.text, minHeight: 52, paddingHorizontal: spacing.lg, paddingVertical: spacing.md }]}
       value={draft}
     />
-    {error ? <AppText accessibilityLiveRegion="polite" style={{ color: colors.danger }} variant="caption">{error}</AppText> : null}
+    {error ? <AppText style={{ color: colors.danger }} variant="caption">{error}</AppText> : null}
     <ResponsiveGrid maxColumns={2} minItemWidth={150}>
       <ActionButton label="Save name" busy={saving} disabled={saving || !validation.valid || unchanged} onPress={() => { if (validation.valid) void commit(validation.value); }} />
       <ActionButton label={`Use device model (${automaticName})`} disabled={saving || (remoteName === null && draft === automaticName)} tone="secondary" onPress={() => void commit(null)} />
     </ResponsiveGrid>
-    {status ? <AppText accessibilityLiveRegion="polite" muted variant="caption">{status}</AppText> : null}
+    {status ? <AppText muted variant="caption">{status}</AppText> : null}
   </View>;
 }

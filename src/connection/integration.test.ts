@@ -81,7 +81,7 @@ class LoopbackTransport implements BleTransport {
       response = { type: 'error', id: request.id, ok: false, error: { code: 'invalid_auth', message: 'invalid_auth' }, payload: {} };
     } else if (request.type === 'connection.ping' && this.rejectPingCount > 0) {
       this.rejectPingCount -= 1;
-      response = { type: 'error', id: request.id, ok: false, error: { code: 'invalid_payload', message: 'invalid_payload' }, payload: {} };
+      response = { type: 'error', id: request.id, ok: false, error: { code: 'name_update_failed', message: 'name_update_failed' }, payload: {} };
     } else if (request.type === 'pointer.profile') {
       const invalidResponsesRemaining = this.invalidResponseCounts.get(request.type) ?? 0;
       if (invalidResponsesRemaining > 0) {
@@ -135,13 +135,25 @@ describe('pairing and authenticated connection integration', () => {
     transport.rejectPingCount = 1;
     expect(await manager.syncRemoteName()).toBe('failed');
     expect(manager.snapshot().kind).toBe('connected');
-    expect(diagnostics.snapshot().map(({ code }) => code)).toContain('command_failed');
+    expect(diagnostics.snapshot().map(({ code }) => code)).toContain('remote_name_sync_failed');
 
     await manager.disconnect();
     await manager.connectSaved(storage.saved[0]!);
     const pings = transport.requestPayloads.filter(({ type }) => type === 'connection.ping');
     expect(pings.at(-1)?.payload).toEqual({ deviceName: 'Office Remote' });
     expect(manager.snapshot().kind).toBe('connected');
+  });
+
+  it('does not block authentication when PC cannot persist the name metadata', async () => {
+    const transport = new LoopbackTransport();
+    transport.rejectPingCount = 1;
+    const diagnostics = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, new MemoryStorage(), diagnostics, async () => true, () => 1000, (() => { let id = 0; return () => `nonblocking-name-${++id}`; })(), async () => undefined, async () => 'OPD2403');
+
+    await manager.connect(desktop);
+
+    expect(manager.snapshot()).toMatchObject({ kind: 'connected', profileStatus: 'ready' });
+    expect(diagnostics.snapshot().map(({ code }) => code)).toContain('remote_name_sync_failed');
   });
 
   it('pairs, persists, negotiates capabilities, sends a command, and cleans up', async () => {
