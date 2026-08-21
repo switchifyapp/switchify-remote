@@ -24,6 +24,13 @@ function listFiles(directory: string): string[] {
   });
 }
 
+function isTestModule(file: string): boolean {
+  return (
+    /\.(?:test|spec)\.[jt]sx?$/.test(file) ||
+    /(?:^|[\\/])__tests__(?:[\\/]|$)/.test(file)
+  );
+}
+
 describe('root navigation', () => {
   it('labels the native Diagnostics back control as Settings', () => {
     expect(diagnosticsScreenOptions).toMatchObject({
@@ -36,10 +43,17 @@ describe('root navigation', () => {
 
   it('keeps test modules outside the Expo Router app directory', () => {
     const appDirectory = join(process.cwd(), 'src', 'app');
-    const routeTestFiles = listFiles(appDirectory).filter((file) =>
-      /\.(?:test|spec)\.[jt]sx?$/.test(file),
-    );
+    const routeTestFiles = listFiles(appDirectory).filter(isTestModule);
 
     expect(routeTestFiles).toEqual([]);
+  });
+
+  it('recognizes named tests and modules in __tests__ directories', () => {
+    expect(isTestModule(join('src', 'app', 'screen.test.tsx'))).toBe(true);
+    expect(isTestModule(join('src', 'app', 'screen.spec.ts'))).toBe(true);
+    expect(isTestModule(join('src', 'app', '__tests__', 'screen.tsx'))).toBe(
+      true,
+    );
+    expect(isTestModule(join('src', 'app', 'screen.tsx'))).toBe(false);
   });
 });
