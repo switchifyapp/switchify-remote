@@ -12,6 +12,8 @@ import { RemoteSession } from '@/remote/RemoteSession';
 import { SurfaceSelector } from '@/remote/SurfaceSelector';
 import { TypingSurface } from '@/remote/TypingSurface';
 import { WindowSurface } from '@/remote/WindowSurface';
+import { profilePresentation } from '@/remote/profilePresentation';
+import { useProfileStatusAnnouncement } from '@/remote/useProfileStatusAnnouncement';
 import { usePreferences } from '@/storage/usePreferences';
 import { preferencesStore } from '@/storage/PreferencesStore';
 import { ForwardingRestoreState, ForwardingSurface, shouldClearForwardingRestore } from '@/forwarding/ForwardingSurface';
@@ -26,9 +28,11 @@ export default function RemoteScreen() {
   const preferences = usePreferences();
   const forwardingRestore = useMemo(() => new ForwardingRestoreState(), []);
   const profile = connection.kind === 'connected' ? connection.profile : null;
+  const profileStatus = connection.kind === 'connected' ? connection.profileStatus : null;
   const desktopId = connection.kind === 'connected' ? connection.desktop.desktopId : null;
   const session = useMemo(() => new RemoteSession(manager, profile, undefined, desktopId, bridge), [manager, desktopId, profile, bridge]);
   const sessionState = useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
+  useProfileStatusAnnouncement(profileStatus);
   usePreferredPcConnection(manager);
   useEffect(() => { if (params.surface === 'mouse' || params.surface === 'forwarding') void preferencesStore.update({ surface: params.surface }); }, [params.surface]);
   useEffect(() => manager.registerCleanup(() => session.cleanup()), [manager, session]);
@@ -37,7 +41,10 @@ export default function RemoteScreen() {
     if (shouldClearForwardingRestore(preferences.surface, connection.kind)) forwardingRestore.clear();
   }, [connection.kind, forwardingRestore, preferences.surface]);
   if (connection.kind !== 'connected') return <DisconnectedRemote connection={connection} selectedSurface={preferences.surface} retry={() => void manager.connectPreferred()} choose={() => router.navigate('/')} />;
-  if (!connection.profile) return <Screen title="Remote"><EmptyState icon="portable-wifi-off" title="Controls unavailable" body="This PC did not provide a compatible remote-control profile. Reconnect after updating Switchify PC." /></Screen>;
+  if (!connection.profile) {
+    const unavailablePresentation = profilePresentation(connection.profileStatus);
+    return <Screen title="Remote"><EmptyState icon={unavailablePresentation.icon} title={unavailablePresentation.title} body={unavailablePresentation.body} /></Screen>;
+  }
   return (
     <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />}>
       <SurfaceSelector selected={preferences.surface} />

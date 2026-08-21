@@ -28,7 +28,7 @@ class LoopbackTransport implements BleTransport {
   rejectPairing = false;
   rejectAuthentication = false;
   requests: string[] = [];
-  requestIds: { id: string; type: string }[] = [];
+  requestIds: { id: string; type: string; authenticated: boolean }[] = [];
   connectCount = 0;
   connectFailures = 0;
   readinessGate: Promise<void> | null = null;
@@ -57,9 +57,9 @@ class LoopbackTransport implements BleTransport {
     if (!frame) throw new Error('invalid fixture frame');
     const result = this.outbound.accept(frame);
     if (result.kind !== 'complete') return;
-    const request = JSON.parse(result.message) as { id: string; type: string; payload: { deviceId?: string; desktopId?: string } };
+    const request = JSON.parse(result.message) as { id: string; type: string; auth?: string; payload: { deviceId?: string; desktopId?: string } };
     this.requests.push(request.type);
-    this.requestIds.push({ id: request.id, type: request.type });
+    this.requestIds.push({ id: request.id, type: request.type, authenticated: typeof request.auth === 'string' && request.auth.length > 0 });
     if (this.hangWrites.has(request.type)) await new Promise<void>(() => undefined);
     await this.responseGateQueues.get(request.type)?.shift();
     await this.responseGates.get(request.type);
@@ -102,7 +102,7 @@ describe('pairing and authenticated connection integration', () => {
     });
     manager.registerCleanup(cleanup);
     await manager.connect(desktop);
-    expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: { scaleFactor: 1.5, capabilities: { displayNavigation: { displayCount: 2 } } } });
+    expect(manager.snapshot()).toMatchObject({ kind: 'connected', profileStatus: 'ready', profile: { scaleFactor: 1.5, capabilities: { displayNavigation: { displayCount: 2 } } } });
     expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(1);
     expect(storage.tokens.get('pc-1')).toBe('fixture-secret');
     expect(await manager.send('mouse.click', { button: 'left' })).toBe(true);
@@ -154,12 +154,13 @@ describe('pairing and authenticated connection integration', () => {
     }
   });
 
-  it('uses the safe unavailable state after both pointer profile attempts time out', async () => {
+  it('recovers in the background after both initial pointer profile attempts time out', async () => {
     jest.useFakeTimers();
     try {
       const transport = new LoopbackTransport();
       transport.dropResponseCounts.set('pointer.profile', 2);
-      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-missing-${++id}`; })());
+      const diagnostics = new DiagnosticLog();
+      const manager = new ConnectionManager(transport, new MemoryStorage(), diagnostics, async () => true, () => 1000, (() => { let id = 0; return () => `profile-recovery-${++id}`; })());
 
       const connecting = manager.connect(desktop);
       await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
@@ -168,8 +169,103 @@ describe('pairing and authenticated connection integration', () => {
       await jest.advanceTimersByTimeAsync(5_000);
       await connecting;
 
-      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: null });
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: null, profileStatus: 'recovering' });
       expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(2);
+      await jest.advanceTimersByTimeAsync(999);
+      expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(2);
+      await jest.advanceTimersByTimeAsync(1);
+      await waitForMicrotasks(() => {
+        const state = manager.snapshot();
+        return state.kind === 'connected' && state.profileStatus === 'ready';
+      });
+
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profileStatus: 'ready', profile: { displayId: 'display-1' } });
+      const profileRequests = transport.requestIds.filter(({ type }) => type === 'pointer.profile');
+      expect(profileRequests).toHaveLength(3);
+      expect(new Set(profileRequests.map(({ id }) => id)).size).toBe(3);
+      expect(profileRequests.every(({ authenticated }) => authenticated)).toBe(true);
+      expect(diagnostics.snapshot().map(({ code }) => code)).toEqual(expect.arrayContaining(['profile_recovery_started', 'profile_recovered']));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('exhausts exactly five authenticated profile requests after 1, 2, and 4 second delays', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.dropResponses.add('pointer.profile');
+      const diagnostics = new DiagnosticLog();
+      const manager = new ConnectionManager(transport, new MemoryStorage(), diagnostics, async () => true, () => 1000, (() => { let id = 0; return () => `profile-exhaust-${++id}`; })());
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      for (const delay of [1_000, 2_000, 4_000]) {
+        const before = transport.requests.filter((type) => type === 'pointer.profile').length;
+        await jest.advanceTimersByTimeAsync(delay - 1);
+        expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(before);
+        await jest.advanceTimersByTimeAsync(1);
+        await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === before + 1);
+        await jest.advanceTimersByTimeAsync(5_000);
+      }
+
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profile: null, profileStatus: 'unavailable' });
+      const profileRequests = transport.requestIds.filter(({ type }) => type === 'pointer.profile');
+      expect(profileRequests).toHaveLength(5);
+      expect(new Set(profileRequests.map(({ id }) => id)).size).toBe(5);
+      expect(profileRequests.every(({ authenticated }) => authenticated)).toBe(true);
+      expect(diagnostics.snapshot()[0]).toMatchObject({ code: 'profile_recovery_exhausted', level: 'warning' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels profile recovery during a delay', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.dropResponses.add('pointer.profile');
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-delay-cancel-${++id}`; })());
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      await manager.disconnect();
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(manager.snapshot().kind).toBe('idle');
+      expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels profile recovery while a background request is pending', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.dropResponses.add('pointer.profile');
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, (() => { let id = 0; return () => `profile-pending-cancel-${++id}`; })());
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 3);
+
+      await manager.disconnect();
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(manager.snapshot().kind).toBe('idle');
+      expect(transport.requests.filter((type) => type === 'pointer.profile')).toHaveLength(3);
     } finally {
       jest.useRealTimers();
     }

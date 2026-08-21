@@ -17,7 +17,7 @@ export type ConnectionState =
   | { kind: 'connecting'; desktop: DiscoveredDesktop }
   | { kind: 'reconnecting'; desktop: DiscoveredDesktop; attempt: number }
   | { kind: 'pairing'; desktop: DiscoveredDesktop; verificationCode: string }
-  | { kind: 'connected'; desktop: DiscoveredDesktop; profile: PointerProfile | null }
+  | { kind: 'connected'; desktop: DiscoveredDesktop; profile: PointerProfile | null; profileStatus: 'ready' | 'recovering' | 'unavailable' }
   | { kind: 'failed'; message: string; saved: SavedPc[] };
 
 type Cleanup = () => Promise<void> | void;
@@ -35,6 +35,7 @@ export class ConnectionManager {
   #preferredConnect: Promise<void> | null = null;
   #disconnecting: Promise<void> | null = null;
   #invalidSavedDesktopIds = new Set<string>();
+  #profileRecoveryTimers = new Map<ReturnType<typeof setTimeout>, (active: boolean) => void>();
 
   constructor(
     private readonly transport: BleTransport,
@@ -293,19 +294,68 @@ export class ConnectionManager {
     this.#invalidSavedDesktopIds.delete(desktop.desktopId);
     if (!this.#current(operation)) return;
     this.diagnostics.add('connected');
-    this.#set({ kind: 'connected', desktop, profile });
+    if (profile) {
+      this.#set({ kind: 'connected', desktop, profile, profileStatus: 'ready' });
+    } else {
+      this.#set({ kind: 'connected', desktop, profile: null, profileStatus: 'recovering' });
+      this.diagnostics.add('profile_recovery_started');
+      void this.#recoverPointerProfile(token, operation);
+    }
   }
 
   async #requestPointerProfile(token: string, operation: number): Promise<PointerProfile | null> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      const profile = await this.#requestPointerProfileAttempt(token, operation);
+      if (profile) return profile;
       if (!this.#current(operation)) return null;
-      const [type, payload] = commandPayloads.pointerProfile();
-      const id = this.id();
-      const response = await this.#client!.request(authenticatedCommand({ id, deviceId: this.#deviceId!, token, timestamp: this.now(), type, payload }), id, 5_000).catch(() => null);
-      if (!this.#current(operation)) return null;
-      if (response?.kind === 'pointerProfile') return response.profile;
     }
     return null;
+  }
+
+  async #recoverPointerProfile(token: string, operation: number): Promise<void> {
+    for (const delay of [1_000, 2_000, 4_000]) {
+      if (!await this.#waitForProfileRecovery(delay, operation)) return;
+      const profile = await this.#requestPointerProfileAttempt(token, operation);
+      if (!this.#current(operation)) return;
+      if (profile) {
+        if (this.#state.kind === 'connected' && this.#state.profileStatus === 'recovering') {
+          this.#set({ ...this.#state, profile, profileStatus: 'ready' });
+          this.diagnostics.add('profile_recovered');
+        }
+        return;
+      }
+    }
+    if (this.#current(operation) && this.#state.kind === 'connected' && this.#state.profileStatus === 'recovering') {
+      this.#set({ ...this.#state, profileStatus: 'unavailable' });
+      this.diagnostics.add('profile_recovery_exhausted', 'warning');
+    }
+  }
+
+  async #requestPointerProfileAttempt(token: string, operation: number): Promise<PointerProfile | null> {
+    if (!this.#current(operation)) return null;
+    const [type, payload] = commandPayloads.pointerProfile();
+    const id = this.id();
+    const response = await this.#client!.request(authenticatedCommand({ id, deviceId: this.#deviceId!, token, timestamp: this.now(), type, payload }), id, 5_000).catch(() => null);
+    if (!this.#current(operation)) return null;
+    return response?.kind === 'pointerProfile' ? response.profile : null;
+  }
+
+  #waitForProfileRecovery(milliseconds: number, operation: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.#profileRecoveryTimers.delete(timer);
+        resolve(this.#current(operation));
+      }, milliseconds);
+      this.#profileRecoveryTimers.set(timer, resolve);
+    });
+  }
+
+  #cancelProfileRecovery(): void {
+    for (const [timer, resolve] of this.#profileRecoveryTimers) {
+      clearTimeout(timer);
+      resolve(false);
+    }
+    this.#profileRecoveryTimers.clear();
   }
 
   async #unexpectedDisconnect(desktop: DiscoveredDesktop, sourceOperation: number): Promise<void> {
@@ -350,6 +400,7 @@ export class ConnectionManager {
   }
 
   async #teardownConnection(): Promise<void> {
+    this.#cancelProfileRecovery();
     this.#disconnectStop?.(); this.#disconnectStop = null;
     const client = this.#client;
     this.#client = null; this.#token = null;
