@@ -36,4 +36,70 @@ describe('LiveTypingController', () => {
     expect(await controller.update('unsent')).toBe(true);
     expect(controller.applied()).toBe('unsent');
   });
+
+  it('reconciles pending text before Enter and resets the baseline after success', async () => {
+    const calls: string[] = [];
+    let releaseChunk!: (value: boolean) => void;
+    const pendingChunk = new Promise<boolean>((resolve) => { releaseChunk = resolve; });
+    const session = {
+      streamChunk: jest.fn(async (text: string) => {
+        calls.push(`chunk:${text}`);
+        return text === 'first' ? pendingChunk : true;
+      }),
+      streamKey: jest.fn(async (key: string) => { calls.push(`key:${key}`); return true; }),
+    };
+    const controller = new LiveTypingController(session);
+
+    const update = controller.update('first');
+    const submit = controller.submitLine();
+    releaseChunk(true);
+
+    await expect(Promise.all([update, submit])).resolves.toEqual([true, true]);
+    expect(calls).toEqual(['chunk:first', 'key:Enter']);
+    expect(controller.applied()).toBe('');
+
+    await expect(controller.update('second')).resolves.toBe(true);
+    expect(calls).toEqual(['chunk:first', 'key:Enter', 'chunk:second']);
+    expect(session.streamKey).not.toHaveBeenCalledWith('Backspace');
+  });
+
+  it('retries failed reconciliation before sending Enter', async () => {
+    const calls: string[] = [];
+    let chunkAttempt = 0;
+    const session = {
+      streamChunk: jest.fn(async (text: string) => {
+        calls.push(`chunk:${text}`);
+        chunkAttempt += 1;
+        return chunkAttempt > 1;
+      }),
+      streamKey: jest.fn(async (key: string) => { calls.push(`key:${key}`); return true; }),
+    };
+    const controller = new LiveTypingController(session);
+
+    expect(await controller.update('retry me')).toBe(false);
+    expect(await controller.submitLine()).toBe(true);
+    expect(calls).toEqual(['chunk:retry me', 'chunk:retry me', 'key:Enter']);
+    expect(controller.applied()).toBe('');
+  });
+
+  it('keeps the baseline when Enter fails so Retry Enter sends no duplicate text', async () => {
+    const calls: string[] = [];
+    let enterAttempt = 0;
+    const session = {
+      streamChunk: jest.fn(async (text: string) => { calls.push(`chunk:${text}`); return true; }),
+      streamKey: jest.fn(async (key: string) => {
+        calls.push(`key:${key}`);
+        enterAttempt += 1;
+        return enterAttempt > 1;
+      }),
+    };
+    const controller = new LiveTypingController(session);
+
+    await controller.update('kept');
+    expect(await controller.submitLine()).toBe(false);
+    expect(controller.applied()).toBe('kept');
+    expect(await controller.submitLine()).toBe(true);
+    expect(calls).toEqual(['chunk:kept', 'key:Enter', 'key:Enter']);
+    expect(controller.applied()).toBe('');
+  });
 });

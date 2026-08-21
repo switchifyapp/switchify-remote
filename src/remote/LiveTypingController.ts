@@ -14,6 +14,18 @@ export class LiveTypingController {
     return result;
   }
 
+  submitLine(): Promise<boolean> {
+    const result = this.#queue.catch(() => false).then(async () => {
+      if (!await this.#reconcile()) return false;
+      if (!await this.session.streamKey('Enter')) return false;
+      this.#applied = '';
+      this.#desired = '';
+      return true;
+    });
+    this.#queue = result;
+    return result;
+  }
+
   applied(): string { return this.#applied; }
 
   async #reconcile(): Promise<boolean> {

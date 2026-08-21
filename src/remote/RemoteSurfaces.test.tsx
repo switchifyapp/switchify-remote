@@ -7,6 +7,9 @@ import { MouseSurface } from './MouseSurface';
 import { RemoteSession } from './RemoteSession';
 import { TypingSurface } from './TypingSurface';
 import { WindowSurface } from './WindowSurface';
+import { focusLiveTextInput } from './focusLiveTextInput';
+
+jest.mock('./focusLiveTextInput', () => ({ focusLiveTextInput: jest.fn() }));
 
 function profile(supportedCommands: string[]): PointerProfile {
   const repeat = supportedCommands.includes('mouse.repeat.start') && supportedCommands.includes('mouse.repeat.stop');
@@ -16,6 +19,10 @@ function profile(supportedCommands: string[]): PointerProfile {
 const manager = { send: jest.fn(async () => true) } as unknown as ConnectionManager;
 
 describe('capability-driven remote surfaces', () => {
+  beforeEach(() => {
+    jest.mocked(focusLiveTextInput).mockClear();
+  });
+
   it('disables unsupported mouse controls', async () => {
     const session = new RemoteSession(manager, profile(['mouse.click']));
     const view = await render(<MouseSurface session={session} state={session.snapshot()} />);
@@ -41,6 +48,110 @@ describe('capability-driven remote surfaces', () => {
     await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'unsent'); });
     await waitFor(() => expect(view.getByLabelText('Retry unsent text')).toBeTruthy());
     expect(view.getByLabelText('Live text').props.value).toBe('unsent');
+  });
+
+  it.each(['visible Enter control', 'software keyboard Return'] as const)('submits and clears live text from the %s', async (source) => {
+    const focusTextInput = jest.mocked(focusLiveTextInput);
+    const send = jest.fn(async (_type: string, _payload?: unknown) => true);
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      profile(['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close']),
+    );
+    const view = await render(<TypingSurface session={session} mode="live" draft="" />);
+    const input = view.getByLabelText('Live text');
+
+    await act(async () => { fireEvent.changeText(input, 'hello'); });
+    await waitFor(() => expect(send.mock.calls.some(([type]) => type === 'keyboard.textStream.chunk')).toBe(true));
+    if (source === 'visible Enter control') {
+      await act(async () => { fireEvent.press(view.getByLabelText('Enter')); });
+    } else {
+      await act(async () => { fireEvent(input, 'submitEditing'); });
+    }
+
+    await waitFor(() => expect(view.getByLabelText('Live text').props.value).toBe(''));
+    await waitFor(() => expect(focusTextInput).toHaveBeenCalledTimes(1));
+    expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.key')).toHaveLength(1);
+    expect(send.mock.calls.find(([type]) => type === 'keyboard.textStream.key')?.[1]).toMatchObject({ key: 'Enter' });
+
+    await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'next'); });
+    await waitFor(() => expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.chunk')).toHaveLength(2));
+    expect(send.mock.calls.filter(([type, payload]) => type === 'keyboard.textStream.key' && (payload as { key?: string }).key === 'Backspace')).toHaveLength(0);
+  });
+
+  it('retains live text after a failed Enter and offers a specific retry', async () => {
+    let enterAttempt = 0;
+    const send = jest.fn(async (type: string) => {
+      if (type !== 'keyboard.textStream.key') return true;
+      enterAttempt += 1;
+      return enterAttempt > 1;
+    });
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      profile(['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close']),
+    );
+    const view = await render(<TypingSurface session={session} mode="live" draft="" />);
+
+    await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'keep me'); });
+    await waitFor(() => expect(send.mock.calls.some(([type]) => type === 'keyboard.textStream.chunk')).toBe(true));
+    await act(async () => { fireEvent.press(view.getByLabelText('Enter')); });
+
+    await waitFor(() => expect(view.getByLabelText('Retry Enter')).toBeTruthy());
+    expect(view.getByLabelText('Live text').props.value).toBe('keep me');
+    await act(async () => { fireEvent.press(view.getByLabelText('Retry Enter')); });
+    await waitFor(() => expect(view.getByLabelText('Live text').props.value).toBe(''));
+    expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.chunk')).toHaveLength(1);
+    expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.key')).toHaveLength(2);
+  });
+
+  it('blocks duplicate live submissions and further input until Enter completes', async () => {
+    let releaseEnter!: (value: boolean) => void;
+    const pendingEnter = new Promise<boolean>((resolve) => { releaseEnter = resolve; });
+    const send = jest.fn(async (type: string) => type === 'keyboard.textStream.key' ? pendingEnter : true);
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      profile(['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close']),
+    );
+    const view = await render(<TypingSurface session={session} mode="live" draft="" />);
+    const input = view.getByLabelText('Live text');
+    await act(async () => { fireEvent.changeText(input, 'pending'); });
+    await waitFor(() => expect(send.mock.calls.some(([type]) => type === 'keyboard.textStream.chunk')).toBe(true));
+
+    await act(async () => {
+      fireEvent.press(view.getByLabelText('Enter'));
+      fireEvent(input, 'submitEditing');
+      fireEvent.changeText(input, 'must not replace pending');
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.getByLabelText('Live text').props.editable).toBe(false));
+    expect(view.getByLabelText('Enter').props.accessibilityState.disabled).toBe(true);
+    expect(view.getByLabelText('Escape').props.accessibilityState.disabled).toBe(false);
+    expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.key')).toHaveLength(1);
+    expect(view.getByLabelText('Live text').props.value).toBe('pending');
+
+    await act(async () => {
+      releaseEnter(true);
+      await pendingEnter;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.getByLabelText('Live text').props.value).toBe(''));
+    expect(view.getByLabelText('Live text').props.editable).toBe(true);
+    expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.key')).toHaveLength(1);
+  });
+
+  it('keeps draft Return multiline without submitting or clearing', async () => {
+    const send = jest.fn(async () => true);
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      profile(['keyboard.typeText', 'keyboard.key']),
+    );
+    const view = await render(<TypingSurface session={session} mode="draft" draft={'first\nsecond'} />);
+    const input = view.getByLabelText('Draft text');
+
+    expect(input.props.submitBehavior).toBe('newline');
+    await act(async () => { fireEvent(input, 'submitEditing'); });
+    expect(input.props.value).toBe('first\nsecond');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('gates modifiers, shortcuts, and window commands independently', async () => {
