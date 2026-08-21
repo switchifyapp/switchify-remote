@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <rect width="1024" height="500" fill="#050505"/>
+  <circle cx="824" cy="250" r="150" fill="#17171A"/>
+  <circle cx="824" cy="250" r="104" fill="none" stroke="#D90429" stroke-width="22" stroke-dasharray="128 30"/>
+  <circle cx="824" cy="250" r="27" fill="#FFFFFF"/>
+  <path d="M824 119l-24 32h48zM955 250l-32-24v48zM824 381l24-32h-48zM693 250l32 24v-48z" fill="#FFFFFF"/>
+  <rect x="718" y="318" width="212" height="17" rx="8.5" fill="#FFFFFF"/>
+  <rect x="748" y="207" width="152" height="108" rx="10" fill="#232327" stroke="#FFFFFF" stroke-width="8"/>
+  <text x="72" y="105" fill="#D90429" font-family="Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="2">SWITCHIFY REMOTE</text>
+  <text x="72" y="210" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="56" font-weight="700">Accessible control</text>
+  <text x="72" y="282" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="56" font-weight="700">for Windows and Mac</text>
+  <text x="76" y="354" fill="#B9B9C2" font-family="Arial, sans-serif" font-size="25">Mouse, typing and window controls over Bluetooth</text>
+</svg>

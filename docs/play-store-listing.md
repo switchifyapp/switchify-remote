@@ -8,13 +8,13 @@ This document is the source of truth for the initial English (United Kingdom) Go
 - App name: Switchify Remote
 - Category: Tools
 - Tag: Remote control
-- Privacy policy: https://switchifyapp.com/privacy
+- Privacy policy: https://switchifyapp.com/privacy/remote
 - Public email: owen@switchifyapp.com
 - Public website: https://switchifyapp.com
 - Public phone: none
 - External marketing: keep the existing Play Console setting unchanged
 
-The current privacy-policy page describes analytics and third-party services used by the broader Switchify Android app without distinguishing Switchify Remote. Do not save the Data safety declaration or submit this app until the page has an explicit Remote-specific section or a separate Remote policy URL is available. The app must also expose the applicable privacy policy from within its UI before submission.
+The Remote-specific policy must be live at the URL above, and the installed internal build must expose the same policy from Settings, before saving Data safety.
 
 ### Short description
 
@@ -80,7 +80,7 @@ Switchify Remote has no account or login. It requires a Bluetooth Low Energy com
 
 The intended declaration is that the app does not collect or share required user-data types. Switchify Remote has no account, analytics, telemetry, advertising, cloud sync, or app-originated internet transport. Preferences stay on the device. Sanitized diagnostics stay on the device unless the user explicitly copies or exports them through the operating system. The device identifier and pairing tokens use secure device storage. User-directed text and control commands travel over Bluetooth only to the computer that the user pairs and approves; they are not sent to the developer or a third party.
 
-Do not save this declaration while the linked privacy policy still describes analytics and third-party services without distinguishing Switchify Remote. Resolve the privacy-policy and in-app-link blockers first, then re-verify the current app and dependency behavior before saving.
+Save this declaration only after `v1.0.0-beta.5` is available to internal testers, the Remote-specific policy is public, and the Settings link has been checked in the installed build.
 
 Re-evaluate this declaration before saving if dependencies, diagnostics, networking, storage, or data handling change.
 
@@ -91,15 +91,27 @@ Re-evaluate this declaration before saving if dependencies, diagnostics, network
 - Answer No to questionnaire items about violence, sexuality, language, controlled substances, gambling, user-generated content, user communication, purchases, location sharing, and unrestricted web access.
 - Review the calculated rating before saving. A materially higher result than the general-audience rating expected for this utility requires investigation.
 
-## Deferred visual assets
+## Store visual assets
 
-Leave every visual asset unchanged in this pass:
+Upload these files from `docs/play-store-assets`:
 
-- App icon
-- Feature graphic
-- Promotional video
-- Phone screenshots
-- Seven-inch tablet screenshots
-- Ten-inch tablet screenshots
+- Listing icon: `../../assets/images/switchify-remote-play-store.png`, 512 x 512
+- Feature graphic: `feature-graphic.png`, 1024 x 500
+- Phone screenshots: the five opaque 1080 x 1920 PNGs under `phone/`, in filename order
 
-Add sanitized screenshots only after device capture and accessibility review. Screenshots must not contain pairing tokens, authentication material, typed text, credentials, or identifying diagnostics.
+Keep the promotional video, tablet, Chromebook, and XR sections empty. The screenshot captures must use a generic computer name and must not contain pairing codes, typed text, credentials, diagnostics, personal identifiers, developer controls, or notification contents.
+
+The editable feature graphic is under `source/`. Rebuild the final assets with:
+
+```text
+node scripts/generate-play-store-assets.cjs --source-dir <sanitized-capture-directory>
+```
+
+Run `npm test -- --runInBand scripts/play-store-assets.test.js` after regeneration.
+
+## Console completion guardrails
+
+- Save category, contact details, Data safety, and store-listing changes as drafts.
+- Pause for confirmation before entering the public contact email and before each Console save.
+- Do not send changes for review, create a closed test, or publish to production.
+- Confirm all 11 setup tasks are complete after saving, or record any new task Play Console adds.

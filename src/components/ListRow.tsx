@@ -7,7 +7,7 @@ import { useTheme } from '@/theme/ThemeContext';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
-export function ListRow({ title, description, icon, onPress }: { title: string; description?: string; icon?: IconName; onPress?: () => void }) {
+export function ListRow({ title, description, icon, hint, onPress }: { title: string; description?: string; icon?: IconName; hint?: string; onPress?: () => void }) {
   const { colors, radii, spacing } = useTheme();
   const content = <>
     {icon ? <MaterialIcons color={colors.brandText} importantForAccessibility="no" name={icon} size={22} /> : null}
@@ -16,5 +16,5 @@ export function ListRow({ title, description, icon, onPress }: { title: string; 
   </>;
   const style = { alignItems: 'center' as const, borderRadius: radii.md, flexDirection: 'row' as const, gap: spacing.md, minHeight: 56, padding: spacing.md };
   if (!onPress) return <View style={style}>{content}</View>;
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [style, { backgroundColor: pressed ? colors.surfacePressed : 'transparent' }]}>{content}</Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={hint} onPress={onPress} style={({ pressed }) => [style, { backgroundColor: pressed ? colors.surfacePressed : 'transparent' }]}>{content}</Pressable>;
 }
