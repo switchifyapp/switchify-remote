@@ -6,9 +6,10 @@ import { profileStatusAnnouncement, type ProfileStatus } from './profilePresenta
 
 export function useProfileStatusAnnouncement(status: ProfileStatus | null): void {
   const previous = useRef<ProfileStatus | null>(null);
+  const previousAnnouncement = useRef<string | null>(null);
   useEffect(() => {
     const message = profileStatusAnnouncement(status, previous.current);
-    announceAccessibilityTransition(Platform.OS, message, null, (value) => AccessibilityInfo.announceForAccessibilityWithOptions(value, { queue: true }));
+    previousAnnouncement.current = announceAccessibilityTransition(Platform.OS, message, previousAnnouncement.current, (value) => AccessibilityInfo.announceForAccessibilityWithOptions(value, { queue: true }));
     previous.current = status;
   }, [status]);
 }
