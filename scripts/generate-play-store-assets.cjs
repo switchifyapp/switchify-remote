@@ -86,35 +86,58 @@ try {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
 
-for (const [fileName, caption] of captures) {
-  const source = path.join(sourceDir, fileName);
-  if (!fs.existsSync(source)) throw new Error(`Missing capture: ${source}`);
-  const escapedCaption = caption.replace(/'/g, "\\'");
-  const sanitizedCapture =
-    fileName === "01-pair.png"
-      ? `[0:v]drawbox=x=94:y=634:w=690:h=100:color=#17171A:t=fill,drawtext=${ffmpegFont}:text='Demo computer':fontcolor=#FFFFFF:fontsize=46:x=108:y=653,drawbox=x=704:y=884:w=360:h=90:color=#17171A:t=fill,drawtext=${ffmpegFont}:text='Unpair Demo PC':fontcolor=#FF5C7A:fontsize=30:x=720:y=908,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`
-      : fileName === "05-access.png"
-        ? "[0:v]crop=1080:1998:0:360,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]"
-        : `[0:v]drawbox=x=130:y=198:w=360:h=66:color=#143C25:t=fill,drawtext=${ffmpegFont}:text='Connected · Demo PC':fontcolor=#72E58F:fontsize=30:x=137:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`;
-  const filter = [
-    sanitizedCapture,
-    "[1:v]drawbox=x=168:y=248:w=744:h=1624:color=#D90429:t=fill,drawbox=x=176:y=256:w=728:h=1608:color=#17171A:t=fill[base]",
-    "[base][shot]overlay=180:260[screen]",
-    `[screen]drawtext=${ffmpegFont}:text='Switchify Remote':fontcolor=#D90429:fontsize=30:x=(w-text_w)/2:y=48,drawtext=${ffmpegFont}:text='${escapedCaption}':fontcolor=#FFFFFF:fontsize=58:x=(w-text_w)/2:y=112`,
-  ].join(";");
-  runFfmpeg([
-    "-i",
-    source,
-    "-f",
-    "lavfi",
-    "-i",
-    "color=c=#050505:s=1080x1920",
-    "-filter_complex",
-    filter,
-    "-frames:v",
-    "1",
-    "-pix_fmt",
-    "rgb24",
-    path.join(phoneOutput, fileName),
-  ]);
+const phoneTempRoot = fs.mkdtempSync(
+  path.join(os.tmpdir(), "switchify-phone-assets-"),
+);
+try {
+  for (const [fileName, caption] of captures) {
+    const source = path.join(sourceDir, fileName);
+    if (!fs.existsSync(source)) throw new Error(`Missing capture: ${source}`);
+    const escapedCaption = caption.replace(/'/g, "\\'");
+    const sanitizedCapture =
+      fileName === "01-pair.png"
+        ? `[0:v]drawbox=x=94:y=634:w=690:h=100:color=#17171A:t=fill,drawtext=${ffmpegFont}:text='Demo computer':fontcolor=#FFFFFF:fontsize=46:x=108:y=653,drawbox=x=704:y=884:w=360:h=90:color=#17171A:t=fill,drawtext=${ffmpegFont}:text='Unpair Demo PC':fontcolor=#FF5C7A:fontsize=30:x=720:y=908,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`
+        : fileName === "02-mouse.png"
+          ? "[0:v]crop=1080:1598:0:760,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:0:color=#0B0B0D[shot]"
+          : fileName === "05-access.png"
+            ? "[0:v]crop=1080:1998:0:360,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]"
+            : `[0:v]drawbox=x=130:y=198:w=360:h=66:color=#143C25:t=fill,drawtext=${ffmpegFont}:text='Connected · Demo PC':fontcolor=#72E58F:fontsize=30:x=137:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`;
+    const filter = [
+      sanitizedCapture,
+      "[1:v]drawbox=x=168:y=248:w=744:h=1624:color=#D90429:t=fill,drawbox=x=176:y=256:w=728:h=1608:color=#17171A:t=fill[base]",
+      "[base][shot]overlay=180:260[screen]",
+      `[screen]drawtext=${ffmpegFont}:text='${escapedCaption}':fontcolor=#FFFFFF:fontsize=58:x=(w-text_w)/2:y=112[out]`,
+    ].join(";");
+    const compositeTemp = path.join(phoneTempRoot, fileName);
+    runFfmpeg([
+      "-i",
+      source,
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=#050505:s=1080x1920",
+      "-filter_complex",
+      filter,
+      "-map",
+      "[out]",
+      "-frames:v",
+      "1",
+      "-pix_fmt",
+      "rgb24",
+      compositeTemp,
+    ]);
+    runFfmpeg([
+      "-i",
+      compositeTemp,
+      "-vf",
+      `drawtext=${ffmpegFont}:text='Switchify Remote':fontcolor=#D90429:fontsize=30:x=(w-text_w)/2:y=48`,
+      "-frames:v",
+      "1",
+      "-pix_fmt",
+      "rgb24",
+      path.join(phoneOutput, fileName),
+    ]);
+  }
+} finally {
+  fs.rmSync(phoneTempRoot, { recursive: true, force: true });
 }
