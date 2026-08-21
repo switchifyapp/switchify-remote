@@ -7,6 +7,7 @@ import { ControlButton } from '@/components/ControlButton';
 import { DiagnosticsLink } from '@/components/DiagnosticsLink';
 import { EmptyState } from '@/components/EmptyState';
 import { ListRow } from '@/components/ListRow';
+import { PrivacyPolicyLink } from '@/components/PrivacyPolicyLink';
 import { Screen } from '@/components/Screen';
 import { SelectorField } from '@/components/SelectorField';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
@@ -35,7 +36,7 @@ export default function SettingsScreen() {
       <View style={cardWidth}><SettingCard title="Default PC" description="Select the computer used for automatic connection.">{saved.length === 0 ? <EmptyState icon="computer" title="No saved PCs" body="Pair a PC before choosing a default." /> : <View style={{ gap: spacing.sm }}><ControlButton label="Most recently connected" selected={defaultId === null} onPress={() => void setDefault(null)} />{saved.map((pc) => <ControlButton key={pc.desktopId} label={pc.displayName} selected={defaultId === pc.desktopId} onPress={() => void setDefault(pc.desktopId)} />)}</View>}</SettingCard></View>
       <View style={cardWidth}><SettingCard title="Pointer controls" description="Capabilities reported by the connected computer.">{connection.kind === 'connected' && connection.profile ? <View><ListRow icon="speed" title="Pointer speed" description={`${connection.profile.capabilities.pointerSpeed.scalePercent}%`} /><ListRow icon="repeat" title="Movement repeat" description={connection.profile.capabilities.mouseRepeat.enabled ? 'On' : 'Off'} /><ListRow icon="desktop-windows" title="Displays" description={`${connection.profile.capabilities.displayNavigation.displayCount}`} /></View> : <EmptyState icon="link" title="Connect a PC" body="Supported pointer controls are provided by the connected computer." />}</SettingCard></View>
       {Platform.OS === 'android' ? <View style={cardWidth}><SettingCard title="Forwarding hold to stop" description="How long a physical switch must be held."><SelectorField label="Hold to stop" options={[3_000, 5_000, 8_000].map((milliseconds) => ({ key: milliseconds, label: `${milliseconds / 1000} seconds` }))} selectedKey={preferences.forwardingHoldToStopMs} onSelect={(forwardingHoldToStopMs) => preferencesStore.update({ forwardingHoldToStopMs })} /></SettingCard></View> : null}
-      <View style={cardWidth}><Card><DiagnosticsLink /></Card></View>
+      <View style={cardWidth}><Card><PrivacyPolicyLink /><DiagnosticsLink /></Card></View>
     </View>
   </Screen>;
 }
