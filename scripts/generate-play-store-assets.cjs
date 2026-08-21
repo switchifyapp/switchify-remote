@@ -99,6 +99,8 @@ try {
         ? `[0:v]drawbox=x=94:y=634:w=690:h=100:color=#17171A:t=fill,drawtext=${ffmpegFont}:text='Demo computer':fontcolor=#FFFFFF:fontsize=46:x=108:y=653,drawbox=x=704:y=884:w=360:h=90:color=#17171A:t=fill,drawtext=${ffmpegFont}:text='Unpair Demo PC':fontcolor=#FF5C7A:fontsize=30:x=720:y=908,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`
         : fileName === "02-mouse.png"
           ? "[0:v]crop=1080:1598:0:760,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:0:color=#0B0B0D[shot]"
+          : fileName === "04-window.png"
+            ? `[0:v]drawbox=x=53:y=195:w=450:h=76:color=#143C25:t=fill,drawtext=${ffmpegFont}:text='Connected · Demo PC':fontcolor=#72E58F:fontsize=30:x=137:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`
           : fileName === "05-access.png"
             ? "[0:v]crop=1080:1998:0:360,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]"
             : `[0:v]drawbox=x=130:y=198:w=360:h=66:color=#143C25:t=fill,drawtext=${ffmpegFont}:text='Connected · Demo PC':fontcolor=#72E58F:fontsize=30:x=137:y=209,crop=1080:2274:0:84,scale=720:1600:force_original_aspect_ratio=decrease,pad=720:1600:(ow-iw)/2:(oh-ih)/2:color=#0B0B0D[shot]`;
