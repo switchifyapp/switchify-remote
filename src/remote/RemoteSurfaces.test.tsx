@@ -124,6 +124,7 @@ describe('capability-driven remote surfaces', () => {
     });
     await waitFor(() => expect(view.getByLabelText('Live text').props.editable).toBe(false));
     expect(view.getByLabelText('Enter').props.accessibilityState.disabled).toBe(true);
+    expect(view.getByLabelText('Escape').props.accessibilityState.disabled).toBe(false);
     expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.key')).toHaveLength(1);
     expect(view.getByLabelText('Live text').props.value).toBe('pending');
 
