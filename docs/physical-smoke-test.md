@@ -8,6 +8,7 @@ Run the matrix on a physical Android phone and iPhone against current Switchify 
 2. Deny Bluetooth once, verify the explanation, then grant access and discover the desktop.
 3. Pair and verify the six-digit code on both devices. Reject a second request and confirm the mobile error is sanitized.
 4. Disconnect and reconnect from Saved PCs, select and clear a default PC, then press Unpair. Confirm Cancel, Android Back, and outside dismissal preserve the pairing. Confirm Unpair removes it and re-pairing is required.
+   - Confirm a new pairing shows the phone model rather than a generic Remote name. Change Remote name while connected and confirm both desktop platforms update without re-pairing. Change it while offline, reconnect, and confirm the new name appears. Restart the PC application and confirm the name persists.
    - On the OPD2403 against Windows, complete at least 20 connections and reconnects. Confirm controls become ready every time. Simulate one dropped pointer-profile response and confirm the app shows "Restoring controls" before controls appear without another reconnect.
 5. Exercise eight-way movement, repeat/stop, all clicks, both scroll directions, drag cleanup, speed limits, and monitor movement.
 6. Exercise live typing, backspace/replacement, stream recovery, draft persistence/send/clear, and every displayed PC key using non-sensitive fixture text.

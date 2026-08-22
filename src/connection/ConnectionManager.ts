@@ -45,6 +45,7 @@ export class ConnectionManager {
     private readonly now = Date.now,
     private readonly id = () => `remote-${Crypto.randomUUID()}`,
     private readonly reconnectDelay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+    private readonly getRemoteName = async () => 'Switchify Remote',
   ) {}
 
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
@@ -251,9 +252,20 @@ export class ConnectionManager {
       }
       if (response.kind === 'switchProfileCatalog') return response;
       if (response.kind === 'error' && response.code === 'invalid_auth') await this.#fail('Saved access is no longer valid.', this.#operation, true);
+      if (response.kind === 'error' && response.code === 'name_update_failed') {
+        this.diagnostics.add('remote_name_sync_failed', 'warning');
+        return response;
+      }
     } catch { /* sanitized below */ }
     this.diagnostics.add('command_failed', 'warning');
     return null;
+  }
+
+  async syncRemoteName(): Promise<'synced' | 'deferred' | 'failed'> {
+    if (!this.#client || !this.#token || !this.#deviceId || this.#state.kind !== 'connected') return 'deferred';
+    const name = await this.getRemoteName();
+    const [type, payload] = commandPayloads.ping(name);
+    return await this.send(type, payload) ? 'synced' : 'failed';
   }
 
   async #pair(desktop: DiscoveredDesktop, operation: number): Promise<void> {
@@ -261,7 +273,9 @@ export class ConnectionManager {
     const nonce = Crypto.randomUUID();
     this.#set({ kind: 'pairing', desktop, verificationCode: pairingVerificationCode(desktop.desktopId, this.#deviceId!, nonce) });
     this.diagnostics.add('pairing_requested');
-    const response = await this.#client!.request(pairingRequest({ id: requestId, deviceId: this.#deviceId!, deviceName: 'Switchify Remote', desktopId: desktop.desktopId, requestNonce: nonce }), requestId, 60_000);
+    const deviceName = await this.getRemoteName();
+    if (!this.#current(operation)) return;
+    const response = await this.#client!.request(pairingRequest({ id: requestId, deviceId: this.#deviceId!, deviceName, desktopId: desktop.desktopId, requestNonce: nonce }), requestId, 60_000);
     if (!this.#current(operation)) return;
     if (response.kind !== 'pairingComplete' || response.desktopId !== desktop.desktopId || response.deviceId !== this.#deviceId) {
       if (response.kind === 'error') this.diagnostics.add('pairing_rejected', 'warning');
@@ -273,12 +287,14 @@ export class ConnectionManager {
   }
 
   async #authenticate(desktop: DiscoveredDesktop, token: string, operation: number): Promise<void> {
-    const [pingType, pingPayload] = commandPayloads.ping();
+    const deviceName = await this.getRemoteName();
+    if (!this.#current(operation)) return;
+    const [pingType, pingPayload] = commandPayloads.ping(deviceName);
     const pingId = this.id();
     const ping = authenticatedCommand({ id: pingId, deviceId: this.#deviceId!, token, timestamp: this.now(), type: pingType, payload: pingPayload });
     const response = await this.#client!.request(ping, pingId);
     if (!this.#current(operation)) return;
-    if (response.kind !== 'ack') {
+    if (response.kind !== 'ack' && !(response.kind === 'error' && response.code === 'name_update_failed')) {
       if (response.kind === 'error' && response.code === 'invalid_auth') {
         this.#invalidSavedDesktopIds.add(desktop.desktopId);
         await this.storage.remove(desktop.desktopId).catch(() => undefined);
@@ -286,6 +302,7 @@ export class ConnectionManager {
       }
       throw new Error('Authentication failed.');
     }
+    if (response.kind === 'error') this.diagnostics.add('remote_name_sync_failed', 'warning');
     this.#token = token;
     const profile = await this.#requestPointerProfile(token, operation);
     if (!this.#current(operation)) return;

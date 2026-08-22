@@ -14,3 +14,5 @@ The active preview surface supports:
 - focused-window controls.
 
 Switch profiles, system-wide Switch Forwarding, media controls, accounts, and subscriptions are outside this preview. Unknown capabilities use safe disabled defaults.
+
+Authenticated `connection.ping` commands may include an optional `deviceName`. Current PC builds use it to refresh the saved display name for that authenticated device. Older PC builds ignore the extra payload field, and older Remote builds remain compatible because an empty ping is still valid. A sanitized `name_update_failed` response does not fail authentication; Remote retains the local name and retries it on a later connection. The name does not change the device ID, token, BLE identity, or pairing authorization.

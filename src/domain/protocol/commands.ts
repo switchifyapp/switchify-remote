@@ -38,7 +38,7 @@ export function authenticatedCommand(input: AuthenticatedCommandInput): string {
 }
 
 export const commandPayloads = {
-  ping: () => ['connection.ping', {}] as const,
+  ping: (deviceName?: string) => ['connection.ping', deviceName ? { deviceName } : {}] as const,
   pointerProfile: () => ['pointer.profile', {}] as const,
   pointerSpeed: (scalePercent: number) => ['pointer.speed.set', { scalePercent }] as const,
   displayMove: (direction: 'up' | 'down' | 'left' | 'right') => ['pointer.display.move', { direction }] as const,
