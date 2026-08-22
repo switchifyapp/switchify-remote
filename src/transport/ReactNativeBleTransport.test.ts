@@ -1,5 +1,5 @@
 import { fromByteArray } from 'base64-js';
-import type { BleManager, Characteristic, Descriptor, Device } from 'react-native-ble-plx';
+import { ConnectionPriority, type BleManager, type Characteristic, type Descriptor, type Device } from 'react-native-ble-plx';
 import { ReactNativeBleTransport } from './ReactNativeBleTransport';
 
 const descriptor = (value: string): Descriptor => ({ value } as Descriptor);
@@ -8,6 +8,7 @@ function device(overrides: Partial<Device> = {}): Device {
   const base: Record<string, unknown> = {
     id: 'ble-1', name: null, mtu: 185, rssi: -42,
     isConnected: jest.fn(async () => true), cancelConnection: jest.fn(async () => null as unknown as Device),
+    requestConnectionPriority: jest.fn(async () => base),
     requestMTU: jest.fn(async () => ({ ...base, mtu: 517 })),
     discoverAllServicesAndCharacteristics: jest.fn(async () => base),
     connect: jest.fn(async () => base),
@@ -28,14 +29,45 @@ function manager(overrides: Record<string, unknown> = {}): BleManager {
 }
 
 describe('ReactNativeBleTransport', () => {
-  it('requests the Android MTU and exposes the ATT value limit', async () => {
-    const discovered = device({ mtu: 517 });
-    const connected = device({ requestMTU: jest.fn(async () => discovered) });
+  it('requests high Android priority before the MTU and service discovery', async () => {
+    const calls: string[] = [];
+    const discovered = device({ mtu: 517, discoverAllServicesAndCharacteristics: jest.fn(async () => { calls.push('discover'); return discovered; }) });
+    const prioritized = device({ requestMTU: jest.fn(async () => { calls.push('mtu'); return discovered; }) });
+    const connected = device({ requestConnectionPriority: jest.fn(async () => { calls.push('priority'); return prioritized; }) });
     const native = manager({ connectToDevice: jest.fn(async () => connected) });
     const transport = new ReactNativeBleTransport(native, 'android');
     await transport.connect('ble-1');
-    expect(connected.requestMTU).toHaveBeenCalledWith(517);
+    expect(connected.requestConnectionPriority).toHaveBeenCalledWith(ConnectionPriority.High);
+    expect(prioritized.requestMTU).toHaveBeenCalledWith(517);
+    expect(calls).toEqual(['priority', 'mtu', 'discover']);
     expect(transport.maxWriteValueBytes()).toBe(514);
+  });
+
+  it.each(['rejects', 'times out'] as const)('continues with balanced priority when the Android priority request %s', async (behavior) => {
+    const connected = device({
+      requestConnectionPriority: behavior === 'rejects'
+        ? jest.fn(async () => { throw new Error('priority rejected'); })
+        : jest.fn(() => new Promise<Device>(() => undefined)),
+    });
+    const transport = new ReactNativeBleTransport(
+      manager({ connectToDevice: jest.fn(async () => connected) }),
+      'android',
+      behavior === 'rejects' ? 100 : 1,
+    );
+
+    await transport.connect('ble-1');
+
+    expect(connected.requestMTU).toHaveBeenCalledWith(517);
+    expect(connected.discoverAllServicesAndCharacteristics).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not request connection priority on iOS', async () => {
+    const connected = device();
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+
+    await transport.connect('ble-1');
+
+    expect(connected.requestConnectionPriority).not.toHaveBeenCalled();
   });
 
   it('waits for Android notification descriptor readiness after subscribing', async () => {
@@ -109,6 +141,26 @@ describe('ReactNativeBleTransport', () => {
     await second;
     expect(native.cancelDeviceConnection).toHaveBeenCalledWith('stuck');
     expect(connectToDevice).toHaveBeenCalledTimes(2);
+  });
+
+  it('prevents stale setup after a replacement interrupts a pending priority request', async () => {
+    const firstDevice = device({ requestConnectionPriority: jest.fn(() => new Promise<Device>(() => undefined)) });
+    const secondDevice = device();
+    const connectToDevice = jest.fn()
+      .mockResolvedValueOnce(firstDevice)
+      .mockResolvedValueOnce(secondDevice);
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice }), 'android');
+
+    const first = transport.connect('first');
+    const firstRejected = expect(first).rejects.toThrow('cancelled');
+    await waitFor(() => (firstDevice.requestConnectionPriority as jest.Mock).mock.calls.length === 1);
+    const second = transport.connect('second');
+
+    await firstRejected;
+    await second;
+    expect(firstDevice.requestMTU).not.toHaveBeenCalled();
+    expect(firstDevice.discoverAllServicesAndCharacteristics).not.toHaveBeenCalled();
+    expect(secondDevice.requestConnectionPriority).toHaveBeenCalledWith(ConnectionPriority.High);
   });
 
   it('bounds a native connection even without an explicit cancellation', async () => {
@@ -302,13 +354,15 @@ describe('ReactNativeBleTransport', () => {
     scanCallback(null, advertised);
     await waitFor(() => found.mock.calls.length === 1);
     expect(found).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Oliver Laptop', platform: 'windows' }));
+    expect(advertised.requestConnectionPriority).not.toHaveBeenCalled();
     stop();
   });
 
   it('hands a matching discovery connection directly to the authenticated session', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     const configured = device({ isConnected: jest.fn(async () => true), mtu: 517 });
-    const connected = device({ isConnected: jest.fn(async () => true), requestMTU: jest.fn(async () => configured) });
+    const prioritized = device({ isConnected: jest.fn(async () => true), requestMTU: jest.fn(async () => configured) });
+    const connected = device({ isConnected: jest.fn(async () => true), requestConnectionPriority: jest.fn(async () => prioritized) });
     const advertised = device({ isConnected: jest.fn(async () => false), connect: jest.fn(async () => connected) });
     const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
     const transport = new ReactNativeBleTransport(native, 'android');
@@ -321,7 +375,9 @@ describe('ReactNativeBleTransport', () => {
     expect(resolved).toMatchObject({ desktopId: 'pc-1', peripheralId: 'ble-1' });
     expect(advertised.connect).toHaveBeenCalledTimes(1);
     expect(connected.cancelConnection).not.toHaveBeenCalled();
-    expect(connected.requestMTU).toHaveBeenCalledWith(517);
+    expect(connected.requestConnectionPriority).toHaveBeenCalledWith(ConnectionPriority.High);
+    expect(prioritized.requestMTU).toHaveBeenCalledWith(517);
+    expect(configured.discoverAllServicesAndCharacteristics).toHaveBeenCalledTimes(1);
     expect(native.connectToDevice).not.toHaveBeenCalled();
     expect(native.stopDeviceScan).toHaveBeenCalled();
     expect(transport.maxWriteValueBytes()).toBe(514);

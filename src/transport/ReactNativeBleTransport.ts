@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { BleManager, type Device, type Subscription } from 'react-native-ble-plx';
+import { BleManager, ConnectionPriority, type Device, type Subscription } from 'react-native-ble-plx';
 import { toByteArray } from 'base64-js';
 
 import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
@@ -139,6 +139,9 @@ export class ReactNativeBleTransport implements BleTransport {
           otherProbes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
           let connected = this.#requireDevice();
           if (this.platform === 'android') {
+            connected = await this.#requestHighPriority(connected);
+            if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
+            this.#device = connected;
             connected = await this.#bounded(connected.requestMTU(517));
             if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
             this.#device = connected;
@@ -183,6 +186,9 @@ export class ReactNativeBleTransport implements BleTransport {
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
       this.#device = connected;
       if (this.platform === 'android') {
+        connected = await this.#requestHighPriority(connected);
+        if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
+        this.#device = connected;
         connected = await this.#bounded(connected.requestMTU(517));
         if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
         this.#device = connected;
@@ -315,6 +321,14 @@ export class ReactNativeBleTransport implements BleTransport {
   #requireDevice(): Device {
     if (!this.#device) throw new Error('No PC is connected.');
     return this.#device;
+  }
+
+  async #requestHighPriority(device: Device): Promise<Device> {
+    try {
+      return await this.#bounded(device.requestConnectionPriority(ConnectionPriority.High));
+    } catch {
+      return device;
+    }
   }
 
   #scanKey(device: Device): string {
