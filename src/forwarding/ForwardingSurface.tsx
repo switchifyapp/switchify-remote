@@ -8,7 +8,7 @@ import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
 import { preferencesStore, type Preferences } from '@/storage/PreferencesStore';
 import { useTheme } from '@/theme/ThemeContext';
-import { ForwardingController } from './ForwardingController';
+import { ForwardingController, type ForwardingState } from './ForwardingController';
 
 export type ForwardingRestoreIntent = { desktopId: string; profileId: string; profileVersion: number };
 export class ForwardingRestoreState {
@@ -22,8 +22,19 @@ export function shouldClearForwardingRestore(surface: string, connectionKind: st
   return surface !== 'forwarding' || (connectionKind !== 'connected' && connectionKind !== 'reconnecting');
 }
 
-export function ForwardingSurface({ manager, bridge, profile, desktopId, preferences, restore }: { manager: ConnectionManager; bridge: SwitchifyBridge; profile: PointerProfile; desktopId: string; preferences: Preferences; restore: ForwardingRestoreState }) {
+export function ForwardingBody({ state, onSelect, onToggle }: { state: ForwardingState; onSelect(profileId: string): void; onToggle(): void }) {
   const { colors, radii, spacing } = useTheme();
+  return <>
+    {state.profiles.map((item) => <ControlButton key={item.id} label={item.name} selected={state.selectedProfileId === item.id} disabled={state.phase === 'starting' || state.phase === 'active'} onPress={() => onSelect(item.id)} />)}
+    <ControlButton label={state.phase === 'active' ? 'Stop forwarding' : 'Start forwarding'} disabled={state.phase === 'starting' || state.profiles.length === 0} danger={state.phase === 'active'} onPress={onToggle} />
+    {state.message ? <AppText accessibilityLiveRegion="polite" style={{ color: colors.warning }}>{state.message}</AppText> : null}
+    {state.phase === 'active' && state.overflow.length ? <AppText style={{ color: colors.warning }}>{state.overflow.length} additional switches are not forwarded. Only the first eight are supported.</AppText> : null}
+    {state.phase === 'active' ? <Card>{state.mappings.map((mapping) => <View key={mapping.keyCode} accessible accessibilityLabel={`${mapping.name}, ${mapping.outputLabel ?? 'unassigned'}, ${mapping.pressed ? 'pressed' : 'released'}`} style={{ backgroundColor: mapping.pressed ? colors.brandTint : colors.surface, borderColor: mapping.pressed ? colors.brand : colors.border, borderRadius: radii.md, borderWidth: mapping.pressed ? 2 : 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'space-between', padding: spacing.md }}><AppText style={{ flexShrink: 1 }}>{mapping.name}</AppText><AppText muted style={{ flexShrink: 1 }}>{mapping.outputLabel ?? 'Unassigned'}{mapping.pressed ? ' · Pressed' : ''}</AppText></View>)}</Card> : null}
+  </>;
+}
+
+export function ForwardingSurface({ manager, bridge, profile, desktopId, preferences, restore }: { manager: ConnectionManager; bridge: SwitchifyBridge; profile: PointerProfile; desktopId: string; preferences: Preferences; restore: ForwardingRestoreState }) {
+  const { spacing } = useTheme();
   const controller = useMemo(() => new ForwardingController(
     manager,
     bridge,
@@ -61,16 +72,12 @@ export function ForwardingSurface({ manager, bridge, profile, desktopId, prefere
   return <View style={{ gap: spacing.md }}>
     <AppText accessibilityRole="header" variant="title">PC Switch Forwarding</AppText>
     <AppText muted>Forward configured external switches from Switchify to this PC.</AppText>
-    {state.profiles.map((item) => <ControlButton key={item.id} label={item.name} selected={state.selectedProfileId === item.id} disabled={state.phase === 'starting' || state.phase === 'active'} onPress={() => select(item.id)} />)}
-    <ControlButton label={state.phase === 'active' ? 'Stop forwarding' : 'Start forwarding'} disabled={state.phase === 'starting' || state.profiles.length === 0} danger={state.phase === 'active'} onPress={() => {
+    <ForwardingBody state={state} onSelect={(profileId) => { void select(profileId); }} onToggle={() => {
       if (state.phase === 'active') { restore.clear(); void controller.stop(); }
       else void controller.start().then((started) => {
         const selected = controller.selectedProfile();
         if (started && selected) restore.set({ desktopId, profileId: selected.id, profileVersion: selected.version });
       });
     }} />
-    {state.message ? <AppText accessibilityLiveRegion="polite" style={{ color: colors.warning }}>{state.message}</AppText> : null}
-    {state.overflow.length ? <AppText style={{ color: colors.warning }}>{state.overflow.length} additional switches are not forwarded. Only the first eight are supported.</AppText> : null}
-    <Card>{state.mappings.map((mapping) => <View key={mapping.keyCode} accessible accessibilityLabel={`${mapping.name}, ${mapping.outputLabel ?? 'unassigned'}, ${mapping.pressed ? 'pressed' : 'released'}`} style={{ backgroundColor: mapping.pressed ? colors.brandTint : colors.surface, borderColor: mapping.pressed ? colors.brand : colors.border, borderRadius: radii.md, borderWidth: mapping.pressed ? 2 : 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'space-between', padding: spacing.md }}><AppText style={{ flexShrink: 1 }}>{mapping.name}</AppText><AppText muted style={{ flexShrink: 1 }}>{mapping.outputLabel ?? 'Unassigned'}{mapping.pressed ? ' · Pressed' : ''}</AppText></View>)}</Card>
   </View>;
 }

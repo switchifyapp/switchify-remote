@@ -13,6 +13,7 @@ Run the matrix on a physical Android phone and iPhone against current Switchify 
 5. Exercise eight-way movement, repeat/stop, all clicks, both scroll directions, drag cleanup, speed limits, and monitor movement.
 6. Exercise live typing, backspace/replacement, stream recovery, draft persistence/send/clear, and every displayed PC key using non-sensitive fixture text.
 7. Exercise held modifiers, shortcuts, app switching, task view, desktop, minimize, maximize, and close. Confirm labels follow Windows/macOS conventions.
+   - On Android, open Forwarding and confirm profile choices remain available while stopped. Confirm mapped switches and the overflow notice appear only after forwarding starts and disappear after manual, hold-to-stop, configuration-change, and inactivity stops.
 8. With VoiceOver/TalkBack and Switch Control/Switch Access, traverse every destination at maximum text size in portrait and landscape. Confirm selected, disabled, busy, error, and pairing states are announced.
    - Test a 320–428 point phone at 100%, 150%, and 200% text in light and dark appearance. Confirm headers stack, labels remain complete, action grids reduce columns, and the last control scrolls clear of the tab bar and system gesture area.
    - Rename a paired PC to a long fixture name. Confirm the Remote status, PC card, and Unpair control wrap without truncation.
