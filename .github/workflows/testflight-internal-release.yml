@@ -127,6 +127,19 @@ jobs:
         working-directory: source
         run: npx expo prebuild --clean --platform ios --no-install
 
+      - name: Declare export compliance for the released source
+        if: steps.preflight.outputs.decision == 'upload'
+        working-directory: source
+        shell: bash
+        run: |
+          info_plist='ios/SwitchifyRemote/Info.plist'
+          /usr/libexec/PlistBuddy \
+            -c 'Set :ITSAppUsesNonExemptEncryption false' \
+            "$info_plist" 2> /dev/null || \
+            /usr/libexec/PlistBuddy \
+              -c 'Add :ITSAppUsesNonExemptEncryption bool false' \
+              "$info_plist"
+
       - name: Install CocoaPods dependencies
         if: steps.preflight.outputs.decision == 'upload'
         working-directory: source/ios
