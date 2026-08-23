@@ -7,14 +7,21 @@ export type BluetoothDeviceNames = {
   localName: string | null | undefined;
 };
 
-export function desktopDisplayName(status: PcStatus, bluetooth: BluetoothDeviceNames, remotePlatform: string): string {
-  const statusName = normalized(status.displayName);
-  if (status.platform === 'macos') return statusName ?? PRODUCT_NAME;
+export function bluetoothDeviceDisplayName(bluetooth: BluetoothDeviceNames, remotePlatform: string): string | null {
   const deviceName = normalized(bluetooth.name);
   const localName = normalized(bluetooth.localName);
   const candidates = remotePlatform === 'ios'
-    ? [localName, deviceName, statusName]
-    : [deviceName, localName, statusName];
+    ? [localName, deviceName]
+    : [deviceName, localName];
+  return candidates.find((candidate) => candidate !== null && !isGeneric(candidate))
+    ?? candidates.find((candidate) => candidate !== null)
+    ?? null;
+}
+
+export function desktopDisplayName(status: PcStatus, bluetooth: BluetoothDeviceNames, remotePlatform: string): string {
+  const statusName = normalized(status.displayName);
+  if (status.platform === 'macos') return statusName ?? PRODUCT_NAME;
+  const candidates = [bluetoothDeviceDisplayName(bluetooth, remotePlatform), statusName];
   return candidates.find((candidate) => candidate !== null && !isGeneric(candidate))
     ?? candidates.find((candidate) => candidate !== null)
     ?? PRODUCT_NAME;

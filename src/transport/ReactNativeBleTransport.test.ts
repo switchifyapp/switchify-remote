@@ -437,6 +437,30 @@ describe('ReactNativeBleTransport', () => {
     stop();
   });
 
+  it('discovers multiple Windows PCs with a generic iOS device name', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const makeWindowsPc = (id: string, desktopId: string, localName: string) => device({
+      id,
+      name: 'Switchify PC',
+      localName,
+      readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode(JSON.stringify({ protocolVersion: 1, desktopId, displayName: 'Switchify PC', platform: 'windows' }))) } as Characteristic)),
+    });
+    const first = makeWindowsPc('windows-1', 'pc-1', 'Office PC');
+    const second = makeWindowsPc('windows-2', 'pc-2', 'Living Room PC');
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, first);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
+    scanCallback(null, second);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-2'));
+
+    expect(found.mock.calls.map(([desktop]) => desktop.displayName)).toEqual(['Office PC', 'Living Room PC']);
+    stop();
+  });
+
   it('hands a matching discovery connection directly to the authenticated session', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     const configured = device({ isConnected: jest.fn(async () => true), mtu: 517 });

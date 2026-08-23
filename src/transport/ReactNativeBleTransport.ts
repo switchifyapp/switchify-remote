@@ -5,7 +5,7 @@ import { toByteArray } from 'base64-js';
 import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
-import { desktopDisplayName } from './desktopDisplayName';
+import { bluetoothDeviceDisplayName, desktopDisplayName } from './desktopDisplayName';
 
 export class ReactNativeBleTransport implements BleTransport {
   #manager: BleManager | null;
@@ -371,7 +371,8 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   #scanKey(device: Device): string {
-    return device.name ? `name:${device.name}` : `id:${device.id}`;
+    const name = bluetoothDeviceDisplayName({ name: device.name, localName: device.localName }, this.platform);
+    return name ? `name:${name}` : `id:${device.id}`;
   }
 
   #bounded<T>(operation: Promise<T>, timeoutMs = this.nativeTimeoutMs): Promise<T> {
