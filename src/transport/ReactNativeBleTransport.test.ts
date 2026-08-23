@@ -29,6 +29,27 @@ function manager(overrides: Record<string, unknown> = {}): BleManager {
 }
 
 describe('ReactNativeBleTransport', () => {
+  it('does not construct the native manager during launch or pre-initialization cleanup', async () => {
+    const factory = jest.fn(() => manager());
+    const transport = new ReactNativeBleTransport(null, 'ios', 10_000, factory);
+
+    expect(factory).not.toHaveBeenCalled();
+    await transport.disconnect();
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it('constructs the native manager once at the first Bluetooth operation', async () => {
+    const native = manager();
+    const factory = jest.fn(() => native);
+    const transport = new ReactNativeBleTransport(null, 'ios', 10_000, factory);
+
+    await expect(transport.availability()).resolves.toBe('ready');
+    await expect(transport.availability()).resolves.toBe('ready');
+
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(native.state).toHaveBeenCalledTimes(2);
+  });
+
   it('requests high Android priority before the MTU and service discovery', async () => {
     const calls: string[] = [];
     const discovered = device({ mtu: 517, discoverAllServicesAndCharacteristics: jest.fn(async () => { calls.push('discover'); return discovered; }) });

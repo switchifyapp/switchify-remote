@@ -8,7 +8,7 @@ import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } fr
 import { desktopDisplayName } from './desktopDisplayName';
 
 export class ReactNativeBleTransport implements BleTransport {
-  readonly #manager: BleManager;
+  #manager: BleManager | null;
   #device: Device | null = null;
   #operation = 0;
   #scanDevices = new Map<string, Device>();
@@ -22,10 +22,15 @@ export class ReactNativeBleTransport implements BleTransport {
   #writeSequence = 0;
   #writePoisoned = false;
 
-  constructor(manager = new BleManager(), private readonly platform = Platform.OS, private readonly nativeTimeoutMs = 10_000) { this.#manager = manager; }
+  constructor(
+    manager: BleManager | null = null,
+    private readonly platform = Platform.OS,
+    private readonly nativeTimeoutMs = 10_000,
+    private readonly managerFactory = () => new BleManager(),
+  ) { this.#manager = manager; }
 
   async availability(): Promise<BleAvailability> {
-    const state = await this.#manager.state();
+    const state = await this.#managerOrCreate().state();
     if (state === 'PoweredOn') return 'ready';
     if (state === 'Unauthorized') return 'unauthorized';
     if (state === 'Unsupported') return 'unsupported';
@@ -35,7 +40,7 @@ export class ReactNativeBleTransport implements BleTransport {
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe {
     const operation = ++this.#operation;
     let active = true;
-    this.#manager.startDeviceScan([BLE_UUIDS.service], null, (error, device) => {
+    this.#managerOrCreate().startDeviceScan([BLE_UUIDS.service], null, (error, device) => {
       if (!active || operation !== this.#operation) return;
       if (error) { onError(error); return; }
       if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device)) || this.#scanDevices.size >= 4) return;
@@ -64,7 +69,7 @@ export class ReactNativeBleTransport implements BleTransport {
       if (!active) return;
       active = false;
       if (operation === this.#operation) this.#operation += 1;
-      this.#manager.stopDeviceScan();
+      this.#managerOrCreate().stopDeviceScan();
       this.#cancelNativeOperations();
       const probes = [...this.#scanDevices.values()];
       this.#scanDevices.clear();
@@ -92,7 +97,7 @@ export class ReactNativeBleTransport implements BleTransport {
         if (!active) return;
         active = false;
         clearTimeout(timer);
-        this.#manager.stopDeviceScan();
+        this.#managerOrCreate().stopDeviceScan();
         this.#scanKeys.clear();
         if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
         resolve(desktop);
@@ -101,7 +106,7 @@ export class ReactNativeBleTransport implements BleTransport {
         if (!active) return cancellation ?? Promise.resolve();
         active = false;
         clearTimeout(timer);
-        this.#manager.stopDeviceScan();
+        this.#managerOrCreate().stopDeviceScan();
         const probes = [...this.#scanDevices.values()];
         const retained = this.#device;
         this.#device = null;
@@ -133,7 +138,7 @@ export class ReactNativeBleTransport implements BleTransport {
         }).then(async (desktop) => {
           if (!active || operation !== this.#operation || desktop?.desktopId !== desktopId || claimedDeviceId !== device.id) return;
           this.#scanDevices.delete(device.id);
-          this.#manager.stopDeviceScan();
+          this.#managerOrCreate().stopDeviceScan();
           const otherProbes = [...this.#scanDevices.values()];
           this.#scanDevices.clear();
           otherProbes.forEach((probe) => { void probe.cancelConnection().catch(() => undefined); });
@@ -165,7 +170,7 @@ export class ReactNativeBleTransport implements BleTransport {
         void task.finally(() => this.#scanTasks.delete(task));
       };
       try {
-        this.#manager.startDeviceScan([BLE_UUIDS.service], null, onAdvertisement);
+        this.#managerOrCreate().startDeviceScan([BLE_UUIDS.service], null, onAdvertisement);
       } catch {
         void cancel(new Error('Saved PC discovery failed.'));
       }
@@ -178,7 +183,7 @@ export class ReactNativeBleTransport implements BleTransport {
     this.#connectingPeripheralId = peripheralId;
     try {
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
-      const nativeConnect = this.#manager.connectToDevice(peripheralId);
+      const nativeConnect = this.#managerOrCreate().connectToDevice(peripheralId);
       void nativeConnect.then((device) => {
         if (connectCancelled || operation !== this.#operation) void device.cancelConnection().catch(() => undefined);
       }, () => undefined);
@@ -200,7 +205,7 @@ export class ReactNativeBleTransport implements BleTransport {
     } catch (error) {
       connectCancelled = true;
       if (connected) await this.#bounded(connected.cancelConnection(), this.#cancellationTimeout()).catch(() => undefined);
-      else void this.#manager.cancelDeviceConnection(peripheralId).catch(() => undefined);
+      else void this.#managerOrCreate().cancelDeviceConnection(peripheralId).catch(() => undefined);
       if (operation === this.#operation) this.#device = null;
       throw error;
     } finally {
@@ -216,8 +221,9 @@ export class ReactNativeBleTransport implements BleTransport {
     await this.cancelPendingWrites();
     const connectingPeripheralId = this.#connectingPeripheralId;
     this.#connectingPeripheralId = null;
-    if (connectingPeripheralId) void this.#manager.cancelDeviceConnection(connectingPeripheralId).catch(() => undefined);
-    this.#manager.stopDeviceScan();
+    const manager = this.#manager;
+    if (connectingPeripheralId && manager) void manager.cancelDeviceConnection(connectingPeripheralId).catch(() => undefined);
+    manager?.stopDeviceScan();
     const probes = [...this.#scanDevices.values()];
     this.#scanDevices.clear();
     this.#scanKeys.clear();
@@ -279,7 +285,7 @@ export class ReactNativeBleTransport implements BleTransport {
 
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe {
     const device = this.#requireDevice();
-    const subscription = this.#manager.onDeviceDisconnected(device.id, () => onDisconnect());
+    const subscription = this.#managerOrCreate().onDeviceDisconnected(device.id, () => onDisconnect());
     return () => subscription.remove();
   }
 
@@ -323,6 +329,11 @@ export class ReactNativeBleTransport implements BleTransport {
     return this.#device;
   }
 
+  #managerOrCreate(): BleManager {
+    this.#manager ??= this.managerFactory();
+    return this.#manager;
+  }
+
   async #requestHighPriority(device: Device): Promise<Device> {
     try {
       return await this.#bounded(device.requestConnectionPriority(ConnectionPriority.High));
@@ -362,7 +373,7 @@ export class ReactNativeBleTransport implements BleTransport {
     let completed = false;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, this.#cancellationTimeout());
-      void this.#manager.cancelTransaction(transactionId).then(() => {
+      void this.#managerOrCreate().cancelTransaction(transactionId).then(() => {
         completed = true;
         clearTimeout(timer);
         resolve();

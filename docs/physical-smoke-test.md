@@ -5,7 +5,9 @@ Record the app commit, Switchify PC release, phone model/OS, and desktop platfor
 Run the matrix on a physical Android phone and iPhone against current Switchify PC on both Windows and macOS:
 
 1. Install a native development build; confirm Expo Go is not offered as a supported path.
-2. Deny Bluetooth once, verify the explanation, then grant access and discover the desktop.
+   - On a fresh install, confirm Meet Switchify Remote appears before any Bluetooth prompt. Open Get Switchify PC, move forward and back, choose Not now, and confirm the idle PCs screen appears without a prompt. Restart and confirm setup does not reappear.
+   - Repeat with an upgrade that already has a saved PC. Confirm setup appears once while the pairing remains saved, then choose Allow Bluetooth and confirm discovery begins only after the native prompt is handled.
+2. Clear app data and repeat setup. Choose Allow Bluetooth, deny access once, verify the platform-appropriate explanation, then grant access from Settings and discover the desktop. Also test Bluetooth off, unsupported hardware where available, and a forced scan failure.
 3. Pair and verify the six-digit code on both devices. Reject a second request and confirm the mobile error is sanitized.
 4. Disconnect and reconnect from Saved PCs, select and clear a default PC, then press Unpair. Confirm Cancel, Android Back, and outside dismissal preserve the pairing. Confirm Unpair removes it and re-pairing is required.
    - Confirm a new pairing shows the phone model rather than a generic Remote name. Change Remote name while connected and confirm both desktop platforms update without re-pairing. Change it while offline, reconnect, and confirm the new name appears. Restart the PC application and confirm the name persists.

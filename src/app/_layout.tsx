@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BridgeProvider } from '@/bridge/BridgeContext';
 import { ConnectionProvider } from '@/connection/ConnectionContext';
 import { diagnosticsScreenOptions } from '@/navigation/diagnosticsScreenOptions';
+import { FirstRunSetupGate } from '@/onboarding/FirstRunSetup';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 export default function RootLayout() {
@@ -23,10 +24,12 @@ function ThemedApp() {
     <BridgeProvider>
       <ConnectionProvider>
         <NavigationThemeProvider value={theme}>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="diagnostics" options={diagnosticsScreenOptions} />
-          </Stack>
+          <FirstRunSetupGate>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="diagnostics" options={diagnosticsScreenOptions} />
+            </Stack>
+          </FirstRunSetupGate>
           <StatusBar style="auto" />
         </NavigationThemeProvider>
       </ConnectionProvider>

@@ -11,3 +11,9 @@ export async function requestBluetoothPermission(): Promise<boolean> {
   }
   return await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION) === PermissionsAndroid.RESULTS.GRANTED;
 }
+
+export function bluetoothPermissionRecoveryMessage(platform: typeof Platform.OS = Platform.OS): string {
+  return platform === 'ios'
+    ? 'Allow Bluetooth in Settings, then try again.'
+    : 'Allow Bluetooth and nearby-device access in system settings, then try again.';
+}
