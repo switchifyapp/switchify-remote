@@ -341,17 +341,14 @@ export class ReactNativeBleTransport implements BleTransport {
       let settled = false;
       let latest: State = initial;
       let subscription: Subscription | null = null;
-      let timer: ReturnType<typeof setTimeout>;
       const finish = (state: State) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
         subscription?.remove();
         this.#nativeCancels.delete(cancel);
         resolve(state);
       };
       const cancel = () => finish(latest);
-      timer = setTimeout(() => finish(latest), this.nativeTimeoutMs);
       this.#nativeCancels.add(cancel);
       try {
         subscription = manager.onStateChange((state) => {

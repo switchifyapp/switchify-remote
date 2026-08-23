@@ -70,6 +70,29 @@ describe('ReactNativeBleTransport', () => {
     expect(remove).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps waiting while the user responds to the native Bluetooth permission prompt', async () => {
+    jest.useFakeTimers();
+    let stateListener!: (state: 'PoweredOn') => void;
+    const remove = jest.fn();
+    const native = manager({
+      state: jest.fn(async () => 'Unknown'),
+      onStateChange: jest.fn((listener: typeof stateListener) => { stateListener = listener; return { remove }; }),
+    });
+    const transport = new ReactNativeBleTransport(native, 'ios', 10);
+    let settled = false;
+
+    const result = transport.availability().then((availability) => { settled = true; return availability; });
+    await Promise.resolve();
+    jest.advanceTimersByTime(60_000);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    stateListener('PoweredOn');
+    await expect(result).resolves.toBe('ready');
+    expect(remove).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+
   it('requests high Android priority before the MTU and service discovery', async () => {
     const calls: string[] = [];
     const discovered = device({ mtu: 517, discoverAllServicesAndCharacteristics: jest.fn(async () => { calls.push('discover'); return discovered; }) });
