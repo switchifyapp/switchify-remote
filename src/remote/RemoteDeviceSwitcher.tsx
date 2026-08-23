@@ -1,5 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { ActionButton } from '@/components/ActionButton';
@@ -25,36 +25,43 @@ export function remoteDevicePresentation(connection: ConnectionState): RemoteDev
 
 export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { connection: ConnectionState; manager: SwitcherManager; managePcs: () => void }) {
   const { colors, radii, reducedMotion, spacing } = useTheme();
-  const [saved, setSaved] = useState<SavedPc[]>([]);
+  const [saved, setSaved] = useState<SavedPc[] | null>(null);
   const [visible, setVisible] = useState(false);
   const buttonRef = useRef<View>(null);
   const selectedOptionRef = useRef<View>(null);
   const firstOptionRef = useRef<View>(null);
+  const loadingOptionRef = useRef<View>(null);
+  const manageOptionRef = useRef<View>(null);
   const frame = useRef<number | null>(null);
+  const modalShown = useRef(false);
   const restorePending = useRef(false);
   const currentDesktopId = 'desktop' in connection ? connection.desktop.desktopId : null;
   const presentation = remoteDevicePresentation(connection);
+
+  const scheduleFocus = useCallback((target: View | null) => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      try { focusAccessibilityTarget(target); } catch { /* The target may disappear during navigation. */ }
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
     void manager.listSaved().then((pcs) => { if (active) setSaved(pcs); }).catch(() => { if (active) setSaved([]); });
     return () => { active = false; };
   }, [connection, manager]);
+  useEffect(() => {
+    if (visible && modalShown.current && saved !== null) scheduleFocus(selectedOptionRef.current ?? firstOptionRef.current ?? manageOptionRef.current);
+  }, [saved, scheduleFocus, visible]);
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
-
-  const scheduleFocus = (target: View | null) => {
-    if (frame.current !== null) cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => {
-      frame.current = null;
-      try { focusAccessibilityTarget(target); } catch { /* The target may disappear during navigation. */ }
-    });
-  };
   const restoreButtonFocus = () => {
     if (!restorePending.current) return;
     restorePending.current = false;
     scheduleFocus(buttonRef.current);
   };
   const dismiss = () => {
+    modalShown.current = false;
     restorePending.current = true;
     setVisible(false);
     if (Platform.OS === 'android') restoreButtonFocus();
@@ -66,6 +73,7 @@ export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { conne
     void manager.switchSaved(pc);
   };
   const openManagePcs = () => {
+    modalShown.current = false;
     restorePending.current = false;
     setVisible(false);
     managePcs();
@@ -88,15 +96,15 @@ export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { conne
       </View>
       <MaterialIcons color={colors.textMuted} importantForAccessibility="no" name="keyboard-arrow-up" size={24} />
     </Pressable>
-    <Modal testID="pc-switcher-modal" animationType={reducedMotion || Platform.OS === 'android' ? 'none' : 'fade'} onDismiss={restoreButtonFocus} onRequestClose={dismiss} onShow={() => scheduleFocus(selectedOptionRef.current ?? firstOptionRef.current)} supportedOrientations={['portrait', 'landscape']} transparent visible={visible}>
+    <Modal testID="pc-switcher-modal" animationType={reducedMotion || Platform.OS === 'android' ? 'none' : 'fade'} onDismiss={restoreButtonFocus} onRequestClose={dismiss} onShow={() => { modalShown.current = true; scheduleFocus(selectedOptionRef.current ?? firstOptionRef.current ?? (saved === null ? loadingOptionRef.current : manageOptionRef.current)); }} supportedOrientations={['portrait', 'landscape']} transparent visible={visible}>
       <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', padding: spacing.xl }}>
         <Pressable testID="pc-switcher-scrim" accessible={false} importantForAccessibility="no" onPress={dismiss} style={{ backgroundColor: 'rgba(0, 0, 0, 0.58)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }} />
         <View testID="pc-switcher-dialog" accessibilityViewIsModal onAccessibilityEscape={dismiss} style={{ backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, gap: spacing.md, maxHeight: '80%', maxWidth: 480, padding: spacing.xl, width: '100%' }}>
           <AppText accessibilityRole="header" variant="heading">Switch PC</AppText>
-          {saved.length > 0 ? <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
+          {saved === null ? <ActionButton controlRef={loadingOptionRef} label="Loading saved PCs…" busy disabled onPress={() => undefined} /> : saved.length > 0 ? <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
             {saved.map((pc, index) => <ControlButton key={pc.desktopId} {...(pc.desktopId === currentDesktopId ? { controlRef: selectedOptionRef } : index === 0 ? { controlRef: firstOptionRef } : {})} label={pc.displayName} selected={pc.desktopId === currentDesktopId} onPress={() => selectPc(pc)} />)}
           </ScrollView> : <EmptyState icon="computer" title="No saved PCs" body="Pair a PC before using quick switching." />}
-          <ActionButton icon="settings-remote" label="Manage PCs" tone="secondary" onPress={openManagePcs} />
+          <ActionButton controlRef={manageOptionRef} icon="settings-remote" label="Manage PCs" tone="secondary" onPress={openManagePcs} />
           <ActionButton icon="close" label="Close" tone="tertiary" onPress={dismiss} />
         </View>
       </View>

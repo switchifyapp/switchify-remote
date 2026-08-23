@@ -314,6 +314,26 @@ describe('connection lifecycle', () => {
     expect(transport.resolveDesktopIds).toEqual(['target']);
   });
 
+  it('does not reconnect a queued quick switch after a background disconnect', async () => {
+    let finishCleanup!: () => void;
+    const storage = new FakeStorage();
+    storage.saved = [pc('target')];
+    storage.tokens.set('target', 'saved-token');
+    const transport = new FakeTransport();
+    transport.resolvedDesktop = { ...pc('target'), rssi: -40 };
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+    manager.registerCleanup(() => new Promise<void>((resolve) => { finishCleanup = resolve; }));
+
+    const switching = manager.switchSaved(storage.saved[0]!);
+    await waitFor(() => finishCleanup !== undefined);
+    const backgrounding = manager.disconnect();
+    finishCleanup();
+    await Promise.all([switching, backgrounding]);
+
+    expect(transport.resolveDesktopIds).toEqual([]);
+    expect(manager.snapshot()).toMatchObject({ kind: 'idle', saved: [{ desktopId: 'target' }] });
+  });
+
   it('cancels a stale saved-PC lookup when another quick switch wins', async () => {
     let releaseFirst!: () => void;
     const storage = new FakeStorage();

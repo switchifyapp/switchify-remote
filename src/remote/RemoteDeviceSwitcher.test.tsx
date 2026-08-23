@@ -5,10 +5,13 @@ import type { ConnectionState } from '@/connection/ConnectionManager';
 import type { SavedPc } from '@/storage/PairingStore';
 import { ThemeProvider } from '@/theme/ThemeContext';
 import { RemoteDeviceSwitcher, remoteDevicePresentation } from './RemoteDeviceSwitcher';
+import { focusAccessibilityTarget } from '@/components/accessibilityFocus';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('@/components/accessibilityFocus', () => ({ focusAccessibilityTarget: jest.fn() }));
 
 const mockWindowDimensions = useWindowDimensions as jest.MockedFunction<typeof useWindowDimensions>;
+const mockFocusAccessibilityTarget = focusAccessibilityTarget as jest.MockedFunction<typeof focusAccessibilityTarget>;
 const office: SavedPc = { desktopId: 'office', displayName: 'Office PC', platform: 'windows', peripheralId: 'ble-office', lastConnectedAt: 2 };
 const studio: SavedPc = { desktopId: 'studio', displayName: 'Studio Mac', platform: 'macos', peripheralId: 'ble-studio', lastConnectedAt: 1 };
 const desktop = (pc: SavedPc) => ({ ...pc, rssi: null });
@@ -16,12 +19,17 @@ const connected = (pc = office): ConnectionState => ({ kind: 'connected', deskto
 
 describe('RemoteDeviceSwitcher', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     mockWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
     jest.spyOn(AccessibilityInfo, 'announceForAccessibilityWithOptions').mockImplementation(() => undefined);
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    mockFocusAccessibilityTarget.mockClear();
   });
 
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it.each([
     [{ kind: 'idle', saved: [] } as ConnectionState, { name: 'Choose PC', status: 'Not connected' }],
@@ -69,6 +77,24 @@ describe('RemoteDeviceSwitcher', () => {
     await act(async () => fireEvent.press(view.getByRole('button', { name: 'Manage PCs' })));
     expect(managePcs).toHaveBeenCalledTimes(1);
     expect(view.queryByTestId('pc-switcher-modal')).toBeNull();
+  });
+
+  it('shows loading and moves modal focus to saved PCs when delayed storage finishes', async () => {
+    let resolveSaved!: (pcs: SavedPc[]) => void;
+    const manager = { listSaved: jest.fn(() => new Promise<SavedPc[]>((resolve) => { resolveSaved = resolve; })), switchSaved: jest.fn(async () => undefined) };
+    const view = await render(<RemoteDeviceSwitcher connection={{ kind: 'idle', saved: [] }} manager={manager} managePcs={() => undefined} />);
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Switch PC' })));
+    expect(view.getByRole('button', { name: 'Loading saved PCs…' })).toBeTruthy();
+    expect(view.queryByText('No saved PCs')).toBeNull();
+    await act(async () => view.getByTestId('pc-switcher-modal').props.onShow());
+    await act(async () => jest.runOnlyPendingTimers());
+    expect(mockFocusAccessibilityTarget).toHaveBeenLastCalledWith(expect.anything());
+
+    await act(async () => resolveSaved([studio]));
+    expect(await view.findByRole('button', { name: 'Studio Mac' })).toBeTruthy();
+    await act(async () => jest.runOnlyPendingTimers());
+    expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(2);
+    expect(mockFocusAccessibilityTarget).toHaveBeenLastCalledWith(expect.anything());
   });
 
   it('supports dismissal through the scrim, system back, and accessibility escape', async () => {
