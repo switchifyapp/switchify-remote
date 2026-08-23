@@ -310,7 +310,7 @@ export class ReactNativeBleTransport implements BleTransport {
       const status = parseStatus(raw);
       const desktop = status ? {
         ...status,
-        displayName: desktopDisplayName(status, device.name),
+        displayName: desktopDisplayName(status, { name: device.name, localName: device.localName }, this.platform),
         peripheralId: device.id,
         rssi: device.rssi ?? null,
       } : null;

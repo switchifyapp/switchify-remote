@@ -33,6 +33,7 @@ class LoopbackTransport implements BleTransport {
   requestIds: { id: string; type: string; authenticated: boolean }[] = [];
   connectCount = 0;
   connectFailures = 0;
+  resolvedDesktop = desktop;
   readinessGate: Promise<void> | null = null;
   responseGates = new Map<string, Promise<void>>();
   responseGateQueues = new Map<string, Promise<void>[]>();
@@ -44,7 +45,7 @@ class LoopbackTransport implements BleTransport {
   resolveAndConnect = async () => {
     this.connectCount += 1;
     if (this.connectFailures > 0) { this.connectFailures -= 1; throw new Error('connect failed'); }
-    return desktop;
+    return this.resolvedDesktop;
   };
   connect = async () => undefined;
   disconnect = async () => undefined;
@@ -107,6 +108,20 @@ describe('pairing and authenticated connection integration', () => {
 
     expect(transport.requestPayloads.find(({ type }) => type === 'pairing.request')?.payload).toMatchObject({ deviceName: 'OPD2403' });
     expect(transport.requestPayloads.find(({ type }) => type === 'connection.ping')?.payload).toEqual({ deviceName: 'OPD2403' });
+  });
+
+  it('refreshes a saved Windows name after successful authentication', async () => {
+    const transport = new LoopbackTransport();
+    transport.resolvedDesktop = { ...desktop, displayName: 'Owen’s Windows PC' };
+    const storage = new MemoryStorage();
+    storage.saved = [{ ...desktop, displayName: 'Switchify PC', lastConnectedAt: 1 }];
+    storage.tokens.set(desktop.desktopId, 'fixture-secret');
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+
+    await manager.connectSaved(storage.saved[0]!);
+
+    expect(storage.saved[0]).toMatchObject({ desktopId: desktop.desktopId, displayName: 'Owen’s Windows PC' });
+    expect(manager.snapshot()).toMatchObject({ kind: 'connected', desktop: { displayName: 'Owen’s Windows PC' } });
   });
 
   it('updates a connected PC and defers when offline', async () => {

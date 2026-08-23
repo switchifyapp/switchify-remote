@@ -6,7 +6,7 @@ const descriptor = (value: string): Descriptor => ({ value } as Descriptor);
 
 function device(overrides: Partial<Device> = {}): Device {
   const base: Record<string, unknown> = {
-    id: 'ble-1', name: null, mtu: 185, rssi: -42,
+    id: 'ble-1', name: null, localName: null, mtu: 185, rssi: -42,
     isConnected: jest.fn(async () => true), cancelConnection: jest.fn(async () => null as unknown as Device),
     requestConnectionPriority: jest.fn(async () => base),
     requestMTU: jest.fn(async () => ({ ...base, mtu: 517 })),
@@ -410,7 +410,7 @@ describe('ReactNativeBleTransport', () => {
 
   it('publishes the actual Windows Bluetooth device name', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
-    const advertised = device({ name: 'Oliver Laptop' });
+    const advertised = device({ name: 'Oliver Laptop', localName: 'Switchify PC' });
     const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
     const transport = new ReactNativeBleTransport(native, 'android');
     const found = jest.fn();
@@ -419,6 +419,21 @@ describe('ReactNativeBleTransport', () => {
     await waitFor(() => found.mock.calls.length === 1);
     expect(found).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Oliver Laptop', platform: 'windows' }));
     expect(advertised.requestConnectionPriority).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('publishes the advertised Windows local name on iOS', async () => {
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const advertised = device({ name: 'Switchify PC', localName: 'Owen’s Windows PC' });
+    const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+
+    scanCallback(null, advertised);
+    await waitFor(() => found.mock.calls.length === 1);
+
+    expect(found).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Owen’s Windows PC', platform: 'windows' }));
     stop();
   });
 
