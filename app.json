@@ -8,10 +8,14 @@
     "scheme": "switchify-remote",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "appleTeamId": "4N2QY254XW",
       "bundleIdentifier": "com.enaboapps.switchify.remote",
       "buildNumber": "13",
       "icon": "./assets/images/switchify-remote-ios-icon.png",
       "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "Allow Switchify Remote to find and connect to Switchify PC."
       }

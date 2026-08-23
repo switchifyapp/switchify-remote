@@ -28,7 +28,7 @@ npm run validate
 
 Automated tests use fake transports and never require Bluetooth hardware or inject input. Pairing tokens and typed text must never appear in logs, diagnostics, fixtures, or bug reports.
 
-See [app versioning](docs/versioning.md), [protocol compatibility](docs/protocol-compatibility.md), the [accessibility acceptance criteria](docs/accessibility.md), and the [physical-device smoke test](docs/physical-smoke-test.md) for preview validation.
+See [app versioning](docs/versioning.md), [App Store Connect and TestFlight](docs/app-store-connect.md), [protocol compatibility](docs/protocol-compatibility.md), the [accessibility acceptance criteria](docs/accessibility.md), and the [physical-device smoke test](docs/physical-smoke-test.md) for release validation.
 
 ## Preview scope
 
