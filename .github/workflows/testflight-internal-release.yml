@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: testflight-internal-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   publish-internal:
     runs-on: macos-26
@@ -100,6 +104,7 @@ jobs:
           node tooling/scripts/app-store-connect.cjs preflight
           --bundle-id "$APP_BUNDLE_ID"
           --build-number "${{ steps.release.outputs.build }}"
+          --marketing-version "${{ steps.release.outputs.version }}"
 
       - name: Wait for an existing processing build
         if: steps.preflight.outputs.decision == 'poll'
@@ -111,6 +116,7 @@ jobs:
           node tooling/scripts/app-store-connect.cjs wait
           --bundle-id "$APP_BUNDLE_ID"
           --build-number "${{ steps.release.outputs.build }}"
+          --marketing-version "${{ steps.release.outputs.version }}"
           --timeout-seconds 2700
 
       - name: Install application dependencies
@@ -263,6 +269,7 @@ jobs:
           node tooling/scripts/app-store-connect.cjs wait
           --bundle-id "$APP_BUNDLE_ID"
           --build-number "${{ steps.release.outputs.build }}"
+          --marketing-version "${{ steps.release.outputs.version }}"
           --timeout-seconds 2700
 
       - name: Upload IPA artifact

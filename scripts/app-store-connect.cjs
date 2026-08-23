@@ -162,6 +162,7 @@ async function findBuild(client, appId, buildNumber) {
   const query = new URLSearchParams({
     "filter[app]": appId,
     "filter[version]": String(buildNumber),
+    include: "preReleaseVersion",
     sort: "-uploadedDate",
     limit: "2",
   });
@@ -186,11 +187,33 @@ async function findBuild(client, appId, buildNumber) {
       "App Store Connect returned an invalid build record.",
     );
   }
-  return build;
+  const preReleaseVersionId = build.relationships?.preReleaseVersion?.data?.id;
+  const preReleaseVersion = response.included?.find(
+    (record) =>
+      record?.type === "preReleaseVersions" &&
+      record.id === preReleaseVersionId,
+  );
+  if (
+    typeof preReleaseVersionId !== "string" ||
+    typeof preReleaseVersion?.attributes?.version !== "string"
+  ) {
+    throw new AppStoreConnectError(
+      "App Store Connect returned a build without a readable marketing version.",
+    );
+  }
+  return {
+    ...build,
+    marketingVersion: preReleaseVersion.attributes.version,
+  };
 }
 
-function classifyBuild(build) {
+function classifyBuild(build, expectedMarketingVersion) {
   if (build === null) return { decision: "upload", buildId: null };
+  if (build.marketingVersion !== expectedMarketingVersion) {
+    throw new AppStoreConnectError(
+      `App Store Connect build ${build.id} belongs to a different marketing version; use a new build ordinal.`,
+    );
+  }
   const state = build.attributes.processingState.toUpperCase();
   if (state === "VALID") return { decision: "complete", buildId: build.id };
   if (state === "PROCESSING") return { decision: "poll", buildId: build.id };
@@ -204,10 +227,18 @@ function classifyBuild(build) {
   );
 }
 
-async function lookupBuild(client, bundleId, buildNumber) {
+async function lookupBuild(
+  client,
+  bundleId,
+  buildNumber,
+  expectedMarketingVersion,
+) {
   const app = await findApp(client, bundleId);
   const build = await findBuild(client, app.id, buildNumber);
-  return { appId: app.id, ...classifyBuild(build) };
+  return {
+    appId: app.id,
+    ...classifyBuild(build, expectedMarketingVersion),
+  };
 }
 
 async function waitForBuild({
@@ -256,16 +287,17 @@ async function runCli() {
   const [command, ...rawOptions] = process.argv.slice(2);
   if (!["preflight", "wait"].includes(command)) {
     throw new AppStoreConnectError(
-      "Usage: node scripts/app-store-connect.cjs <preflight|wait> --bundle-id <id> --build-number <number>",
+      "Usage: node scripts/app-store-connect.cjs <preflight|wait> --bundle-id <id> --build-number <number> --marketing-version <version>",
     );
   }
   const options = parseArguments(rawOptions);
   if (
     !options["bundle-id"] ||
-    !/^[1-9]\d*$/.test(options["build-number"] ?? "")
+    !/^[1-9]\d*$/.test(options["build-number"] ?? "") ||
+    !/^\d+\.\d+\.\d+$/.test(options["marketing-version"] ?? "")
   ) {
     throw new AppStoreConnectError(
-      "A bundle ID and positive build number are required.",
+      "A bundle ID, positive build number, and semantic marketing version are required.",
     );
   }
   const keyPath = process.env.ASC_API_PRIVATE_KEY_PATH;
@@ -278,7 +310,12 @@ async function runCli() {
     privateKey,
   });
   const lookup = () =>
-    lookupBuild(client, options["bundle-id"], options["build-number"]);
+    lookupBuild(
+      client,
+      options["bundle-id"],
+      options["build-number"],
+      options["marketing-version"],
+    );
   const result =
     command === "wait"
       ? await waitForBuild({

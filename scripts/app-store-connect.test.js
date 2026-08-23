@@ -17,8 +17,30 @@ function decodePart(value) {
   return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 }
 
-function build(state, id = "build-13") {
-  return { id, attributes: { processingState: state } };
+function build(state, id = "build-13", marketingVersion = "1.0.0") {
+  return {
+    id,
+    attributes: { processingState: state },
+    relationships: {
+      preReleaseVersion: { data: { id: `version-${marketingVersion}` } },
+    },
+    marketingVersion,
+  };
+}
+
+function buildResponse(state, id = "build-13", marketingVersion = "1.0.0") {
+  const record = build(state, id, marketingVersion);
+  delete record.marketingVersion;
+  return {
+    data: [record],
+    included: [
+      {
+        type: "preReleaseVersions",
+        id: `version-${marketingVersion}`,
+        attributes: { version: marketingVersion },
+      },
+    ],
+  };
 }
 
 describe("App Store Connect JWT", () => {
@@ -87,12 +109,12 @@ describe("App Store Connect lookup", () => {
         requests.push(requestPath);
         if (requestPath.startsWith("/v1/apps?"))
           return { data: [{ id: "app-1" }] };
-        return { data: [build("VALID")] };
+        return buildResponse("VALID");
       },
     };
 
     await expect(
-      lookupBuild(client, "com.enaboapps.switchify.remote", 13),
+      lookupBuild(client, "com.enaboapps.switchify.remote", 13, "1.0.0"),
     ).resolves.toEqual({
       appId: "app-1",
       buildId: "build-13",
@@ -102,13 +124,14 @@ describe("App Store Connect lookup", () => {
       "filter%5BbundleId%5D=com.enaboapps.switchify.remote",
     );
     expect(requests[1]).toContain("filter%5Bversion%5D=13");
+    expect(requests[1]).toContain("include=preReleaseVersion");
   });
 
   test("reports an absent build as ready to upload", async () => {
     const responses = [{ data: [{ id: "app-1" }] }, { data: [] }];
     const client = { get: async () => responses.shift() };
     await expect(
-      lookupBuild(client, "com.enaboapps.switchify.remote", 13),
+      lookupBuild(client, "com.enaboapps.switchify.remote", 13, "1.0.0"),
     ).resolves.toEqual({
       appId: "app-1",
       buildId: null,
@@ -117,23 +140,29 @@ describe("App Store Connect lookup", () => {
   });
 
   test("reports a processing build for polling", () => {
-    expect(classifyBuild(build("PROCESSING"))).toEqual({
+    expect(classifyBuild(build("PROCESSING"), "1.0.0")).toEqual({
       buildId: "build-13",
       decision: "poll",
     });
   });
 
   test("treats an existing valid build as an idempotent success", () => {
-    expect(classifyBuild(build("VALID"))).toEqual({
+    expect(classifyBuild(build("VALID"), "1.0.0")).toEqual({
       buildId: "build-13",
       decision: "complete",
     });
   });
 
   test.each(["FAILED", "INVALID"])("rejects the terminal %s state", (state) => {
-    expect(() => classifyBuild(build(state))).toThrow(
+    expect(() => classifyBuild(build(state), "1.0.0")).toThrow(
       "use a new build ordinal",
     );
+  });
+
+  test("rejects an existing build from a different marketing version", () => {
+    expect(() =>
+      classifyBuild(build("VALID", "build-13", "0.9.0"), "1.0.0"),
+    ).toThrow("different marketing version");
   });
 
   test("rejects missing and ambiguous apps", async () => {
@@ -160,6 +189,18 @@ describe("App Store Connect lookup", () => {
         13,
       ),
     ).rejects.toThrow("Multiple App Store Connect builds");
+  });
+
+  test("rejects a build without an included marketing version", async () => {
+    const record = build("VALID");
+    delete record.marketingVersion;
+    await expect(
+      findBuild(
+        { get: async () => ({ data: [record], included: [] }) },
+        "app-1",
+        13,
+      ),
+    ).rejects.toThrow("without a readable marketing version");
   });
 });
 
