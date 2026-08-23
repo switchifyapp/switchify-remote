@@ -142,8 +142,8 @@ export class ConnectionManager {
   }
 
   async switchSaved(pc: SavedPc): Promise<void> {
-    if ('desktop' in this.#state && this.#state.desktop.desktopId === pc.desktopId) return;
     const intent = ++this.#switchIntent;
+    if ('desktop' in this.#state && this.#state.desktop.desktopId === pc.desktopId) return;
     await this.#beginDisconnect(false);
     if (intent !== this.#switchIntent) return;
     await this.connectSaved(pc);

@@ -360,6 +360,31 @@ describe('connection lifecycle', () => {
     expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: 'Could not connect to this PC.' });
   });
 
+  it('cancels an in-flight switch when the displayed PC is selected again', async () => {
+    let finishCleanup!: () => void;
+    let releaseCurrent!: () => void;
+    const storage = new FakeStorage();
+    storage.saved = [pc('current'), pc('other')];
+    storage.tokens.set('current', 'current-token');
+    storage.tokens.set('other', 'other-token');
+    const transport = new FakeTransport();
+    transport.resolveGates.set('current', new Promise<void>((resolve) => { releaseCurrent = resolve; }));
+    transport.resolvedDesktop = { ...pc('current'), rssi: -40 };
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+    manager.registerCleanup(() => new Promise<void>((resolve) => { finishCleanup = resolve; }));
+
+    const currentConnection = manager.connectSaved(storage.saved[0]!);
+    await waitFor(() => manager.snapshot().kind === 'connecting');
+    const switchingAway = manager.switchSaved(storage.saved[1]!);
+    await waitFor(() => finishCleanup !== undefined);
+    await manager.switchSaved(storage.saved[0]!);
+    finishCleanup();
+    releaseCurrent();
+    await Promise.all([currentConnection, switchingAway]);
+
+    expect(transport.resolveDesktopIds).toEqual(['current']);
+  });
+
   it('ignores a quick-switch request for the active connection target', async () => {
     let release!: () => void;
     const storage = new FakeStorage();

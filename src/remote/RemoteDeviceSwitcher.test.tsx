@@ -21,7 +21,7 @@ describe('RemoteDeviceSwitcher', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
-    jest.spyOn(AccessibilityInfo, 'announceForAccessibilityWithOptions').mockImplementation(() => undefined);
+    jest.spyOn(AccessibilityInfo, 'announceForAccessibilityWithOptions').mockImplementation(() => undefined).mockClear();
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
     mockFocusAccessibilityTarget.mockClear();
   });
@@ -58,12 +58,13 @@ describe('RemoteDeviceSwitcher', () => {
     await waitFor(() => expect(view.queryByTestId('pc-switcher-modal')).toBeNull());
   });
 
-  it('dismisses without reconnecting when the current PC is chosen', async () => {
+  it('dismisses and lets the manager invalidate stale switches when the current PC is chosen', async () => {
     const manager = { listSaved: jest.fn(async () => [office]), switchSaved: jest.fn(async () => undefined) };
     const view = await render(<RemoteDeviceSwitcher connection={connected()} manager={manager} managePcs={() => undefined} />);
     await act(async () => fireEvent.press(view.getByRole('button', { name: 'Switch PC' })));
     await act(async () => fireEvent.press(await view.findByRole('button', { name: 'Office PC' })));
-    expect(manager.switchSaved).not.toHaveBeenCalled();
+    expect(manager.switchSaved).toHaveBeenCalledWith(office);
+    expect(AccessibilityInfo.announceForAccessibilityWithOptions).not.toHaveBeenCalled();
     await waitFor(() => expect(view.queryByTestId('pc-switcher-modal')).toBeNull());
   });
 
@@ -95,6 +96,22 @@ describe('RemoteDeviceSwitcher', () => {
     await act(async () => jest.runOnlyPendingTimers());
     expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(2);
     expect(mockFocusAccessibilityTarget).toHaveBeenLastCalledWith(expect.anything());
+  });
+
+  it('does not steal modal focus when connection state refreshes after the list loads', async () => {
+    const manager = { listSaved: jest.fn(async () => [office]), switchSaved: jest.fn(async () => undefined) };
+    const view = await render(<RemoteDeviceSwitcher connection={connected()} manager={manager} managePcs={() => undefined} />);
+    await act(async () => fireEvent.press(view.getByRole('button', { name: 'Switch PC' })));
+    expect(await view.findByRole('button', { name: 'Office PC' })).toBeTruthy();
+    await act(async () => view.getByTestId('pc-switcher-modal').props.onShow());
+    await act(async () => jest.runOnlyPendingTimers());
+    const focusCount = mockFocusAccessibilityTarget.mock.calls.length;
+
+    await view.rerender(<RemoteDeviceSwitcher connection={{ kind: 'reconnecting', desktop: desktop(office), attempt: 1 }} manager={manager} managePcs={() => undefined} />);
+    await act(async () => jest.runOnlyPendingTimers());
+
+    expect(manager.listSaved).toHaveBeenCalledTimes(1);
+    expect(mockFocusAccessibilityTarget).toHaveBeenCalledTimes(focusCount);
   });
 
   it('supports dismissal through the scrim, system back, and accessibility escape', async () => {
