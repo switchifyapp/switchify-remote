@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { ActionButton } from '@/components/ActionButton';
 import { AppText } from '@/components/AppText';
@@ -46,7 +46,7 @@ export function MouseSurface({ session, state, physicalSwitchStopAvailable = tru
 
   return <View style={{ gap: spacing.md }}>
     {state.repeat ? <StatusBadge icon="autorenew" label="Movement is repeating. Use Stop movement or another control to stop." tone="warning" /> : null}
-    {!physicalSwitchStopAvailable && profile?.capabilities.mouseRepeat.supported && profile.capabilities.mouseRepeat.enabled ? <Card><AppText muted>Switchify is unavailable. Use a Remote control to stop movement repeat.</AppText></Card> : null}
+    {Platform.OS === 'android' && !physicalSwitchStopAvailable && profile?.capabilities.mouseRepeat.supported && profile.capabilities.mouseRepeat.enabled ? <Card><AppText muted>Switchify is unavailable. Use a Remote control to stop movement repeat.</AppText></Card> : null}
     <View style={{ alignItems: 'flex-start', flexDirection: twoPane ? 'row' : 'column', gap: spacing.xl }}>{movement}{secondary}</View>
   </View>;
 }

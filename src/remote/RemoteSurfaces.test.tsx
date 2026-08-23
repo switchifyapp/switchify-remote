@@ -1,6 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { RenderResult } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
 import { MouseSurface } from './MouseSurface';
@@ -17,10 +17,15 @@ function profile(supportedCommands: string[]): PointerProfile {
 }
 
 const manager = { send: jest.fn(async () => true) } as unknown as ConnectionManager;
+const originalPlatform = Platform.OS;
 
 describe('capability-driven remote surfaces', () => {
   beforeEach(() => {
     jest.mocked(focusLiveTextInput).mockClear();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
   });
 
   it('disables unsupported mouse controls', async () => {
@@ -227,6 +232,25 @@ describe('capability-driven remote surfaces', () => {
       ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 0, dy: -64 } } }],
       ['mouse.repeat.stop', {}, 'none'],
     ]);
+  });
+
+  it.each([
+    ['android', true],
+    ['ios', false],
+  ] as const)('shows Android-only physical-switch guidance on %s while preserving Stop movement', async (platform, showsGuidance) => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: platform });
+    const session = new RemoteSession(
+      { send: jest.fn(async () => true) } as unknown as ConnectionManager,
+      profile(['mouse.move', 'mouse.repeat.start', 'mouse.repeat.stop']),
+    );
+    const mouse = await render(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />);
+
+    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop movement repeat.'))).toBe(showsGuidance);
+    await act(async () => { fireEvent.press(mouse.getByLabelText('Move up')); await Promise.resolve(); });
+    await act(async () => { mouse.rerender(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />); });
+
+    expect(mouse.getByRole('button', { name: 'Stop movement' })).toBeTruthy();
+    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop movement repeat.'))).toBe(showsGuidance);
   });
 
   it('routes every displayed remote action through the capability-approved session', async () => {
