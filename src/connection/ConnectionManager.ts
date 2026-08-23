@@ -140,6 +140,12 @@ export class ConnectionManager {
     }
   }
 
+  async switchSaved(pc: SavedPc): Promise<void> {
+    if ('desktop' in this.#state && this.#state.desktop.desktopId === pc.desktopId) return;
+    await this.disconnect(false);
+    await this.connectSaved(pc);
+  }
+
   async connectPreferred(): Promise<void> {
     if (this.#preferredConnect) return this.#preferredConnect;
     const attempt = (async () => {

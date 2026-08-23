@@ -1,6 +1,7 @@
 import { ActionButton } from '@/components/ActionButton';
 import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
+import type { ReactNode } from 'react';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import type { ConnectionState } from '@/connection/ConnectionManager';
 import type { RemoteSurface } from '@/storage/PreferencesStore';
@@ -36,11 +37,11 @@ export function disconnectedRemotePresentation(connection: DisconnectedState): D
   };
 }
 
-export function DisconnectedRemote({ connection, selectedSurface, retry, choose }: { connection: DisconnectedState; selectedSurface: RemoteSurface; retry: () => void; choose: () => void }) {
+export function DisconnectedRemote({ connection, selectedSurface, retry, choose, bottomAccessory }: { connection: DisconnectedState; selectedSurface: RemoteSurface; retry: () => void; choose: () => void; bottomAccessory?: ReactNode }) {
   const presentation = disconnectedRemotePresentation(connection);
   useAccessibilityAnnouncement(presentation.message);
   return (
-    <Screen title="Remote" description="Your selected controls will be ready after connection.">
+    <Screen title="Remote" description="Your selected controls will be ready after connection." bottomAccessory={bottomAccessory}>
       <SurfaceSelector selected={selectedSurface} />
       <EmptyState icon={presentation.busy ? 'sync' : connection.kind === 'failed' ? 'error-outline' : 'computer'} title={presentation.title} body={presentation.message} action={<>{presentation.busy ? <ActionButton label="Connecting…" busy disabled onPress={() => undefined} /> : null}{presentation.primaryAction ? <ActionButton label={presentation.primaryAction} onPress={retry} /> : null}{presentation.chooseAction ? <ActionButton label={presentation.chooseAction} tone="secondary" onPress={choose} /> : null}</>} />
     </Screen>

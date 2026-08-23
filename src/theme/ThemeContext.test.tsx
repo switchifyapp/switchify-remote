@@ -50,4 +50,17 @@ describe('ThemeProvider', () => {
     await view.rerender(<SafeAreaProvider initialMetrics={metrics}><ThemeProvider><Screen title="Remote" headerAccessory={<View><Text>Connected</Text></View>}><Text>Body</Text></Screen></ThemeProvider></SafeAreaProvider>);
     expect(StyleSheet.flatten(view.getByTestId('screen-header').props.style).flexDirection).toBe('row');
   });
+
+  it('keeps a bottom accessory outside scrolling content at phone and tablet widths', async () => {
+    mockColorScheme.mockReturnValue('dark');
+    const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, right: 0, bottom: 34, left: 0 } };
+    const view = await render(<SafeAreaProvider initialMetrics={metrics}><ThemeProvider><Screen title="Remote" bottomAccessory={<Text>Choose PC</Text>}><Text>Controls</Text></Screen></ThemeProvider></SafeAreaProvider>);
+    expect(StyleSheet.flatten(view.getByTestId('screen-scroll').props.contentContainerStyle).paddingBottom).toBe(20);
+    expect(StyleSheet.flatten(view.getByTestId('screen-bottom-accessory-content').props.style).maxWidth).toBe(640);
+    expect(view.getByTestId('screen-scroll').parent?.props.children[1].props.testID).toBe('screen-bottom-accessory');
+
+    mockWindowDimensions.mockReturnValue({ width: 900, height: 1200, scale: 2, fontScale: 2 });
+    await view.rerender(<SafeAreaProvider initialMetrics={metrics}><ThemeProvider><Screen title="Remote" bottomAccessory={<Text>Choose PC</Text>}><Text>Controls</Text></Screen></ThemeProvider></SafeAreaProvider>);
+    expect(StyleSheet.flatten(view.getByTestId('screen-bottom-accessory-content').props.style).maxWidth).toBe(960);
+  });
 });

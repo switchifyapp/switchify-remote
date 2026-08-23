@@ -8,6 +8,7 @@ import { useConnectionManager, useConnectionState } from '@/connection/Connectio
 import { usePreferredPcConnection } from '@/connection/usePreferredPcConnection';
 import { MouseSurface } from '@/remote/MouseSurface';
 import { DisconnectedRemote } from '@/remote/DisconnectedRemote';
+import { RemoteDeviceSwitcher } from '@/remote/RemoteDeviceSwitcher';
 import { RemoteSession } from '@/remote/RemoteSession';
 import { SurfaceSelector } from '@/remote/SurfaceSelector';
 import { TypingSurface } from '@/remote/TypingSurface';
@@ -40,13 +41,14 @@ export default function RemoteScreen() {
   useEffect(() => {
     if (shouldClearForwardingRestore(preferences.surface, connection.kind)) forwardingRestore.clear();
   }, [connection.kind, forwardingRestore, preferences.surface]);
-  if (connection.kind !== 'connected') return <DisconnectedRemote connection={connection} selectedSurface={preferences.surface} retry={() => void manager.connectPreferred()} choose={() => router.navigate('/')} />;
+  const deviceSwitcher = <RemoteDeviceSwitcher connection={connection} manager={manager} managePcs={() => router.navigate('/')} />;
+  if (connection.kind !== 'connected') return <DisconnectedRemote connection={connection} selectedSurface={preferences.surface} retry={() => void manager.connectPreferred()} choose={() => router.navigate('/')} bottomAccessory={deviceSwitcher} />;
   if (!connection.profile) {
     const unavailablePresentation = profilePresentation(connection.profileStatus);
-    return <Screen title="Remote"><EmptyState icon={unavailablePresentation.icon} title={unavailablePresentation.title} body={unavailablePresentation.body} /></Screen>;
+    return <Screen title="Remote" bottomAccessory={deviceSwitcher}><EmptyState icon={unavailablePresentation.icon} title={unavailablePresentation.title} body={unavailablePresentation.body} /></Screen>;
   }
   return (
-    <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />}>
+    <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />} bottomAccessory={deviceSwitcher}>
       <SurfaceSelector selected={preferences.surface} />
       {preferences.surface === 'mouse' ? <MouseSurface session={session} state={sessionState} physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} /> : null}
       {preferences.surface === 'typing' ? <TypingSurface session={session} mode={preferences.typingMode} draft={preferences.draft} /> : null}
