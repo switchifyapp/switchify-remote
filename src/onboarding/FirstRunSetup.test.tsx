@@ -8,6 +8,17 @@ jest.mock('@/components/useAccessibilityAnnouncement', () => ({
   useAccessibilityAnnouncement: (message: string | null) =>
     mockAnnouncement(message),
 }));
+
+function activeLifecycle() {
+  let listener: () => void = () => undefined;
+  let state: 'active' | 'background' = 'active';
+  return {
+    current: () => state,
+    subscribe: (next: () => void) => { listener = next; return jest.fn(); },
+    background: () => { state = 'background'; listener(); },
+  };
+}
+
 function storage() {
   return {
     getItem: jest.fn(async () => null),
@@ -127,8 +138,9 @@ describe('FirstRunSetup', () => {
     await store.load();
     store.showBluetooth();
     const scan = jest.fn(async () => undefined);
+    const lifecycle = activeLifecycle();
     const view = await render(
-      <FirstRunSetup manager={{ scan }} phase="bluetooth" store={store} />,
+      <FirstRunSetup lifecycle={lifecycle} manager={{ scan }} phase="bluetooth" store={store} />,
     );
 
     fireEvent.press(view.getByRole('button', { name: 'Allow Bluetooth' }));
@@ -141,10 +153,34 @@ describe('FirstRunSetup', () => {
     expect(persistence.setItem).toHaveBeenCalledTimes(1);
     expect(scan).not.toHaveBeenCalled();
 
-    await act(async () => {
-      finishWrite();
-    });
+    finishWrite();
     await waitFor(() => expect(scan).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not begin scanning if the app backgrounds while setup completion is saved', async () => {
+    let finishWrite!: () => void;
+    const persistence = {
+      getItem: jest.fn(async () => null),
+      setItem: jest.fn(() => new Promise<void>((resolve) => { finishWrite = resolve; })),
+    };
+    const store = new FirstRunSetupStore(persistence);
+    await store.load();
+    store.showBluetooth();
+    const scan = jest.fn(async () => undefined);
+    const lifecycle = activeLifecycle();
+    const view = await render(
+      <FirstRunSetup lifecycle={lifecycle} manager={{ scan }} phase="bluetooth" store={store} />,
+    );
+
+    fireEvent.press(view.getByRole('button', { name: 'Allow Bluetooth' }));
+    expect(persistence.setItem).toHaveBeenCalledTimes(1);
+    lifecycle.background();
+    finishWrite();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.snapshot()).toBe('complete');
+    expect(scan).not.toHaveBeenCalled();
   });
 
   it('keeps setup visible and reports a sanitized persistence failure', async () => {

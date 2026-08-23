@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { BleManager, ConnectionPriority, type Device, type Subscription } from 'react-native-ble-plx';
+import { BleManager, ConnectionPriority, type Device, type State, type Subscription } from 'react-native-ble-plx';
 import { toByteArray } from 'base64-js';
 
 import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
@@ -30,7 +30,8 @@ export class ReactNativeBleTransport implements BleTransport {
   ) { this.#manager = manager; }
 
   async availability(): Promise<BleAvailability> {
-    const state = await this.#managerOrCreate().state();
+    const manager = this.#managerOrCreate();
+    const state = await this.#settledManagerState(manager, await manager.state());
     if (state === 'PoweredOn') return 'ready';
     if (state === 'Unauthorized') return 'unauthorized';
     if (state === 'Unsupported') return 'unsupported';
@@ -332,6 +333,36 @@ export class ReactNativeBleTransport implements BleTransport {
   #managerOrCreate(): BleManager {
     this.#manager ??= this.managerFactory();
     return this.#manager;
+  }
+
+  #settledManagerState(manager: BleManager, initial: State): Promise<State> {
+    if (initial !== 'Unknown' && initial !== 'Resetting') return Promise.resolve(initial);
+    return new Promise<State>((resolve) => {
+      let settled = false;
+      let latest: State = initial;
+      let subscription: Subscription | null = null;
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (state: State) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        subscription?.remove();
+        this.#nativeCancels.delete(cancel);
+        resolve(state);
+      };
+      const cancel = () => finish(latest);
+      timer = setTimeout(() => finish(latest), this.nativeTimeoutMs);
+      this.#nativeCancels.add(cancel);
+      try {
+        subscription = manager.onStateChange((state) => {
+          latest = state;
+          if (state !== 'Unknown' && state !== 'Resetting') finish(state);
+        }, true);
+        if (settled) subscription.remove();
+      } catch {
+        finish(latest);
+      }
+    });
   }
 
   async #requestHighPriority(device: Device): Promise<Device> {

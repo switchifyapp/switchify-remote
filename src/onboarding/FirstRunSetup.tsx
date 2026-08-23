@@ -7,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { ActivityIndicator, Alert, Linking, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, type AppStateStatus, Linking, View } from 'react-native';
 
 import { ActionButton } from '@/components/ActionButton';
 import { AppText } from '@/components/AppText';
@@ -25,6 +25,19 @@ import {
 
 export const SWITCHIFY_PC_RELEASES_URL =
   'https://github.com/switchifyapp/switchify-pc/releases';
+
+type SetupLifecycle = {
+  current: () => AppStateStatus | null;
+  subscribe: (listener: () => void) => () => void;
+};
+
+const appLifecycle: SetupLifecycle = {
+  current: () => AppState.currentState,
+  subscribe: (listener) => {
+    const subscription = AppState.addEventListener('change', listener);
+    return () => subscription.remove();
+  },
+};
 
 export function FirstRunSetupGate({
   children,
@@ -52,13 +65,17 @@ export function FirstRunSetup({
   manager,
   phase,
   store,
+  lifecycle = appLifecycle,
 }: {
   manager: Pick<ConnectionManager, 'scan'>;
   phase: Exclude<FirstRunSetupPhase, 'loading' | 'complete'>;
   store: FirstRunSetupStore;
+  lifecycle?: SetupLifecycle;
 }) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const lifecycleRevision = useRef(0);
+  useEffect(() => lifecycle.subscribe(() => { lifecycleRevision.current += 1; }), [lifecycle]);
   const announcement =
     phase === 'welcome'
       ? 'Step 1 of 2. Meet Switchify Remote.'
@@ -67,6 +84,7 @@ export function FirstRunSetup({
 
   const finish = async (scan: boolean) => {
     if (busyRef.current) return;
+    const startingLifecycleRevision = lifecycleRevision.current;
     busyRef.current = true;
     setBusy(true);
     try {
@@ -80,7 +98,7 @@ export function FirstRunSetup({
       setBusy(false);
       return;
     }
-    if (scan) void manager.scan();
+    if (scan && lifecycle.current() === 'active' && lifecycleRevision.current === startingLifecycleRevision) void manager.scan();
   };
 
   if (phase === 'welcome')
