@@ -24,8 +24,6 @@ jobs:
     env:
       APP_BUNDLE_ID: com.enaboapps.switchify.remote
       APPLE_TEAM_ID: 4N2QY254XW
-      ARCHIVE_PATH: ${{ runner.temp }}/SwitchifyRemote.xcarchive
-      EXPORT_PATH: ${{ runner.temp }}/testflight-export
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
     steps:
       - name: Check out reviewed release tooling
@@ -184,7 +182,7 @@ jobs:
             -scheme SwitchifyRemote \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "$ARCHIVE_PATH" \
+            -archivePath "$RUNNER_TEMP/SwitchifyRemote.xcarchive" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY='Apple Distribution' \
@@ -209,8 +207,8 @@ jobs:
             -c "Add :provisioningProfiles:$APP_BUNDLE_ID string Switchify Remote App Store" \
             "$export_options"
           xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportPath "$EXPORT_PATH" \
+            -archivePath "$RUNNER_TEMP/SwitchifyRemote.xcarchive" \
+            -exportPath "$RUNNER_TEMP/testflight-export" \
             -exportOptionsPlist "$export_options"
 
       - name: Verify IPA identity and provisioning
@@ -219,7 +217,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ipa_path="$(find "$EXPORT_PATH" -maxdepth 1 -name '*.ipa' -print -quit)"
+          ipa_path="$(find "$RUNNER_TEMP/testflight-export" -maxdepth 1 -name '*.ipa' -print -quit)"
           if [[ -z "$ipa_path" ]]; then
             echo 'The App Store Connect export did not produce an IPA.' >&2
             exit 1
@@ -287,5 +285,5 @@ jobs:
           security delete-keychain "${{ steps.signing.outputs.keychain_path }}" 2>/dev/null || true
           rm -f "${{ steps.signing.outputs.profile_path }}"
           rm -f "${{ steps.credentials.outputs.api_key_path }}"
-          rm -rf "$RUNNER_TEMP/testflight-signing" "$RUNNER_TEMP/ipa-verification" "$EXPORT_PATH" "$ARCHIVE_PATH"
+          rm -rf "$RUNNER_TEMP/testflight-signing" "$RUNNER_TEMP/ipa-verification" "$RUNNER_TEMP/testflight-export" "$RUNNER_TEMP/SwitchifyRemote.xcarchive"
           rm -f "$RUNNER_TEMP/ExportOptions.plist" "$RUNNER_TEMP/embedded-profile.plist" "$RUNNER_TEMP/codesign.txt" "$RUNNER_TEMP/release.json"
