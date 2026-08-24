@@ -19,6 +19,40 @@ describe('accessibility primitives', () => {
     const view = await render(<Screen title="Remote" description="Connected to Office"><ControlButton label="Click" onPress={() => undefined} /></Screen>);
     expect(view.getByRole('header')).toBeTruthy();
     expect(view.getByRole('button', { name: 'Click' })).toBeTruthy();
+    expect(view.getByTestId('screen-scroll').props.stickyHeaderIndices).toBeUndefined();
+    expect(view.getByTestId('screen-scroll').props.onScroll).toBeUndefined();
+    expect(view.queryByTestId('screen-sticky-accessory')).toBeNull();
+  });
+
+  it('pins a supplied accessory without adding scanning stops', async () => {
+    const view = await render(<Screen title="Remote" stickyAccessory={<ControlButton label="Surface" onPress={() => undefined} />} bottomAccessory={<ControlButton label="Choose PC" onPress={() => undefined} />}><ControlButton label="Click" onPress={() => undefined} /></Screen>);
+    const scroll = view.getByTestId('screen-scroll');
+    const header = view.getByTestId('screen-sticky-header-content');
+    const sticky = view.getByTestId('screen-sticky-accessory');
+    const content = view.getByTestId('screen-content');
+
+    expect(scroll.props.stickyHeaderIndices).toEqual([1]);
+    expect(scroll.props.scrollEventThrottle).toBe(16);
+    expect(header.parent).toBe(sticky.parent);
+    expect(sticky.parent).toBe(content.parent);
+    expect(header.parent?.children).toEqual([header, sticky, content]);
+    expect(view.queryByTestId('screen-sticky-backdrop-blur')).toBeNull();
+    expect(view.getAllByRole('button')).toHaveLength(3);
+    expect(view.getByTestId('screen-scroll').parent?.props.children[1].props.testID).toBe('screen-bottom-accessory');
+
+    await fireEvent(view.getByTestId('screen-sticky-accessory'), 'layout', { nativeEvent: { layout: { height: 64, width: 350, x: 0, y: 100 } } });
+    await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 0, y: 99 } } });
+    expect(view.queryByTestId('screen-sticky-backdrop-blur')).toBeNull();
+    await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 0, y: 100 } } });
+    expect(view.getByTestId('screen-sticky-backdrop-blur', { includeHiddenElements: true })).toBeTruthy();
+    expect(view.getAllByRole('button')).toHaveLength(3);
+
+    await fireEvent(view.getByTestId('screen-sticky-accessory'), 'layout', { nativeEvent: { layout: { height: 96, width: 350, x: 0, y: 140 } } });
+    expect(view.queryByTestId('screen-sticky-backdrop-blur')).toBeNull();
+    await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 0, y: 150 } } });
+    expect(view.getByTestId('screen-sticky-backdrop-blur', { includeHiddenElements: true })).toBeTruthy();
+    await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 0, y: 0 } } });
+    expect(view.queryByTestId('screen-sticky-backdrop-blur')).toBeNull();
   });
 
   it('keeps read-only status text out of switch scanning', async () => {

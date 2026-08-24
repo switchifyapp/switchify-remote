@@ -7,23 +7,30 @@ type ThemeValue = {
   colors: typeof palettes.dark | typeof palettes.light;
   radii: typeof radii;
   reducedMotion: boolean;
+  reducedTransparency: boolean;
   scheme: 'dark' | 'light';
   spacing: typeof spacing;
   typography: typeof typography;
 };
 
-const defaultTheme: ThemeValue = { colors: palettes.dark, radii, reducedMotion: false, scheme: 'dark', spacing, typography };
+const defaultTheme: ThemeValue = { colors: palettes.dark, radii, reducedMotion: false, reducedTransparency: false, scheme: 'dark', spacing, typography };
 const ThemeContext = createContext<ThemeValue>(defaultTheme);
 
 export function ThemeProvider({ children }: PropsWithChildren) {
   const scheme: 'light' | 'dark' = useColorScheme() === 'light' ? 'light' : 'dark';
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [reducedTransparency, setReducedTransparency] = useState(false);
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReducedMotion);
-    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
-    return () => subscription.remove();
+    void AccessibilityInfo.isReduceTransparencyEnabled().then(setReducedTransparency);
+    const motionSubscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
+    const transparencySubscription = AccessibilityInfo.addEventListener('reduceTransparencyChanged', setReducedTransparency);
+    return () => {
+      motionSubscription.remove();
+      transparencySubscription.remove();
+    };
   }, []);
-  const value = useMemo(() => ({ colors: palettes[scheme], radii, reducedMotion, scheme, spacing, typography }), [reducedMotion, scheme]);
+  const value = useMemo(() => ({ colors: palettes[scheme], radii, reducedMotion, reducedTransparency, scheme, spacing, typography }), [reducedMotion, reducedTransparency, scheme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

@@ -1,5 +1,5 @@
-import { render } from '@testing-library/react-native';
-import { StyleSheet, Text, useColorScheme, useWindowDimensions, View } from 'react-native';
+import { act, render } from '@testing-library/react-native';
+import { AccessibilityInfo, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Screen } from '@/components/Screen';
 import { ThemeProvider, useTheme } from './ThemeContext';
@@ -14,10 +14,16 @@ function SchemeProbe() {
   return <Text>{useTheme().scheme}</Text>;
 }
 
+function TransparencyProbe() {
+  return <Text>{useTheme().reducedTransparency ? 'opaque' : 'blurred'}</Text>;
+}
+
 describe('ThemeProvider', () => {
   beforeEach(() => {
     mockWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
   });
+
+  afterEach(() => jest.restoreAllMocks());
 
   it('updates consumers when the device color scheme changes', async () => {
     mockColorScheme.mockReturnValue('light');
@@ -26,6 +32,27 @@ describe('ThemeProvider', () => {
     mockColorScheme.mockReturnValue('dark');
     await view.rerender(<ThemeProvider><SchemeProbe /></ThemeProvider>);
     expect(view.getByText('dark')).toBeTruthy();
+  });
+
+  it('tracks Reduce Transparency and removes its listener on unmount', async () => {
+    let transparencyListener: ((enabled: boolean) => void) | undefined;
+    const removeTransparencyListener = jest.fn();
+    jest.spyOn(AccessibilityInfo, 'isReduceTransparencyEnabled').mockResolvedValue(false);
+    const addEventListener = jest.spyOn(AccessibilityInfo, 'addEventListener') as unknown as jest.Mock;
+    addEventListener.mockImplementation((event: string, listener: (enabled: boolean) => void) => {
+      if (event === 'reduceTransparencyChanged') {
+        transparencyListener = listener;
+        return { remove: removeTransparencyListener };
+      }
+      return { remove: jest.fn() };
+    });
+
+    const view = await render(<ThemeProvider><TransparencyProbe /></ThemeProvider>);
+    expect(view.getByText('blurred')).toBeTruthy();
+    await act(async () => transparencyListener?.(true));
+    await view.findByText('opaque');
+    await view.unmount();
+    expect(removeTransparencyListener).toHaveBeenCalledTimes(1);
   });
 
   it('changes screen width for tablet layouts and omits a duplicate native-route heading', async () => {

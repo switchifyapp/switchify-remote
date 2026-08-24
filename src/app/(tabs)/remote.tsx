@@ -48,8 +48,7 @@ export default function RemoteScreen() {
     return <Screen title="Remote" bottomAccessory={deviceSwitcher}><EmptyState icon={unavailablePresentation.icon} title={unavailablePresentation.title} body={unavailablePresentation.body} /></Screen>;
   }
   return (
-    <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />} bottomAccessory={deviceSwitcher}>
-      <SurfaceSelector selected={preferences.surface} />
+    <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />} bottomAccessory={deviceSwitcher} stickyAccessory={<SurfaceSelector selected={preferences.surface} />}>
       {preferences.surface === 'mouse' ? <MouseSurface session={session} state={sessionState} physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} /> : null}
       {preferences.surface === 'typing' ? <TypingSurface session={session} mode={preferences.typingMode} draft={preferences.draft} /> : null}
       {preferences.surface === 'window' ? <WindowSurface session={session} state={sessionState} platform={connection.desktop.platform} /> : null}
