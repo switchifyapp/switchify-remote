@@ -119,6 +119,32 @@ describe('RemoteSession', () => {
     expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(102, true);
   });
 
+  it('clears repeat immediately while bridge activation is pending and stops the PC before bridge cleanup', async () => {
+    const order: string[] = [];
+    let releaseActivation!: () => void;
+    const activation = new Promise<void>((resolve) => { releaseActivation = resolve; });
+    const host = fakeBridge();
+    (host.bridge.setRepeatActive as jest.Mock).mockImplementation(async (_generation: number, active: boolean) => {
+      order.push(active ? 'bridge:on' : 'bridge:off');
+      if (active) await activation;
+      return true;
+    });
+    const manager = { send: async (type: string) => { order.push(type); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile(), undefined, null, host.bridge);
+    const starting = session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(session.snapshot().repeat).toBe('mouse.move');
+
+    const stopping = session.stopRepeat();
+    const duplicate = session.stopRepeat();
+    expect(session.snapshot().repeat).toBeNull();
+    expect(order).toEqual(['mouse.repeat.start', 'bridge:on']);
+
+    releaseActivation();
+    await Promise.all([starting, stopping, duplicate]);
+    expect(order).toEqual(['mouse.repeat.start', 'bridge:on', 'mouse.repeat.stop', 'bridge:off']);
+  });
+
   it('does not let a hung bridge activation block repeat cleanup', async () => {
     const calls: string[] = [];
     const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;

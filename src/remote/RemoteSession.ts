@@ -16,6 +16,7 @@ export class RemoteSession {
   #repeatGeneration = 0;
   #repeatArmAttempt = 0;
   #repeatBridgeArmed = false;
+  #repeatStopGeneration = 0;
   #bridgeUnsubscribe: () => void;
 
   constructor(
@@ -49,7 +50,11 @@ export class RemoteSession {
 
   async #mouse(type: string, payload: JsonObject, repeatable: boolean): Promise<boolean> {
     if (!this.supports(type)) return false;
-    if (this.#state.repeat) { await this.#stopRepeat(); return true; }
+    if (this.#state.repeat) {
+      const generation = this.#reserveRepeatStop();
+      if (generation !== null) await this.#completeRepeatStop(generation);
+      return true;
+    }
     if (repeatable && this.supports('mouse.repeat.start') && this.supports('mouse.repeat.stop') && this.profile?.capabilities.mouseRepeat.supported && this.profile.capabilities.mouseRepeat.enabled) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
@@ -63,19 +68,30 @@ export class RemoteSession {
   }
 
   stopRepeat(): Promise<void> {
-    return this.#enqueueRepeat(() => this.#stopRepeat());
+    const generation = this.#reserveRepeatStop();
+    if (generation === null) return this.#repeatQueue;
+    return this.#enqueueRepeat(() => this.#completeRepeatStop(generation));
   }
 
-  async #stopRepeat(): Promise<void> {
-    if (!this.#state.repeat) return;
+  #reserveRepeatStop(): number | null {
+    if (!this.#state.repeat) return null;
     const generation = this.#repeatGeneration;
     this.#repeatArmAttempt += 1;
     this.#repeatGeneration = 0;
     this.#repeatBridgeArmed = false;
+    this.#repeatStopGeneration = generation;
     this.#set({ repeat: null });
+    return generation;
+  }
+
+  async #completeRepeatStop(generation: number): Promise<void> {
     const [type, payload] = commandPayloads.repeatStop();
-    await this.manager.send(type, payload, 'ack');
-    if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
+    try {
+      await this.manager.send(type, payload, 'ack');
+    } finally {
+      if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
+      if (this.#repeatStopGeneration === generation) this.#repeatStopGeneration = 0;
+    }
   }
 
   async #armRepeatBridge(): Promise<void> {
@@ -85,7 +101,7 @@ export class RemoteSession {
     this.#repeatGeneration = generation;
     const accepted = await this.#setRepeatActiveBounded(generation, true);
     if (attempt !== this.#repeatArmAttempt || !this.#state.repeat) {
-      if (accepted) await this.#setRepeatActiveBounded(generation, false);
+      if (accepted && this.#repeatStopGeneration !== generation) await this.#setRepeatActiveBounded(generation, false);
       return;
     }
     this.#repeatBridgeArmed = accepted;
