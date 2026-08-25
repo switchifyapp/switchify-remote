@@ -8,7 +8,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { commandPayloads } from '@/domain/protocol/commands';
 import { preferencesStore, type TypingMode } from '@/storage/PreferencesStore';
 import { useTheme } from '@/theme/ThemeContext';
-import { focusLiveTextInput } from './focusLiveTextInput';
+import { scheduleLiveTextInputFocus } from './focusLiveTextInput';
 import { LiveTypingController } from './LiveTypingController';
 import type { RemoteSession } from './RemoteSession';
 
@@ -18,10 +18,13 @@ export function TypingSurface({ session, mode, draft }: { session: RemoteSession
   const [liveText, setLiveText] = useState('');
   const [liveFailure, setLiveFailure] = useState<'text' | 'enter' | null>(null);
   const [liveSubmitting, setLiveSubmitting] = useState(false);
-  const [liveFocusRequest, setLiveFocusRequest] = useState(0);
+  const cancelLiveFocus = useRef<(() => void) | null>(null);
+  const liveFocusPending = useRef(false);
   const liveRevision = useRef(0);
   const liveSubmittingRef = useRef(false);
   const liveInputRef = useRef<TextInput>(null);
+  const latestMode = useRef(mode);
+  const latestSession = useRef(session);
   const mounted = useRef(true);
   const live = useMemo(() => new LiveTypingController(session), [session]);
   const { colors, radii, spacing, typography } = useTheme();
@@ -40,7 +43,11 @@ export function TypingSurface({ session, mode, draft }: { session: RemoteSession
   };
   const submitLive = async () => {
     if (!liveSupported || liveSubmittingRef.current) return;
+    cancelLiveFocus.current?.();
+    cancelLiveFocus.current = null;
+    liveFocusPending.current = false;
     liveSubmittingRef.current = true;
+    const submittingSession = session;
     const revision = ++liveRevision.current;
     setLiveFailure(null);
     setLiveSubmitting(true);
@@ -52,15 +59,37 @@ export function TypingSurface({ session, mode, draft }: { session: RemoteSession
     }
     liveSubmittingRef.current = false;
     setLiveSubmitting(false);
-    setLiveFocusRequest((request) => request + 1);
+    liveFocusPending.current = latestMode.current === 'live' && latestSession.current === submittingSession;
   };
   useEffect(() => {
-    if (liveFocusRequest > 0) focusLiveTextInput(liveInputRef.current);
-  }, [liveFocusRequest]);
+    cancelLiveFocus.current?.();
+    cancelLiveFocus.current = null;
+    if (liveSubmitting || !liveFocusPending.current || mode !== 'live') return;
+    liveFocusPending.current = false;
+    const cancel = scheduleLiveTextInputFocus(() => liveInputRef.current);
+    cancelLiveFocus.current = cancel;
+    return () => {
+      if (cancelLiveFocus.current !== cancel) return;
+      cancel();
+      cancelLiveFocus.current = null;
+    };
+  }, [liveSubmitting, mode, session]);
+  useEffect(() => {
+    const changed = latestMode.current !== mode || latestSession.current !== session;
+    latestMode.current = mode;
+    latestSession.current = session;
+    if (!changed) return;
+    cancelLiveFocus.current?.();
+    cancelLiveFocus.current = null;
+    liveFocusPending.current = false;
+  }, [mode, session]);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      cancelLiveFocus.current?.();
+      cancelLiveFocus.current = null;
+      liveFocusPending.current = false;
       liveRevision.current += 1;
       liveSubmittingRef.current = false;
     };

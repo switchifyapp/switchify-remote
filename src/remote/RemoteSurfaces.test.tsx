@@ -7,9 +7,9 @@ import { MouseSurface } from './MouseSurface';
 import { RemoteSession } from './RemoteSession';
 import { TypingSurface } from './TypingSurface';
 import { WindowSurface } from './WindowSurface';
-import { focusLiveTextInput } from './focusLiveTextInput';
+import { scheduleLiveTextInputFocus } from './focusLiveTextInput';
 
-jest.mock('./focusLiveTextInput', () => ({ focusLiveTextInput: jest.fn() }));
+jest.mock('./focusLiveTextInput', () => ({ scheduleLiveTextInputFocus: jest.fn(() => jest.fn()) }));
 
 function profile(supportedCommands: string[]): PointerProfile {
   const repeat = supportedCommands.includes('mouse.repeat.start') && supportedCommands.includes('mouse.repeat.stop');
@@ -21,7 +21,7 @@ const originalPlatform = Platform.OS;
 
 describe('capability-driven remote surfaces', () => {
   beforeEach(() => {
-    jest.mocked(focusLiveTextInput).mockClear();
+    jest.mocked(scheduleLiveTextInputFocus).mockReset().mockImplementation(() => jest.fn());
   });
 
   afterEach(() => {
@@ -56,7 +56,7 @@ describe('capability-driven remote surfaces', () => {
   });
 
   it.each(['visible Enter control', 'software keyboard Return'] as const)('submits and clears live text from the %s', async (source) => {
-    const focusTextInput = jest.mocked(focusLiveTextInput);
+    const focusTextInput = jest.mocked(scheduleLiveTextInputFocus);
     const send = jest.fn(async (_type: string, _payload?: unknown) => true);
     const session = new RemoteSession(
       { send } as unknown as ConnectionManager,
@@ -84,6 +84,7 @@ describe('capability-driven remote surfaces', () => {
   });
 
   it('retains live text after a failed Enter and offers a specific retry', async () => {
+    const focusTextInput = jest.mocked(scheduleLiveTextInputFocus);
     let enterAttempt = 0;
     const send = jest.fn(async (type: string) => {
       if (type !== 'keyboard.textStream.key') return true;
@@ -102,10 +103,55 @@ describe('capability-driven remote surfaces', () => {
 
     await waitFor(() => expect(view.getByLabelText('Retry Enter')).toBeTruthy());
     expect(view.getByLabelText('Live text').props.value).toBe('keep me');
+    await waitFor(() => expect(focusTextInput).toHaveBeenCalledTimes(1));
     await act(async () => { fireEvent.press(view.getByLabelText('Retry Enter')); });
     await waitFor(() => expect(view.getByLabelText('Live text').props.value).toBe(''));
+    await waitFor(() => expect(focusTextInput).toHaveBeenCalledTimes(2));
     expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.chunk')).toHaveLength(1);
     expect(send.mock.calls.filter(([type]) => type === 'keyboard.textStream.key')).toHaveLength(2);
+  });
+
+  it.each(['mode change', 'session replacement', 'unmount'] as const)('cancels scheduled live focus on %s', async (transition) => {
+    const cancelFocus = jest.fn();
+    jest.mocked(scheduleLiveTextInputFocus).mockReturnValue(cancelFocus);
+    const send = jest.fn(async (_type: string) => true);
+    const supported = profile(['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close']);
+    const session = new RemoteSession({ send } as unknown as ConnectionManager, supported);
+    const view = await render(<TypingSurface session={session} mode="live" draft="" />);
+
+    await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'done'); });
+    await waitFor(() => expect(send.mock.calls.some(([type]) => type === 'keyboard.textStream.chunk')).toBe(true));
+    await act(async () => { fireEvent.press(view.getByLabelText('Enter')); });
+    await waitFor(() => expect(scheduleLiveTextInputFocus).toHaveBeenCalledTimes(1));
+
+    if (transition === 'mode change') await view.rerender(<TypingSurface session={session} mode="draft" draft="" />);
+    else if (transition === 'session replacement') {
+      const replacement = new RemoteSession({ send: jest.fn(async () => true) } as unknown as ConnectionManager, supported);
+      await view.rerender(<TypingSurface session={replacement} mode="live" draft="" />);
+    } else await view.unmount();
+
+    expect(cancelFocus).toHaveBeenCalledTimes(1);
+    expect(scheduleLiveTextInputFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the previous focus restoration when another Enter submission starts', async () => {
+    const cancelFirstFocus = jest.fn();
+    jest.mocked(scheduleLiveTextInputFocus).mockReturnValueOnce(cancelFirstFocus).mockReturnValue(jest.fn());
+    const send = jest.fn(async () => true);
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      profile(['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close']),
+    );
+    const view = await render(<TypingSurface session={session} mode="live" draft="" />);
+
+    await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'first'); });
+    await act(async () => { fireEvent.press(view.getByLabelText('Enter')); });
+    await waitFor(() => expect(scheduleLiveTextInputFocus).toHaveBeenCalledTimes(1));
+    await act(async () => { fireEvent.changeText(view.getByLabelText('Live text'), 'second'); });
+    await act(async () => { fireEvent.press(view.getByLabelText('Enter')); });
+
+    expect(cancelFirstFocus).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(scheduleLiveTextInputFocus).toHaveBeenCalledTimes(2));
   });
 
   it('blocks duplicate live submissions and further input until Enter completes', async () => {
