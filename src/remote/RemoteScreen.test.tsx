@@ -119,4 +119,13 @@ describe('RemoteScreen sticky surface selector', () => {
     expect(view.queryByTestId('screen-scroll-to-top-container')).toBeNull();
     expect(view.getByRole('button', { name: 'Surface' })).toBeTruthy();
   });
+
+  it('removes connected controls as soon as reconnection starts', async () => {
+    mockConnection = { kind: 'reconnecting', desktop, attempt: 1 };
+    const view = await render(<RemoteScreen />);
+
+    expect(view.queryByText('Mouse controls')).toBeNull();
+    expect(view.getByText('Reconnecting to Office PC, attempt 1.')).toBeTruthy();
+    expect(view.queryByTestId('screen-scroll-to-top-container')).toBeNull();
+  });
 });

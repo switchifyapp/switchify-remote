@@ -163,6 +163,73 @@ describe('ReactNativeBleTransport', () => {
     expect(connected.readDescriptorForService).not.toHaveBeenCalled();
   });
 
+  it('verifies the current PC without reconnecting or rediscovering services', async () => {
+    const connected = device();
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+    await transport.connect('ble-1');
+    (connected.discoverAllServicesAndCharacteristics as jest.Mock).mockClear();
+
+    await expect(transport.verifyConnection('pc-1')).resolves.toBe(true);
+
+    expect(connected.isConnected).toHaveBeenCalledTimes(1);
+    expect(connected.readCharacteristicForService).toHaveBeenCalledTimes(1);
+    expect(connected.discoverAllServicesAndCharacteristics).not.toHaveBeenCalled();
+    expect(connected.connect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['native disconnect', { isConnected: jest.fn(async () => false) }],
+    ['read rejection', { readCharacteristicForService: jest.fn(async () => { throw new Error('read failed'); }) }],
+    ['empty status', { readCharacteristicForService: jest.fn(async () => ({ value: null })) }],
+    ['malformed status', { readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('not json')) })) }],
+    ['wrong desktop', { readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"other","displayName":"Desk","platform":"windows"}')) })) }],
+  ] as const)('reports a failed health check for %s', async (_label, overrides) => {
+    const connected = device(overrides as Partial<Device>);
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+    await transport.connect('ble-1');
+
+    await expect(transport.verifyConnection('pc-1')).resolves.toBe(false);
+  });
+
+  it('bounds a connection health check to four seconds', async () => {
+    jest.useFakeTimers();
+    try {
+      const connected = device({ readCharacteristicForService: jest.fn(() => new Promise<Characteristic>(() => undefined)) });
+      const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+      await transport.connect('ble-1');
+      let settled = false;
+      const result = transport.verifyConnection('pc-1').then((value) => { settled = true; return value; });
+      await Promise.resolve();
+
+      await jest.advanceTimersByTimeAsync(3_999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not continue a timed-out health check into a status read', async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveConnected!: (connected: boolean) => void;
+      const connected = device({ isConnected: jest.fn(() => new Promise<boolean>((resolve) => { resolveConnected = resolve; })) });
+      const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+      await transport.connect('ble-1');
+      const result = transport.verifyConnection('pc-1');
+
+      await jest.advanceTimersByTimeAsync(4_000);
+      await expect(result).resolves.toBe(false);
+      resolveConnected(true);
+      await Promise.resolve();
+
+      expect(connected.readCharacteristicForService).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('cancels a partial native connection when discovery fails', async () => {
     const connected = device({ discoverAllServicesAndCharacteristics: jest.fn(async () => { throw new Error('discovery failed'); }) });
     const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');

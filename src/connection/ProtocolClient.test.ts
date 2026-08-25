@@ -1,7 +1,7 @@
 import { toByteArray } from 'base64-js';
 import { createFrames, encodeFrame, FrameReassembler } from '@/domain/protocol/framing';
 import type { BleTransport, Unsubscribe } from '@/transport/BleTransport';
-import { ProtocolClient } from './ProtocolClient';
+import { ProtocolClient, ProtocolResponseTimeoutError, ProtocolWriteError } from './ProtocolClient';
 
 class FakeTransport implements BleTransport {
   frames: string[] = [];
@@ -16,6 +16,7 @@ class FakeTransport implements BleTransport {
   resolveAndConnect = async () => { throw new Error('not used'); };
   connect = async () => undefined; disconnect = async () => undefined;
   cancelPendingWrites = async () => undefined;
+  verifyConnection = async () => true;
   notificationsReady = async () => undefined;
   async writeFrame(frame: string) { if (this.fail) throw new Error('write failed'); this.inFlight += 1; this.maxInFlight = Math.max(this.maxInFlight, this.inFlight); await this.writeGate; this.frames.push(frame); this.inFlight -= 1; }
   subscribe(listener: (value: string) => void): Unsubscribe { this.listener = listener; return () => { this.listener = null; }; }
@@ -68,9 +69,9 @@ describe('ProtocolClient', () => {
     const transport = new FakeTransport();
     transport.fail = true;
     const client = new ProtocolClient(transport);
-    await expect(client.request('{"fixture":true}', 'write', 10)).rejects.toThrow('Could not write');
+    await expect(client.request('{"fixture":true}', 'write', 10)).rejects.toBeInstanceOf(ProtocolWriteError);
     transport.fail = false;
-    await expect(client.request('{"fixture":true}', 'timeout', 1)).rejects.toThrow('timed out');
+    await expect(client.request('{"fixture":true}', 'timeout', 1)).rejects.toBeInstanceOf(ProtocolResponseTimeoutError);
   });
 
   it('bounds a native GATT write that never settles', async () => {

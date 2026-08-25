@@ -16,7 +16,7 @@ export class ProtocolClient {
 
   async start(onFailure: () => void): Promise<void> {
     this.#unsubscribe?.();
-    this.#unsubscribe = this.transport.subscribe((raw) => this.#accept(raw), () => { void this.close().finally(onFailure); });
+    this.#unsubscribe = this.transport.subscribe((raw) => this.#accept(raw), () => { onFailure(); void this.close(); });
     try {
       await this.transport.notificationsReady();
     } catch (error) {
@@ -32,9 +32,9 @@ export class ProtocolClient {
     });
     void response.catch(() => undefined);
     try { await this.send(message); }
-    catch { this.#reject(requestId, new Error('Could not write to PC.')); }
+    catch { this.#reject(requestId, new ProtocolWriteError()); }
     const pending = this.#pending.get(requestId);
-    if (pending) pending.timer = setTimeout(() => { this.#pending.delete(requestId); pending.reject(new Error('PC response timed out.')); }, timeoutMs);
+    if (pending) pending.timer = setTimeout(() => { this.#pending.delete(requestId); pending.reject(new ProtocolResponseTimeoutError()); }, timeoutMs);
     return await response;
   }
 
@@ -105,4 +105,12 @@ export class ProtocolClient {
     this.#pending.delete(id);
     pending.reject(error);
   }
+}
+
+export class ProtocolWriteError extends Error {
+  constructor() { super('Could not write to PC.'); }
+}
+
+export class ProtocolResponseTimeoutError extends Error {
+  constructor() { super('PC response timed out.'); }
 }

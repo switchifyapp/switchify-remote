@@ -21,4 +21,10 @@ describe('disconnected Remote flow', () => {
       title: 'Connecting', message: 'Connecting to Office.', primaryAction: null, chooseAction: null, busy: true,
     });
   });
+
+  it('presents the first reconnect attempt without exposing controls or actions', () => {
+    expect(disconnectedRemotePresentation({ kind: 'reconnecting', desktop: { ...saved, rssi: null }, attempt: 1 })).toEqual({
+      title: 'Connecting', message: 'Reconnecting to Office, attempt 1.', primaryAction: null, chooseAction: null, busy: true,
+    });
+  });
 });

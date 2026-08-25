@@ -9,6 +9,7 @@ Switchify Remote is designed for VoiceOver, TalkBack, iOS Switch Control, and An
 - Connected Remote control screens add one "Scroll to top" scan stop after the Surface selector pins. The 48-point control stays above the PC switcher, announces "Top of Remote" once after use, and does not animate when Reduce Motion is enabled.
 - Remote keeps a quick PC switcher immediately above the tab bar in every connection state. It announces the active connection, exposes selected state for the current saved PC, and restores focus after its modal closes.
 - Headings, connection changes, failures, repeat state, pairing approval, and pointer-profile recovery transitions are announced once without moving focus unexpectedly.
+- If the PC connection is lost, connected controls disappear immediately and Remote announces the first reconnect attempt once. Idle connections are checked in the background without adding focus or scanning stops.
 - In live typing, Return and the visible Enter control restore the text field and software keyboard after delivery. Failed Enter attempts keep the text available for retry and return focus without sending it again.
 - The pairing code is announced one digit at a time.
 - Text scales with the operating system; controls grow rather than shrinking text below the user's chosen size.

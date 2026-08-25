@@ -13,6 +13,7 @@ export interface BleTransport {
   maxWriteValueBytes(): number;
   writeFrame(frameBase64: string): Promise<void>;
   cancelPendingWrites(): Promise<void>;
+  verifyConnection(desktopId: string): Promise<boolean>;
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe;
   notificationsReady(): Promise<void>;
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe;

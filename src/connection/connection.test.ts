@@ -51,6 +51,7 @@ class FakeTransport implements BleTransport {
     return this.resolvedDesktop;
   };
   cancelPendingWrites = async () => undefined;
+  verifyConnection = async () => true;
   notificationsReady = async () => { if (this.failReadiness) throw new Error('readiness failed'); };
   subscribe(): Unsubscribe { return () => undefined; } subscribeDisconnect(): Unsubscribe { return () => undefined; }
 }

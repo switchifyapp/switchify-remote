@@ -6,6 +6,8 @@ const messages = {
   scan_failed: 'Bluetooth discovery could not start.',
   connecting: 'Connecting to a PC.',
   connected: 'Connected to a PC.',
+  connection_lost: 'The connection to the PC was lost.',
+  connection_health_failed: 'The PC did not respond to a Bluetooth connection check.',
   profile_recovery_started: 'Restoring remote controls.',
   profile_recovered: 'Remote controls were restored.',
   profile_recovery_exhausted: 'Remote controls could not be restored.',

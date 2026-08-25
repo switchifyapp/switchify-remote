@@ -266,6 +266,25 @@ export class ReactNativeBleTransport implements BleTransport {
     operations.forEach(([, cancel]) => cancel(error));
   }
 
+  async verifyConnection(desktopId: string): Promise<boolean> {
+    let active = true;
+    try {
+      const device = this.#requireDevice();
+      return await this.#bounded((async () => {
+        if (!await device.isConnected()) return false;
+        if (!active) return false;
+        const characteristic = await device.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status);
+        if (!active || !characteristic.value) return false;
+        const raw = new TextDecoder().decode(toByteArray(characteristic.value));
+        return parseStatus(raw)?.desktopId === desktopId;
+      })(), Math.min(4_000, this.nativeTimeoutMs));
+    } catch {
+      return false;
+    } finally {
+      active = false;
+    }
+  }
+
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe {
     const subscription: Subscription = this.#requireDevice().monitorCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.transmit, (error, characteristic) => {
       if (error) onError(error);
