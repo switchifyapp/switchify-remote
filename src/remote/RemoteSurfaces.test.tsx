@@ -259,7 +259,7 @@ describe('capability-driven remote surfaces', () => {
 
     expect(repeatSend.mock.calls).toEqual([
       ['mouse.repeat.start', { command: { type: 'mouse.scroll', payload: { dx: 0, dy: 5 } } }],
-      ['mouse.repeat.stop', {}, 'none'],
+      ['mouse.repeat.stop', {}, 'ack'],
       ['mouse.repeat.start', { command: { type: 'mouse.scroll', payload: { dx: 0, dy: -5 } } }],
     ]);
   });
@@ -276,7 +276,7 @@ describe('capability-driven remote surfaces', () => {
     await act(async () => { fireEvent.press(mouse.getByRole('button', { name: 'Stop movement' })); await Promise.resolve(); });
     expect(send.mock.calls).toEqual([
       ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 0, dy: -64 } } }],
-      ['mouse.repeat.stop', {}, 'none'],
+      ['mouse.repeat.stop', {}, 'ack'],
     ]);
   });
 

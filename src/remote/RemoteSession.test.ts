@@ -35,14 +35,14 @@ describe('RemoteSession', () => {
   });
 
   it('uses the desktop-compatible PC-side repeat payload and the next control stops it', async () => {
-    const calls: [string, unknown][] = [];
-    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+    const calls: [string, unknown, string | undefined][] = [];
+    const manager = { send: async (type: string, payload: unknown, responseMode?: string) => { calls.push([type, payload, responseMode]); return true; } } as unknown as ConnectionManager;
     const session = new RemoteSession(manager, profile());
     await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
     await session.mouse('mouse.click');
     expect(calls).toEqual([
-      ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 10, dy: 0 } } }],
-      ['mouse.repeat.stop', {}],
+      ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 10, dy: 0 } } }, undefined],
+      ['mouse.repeat.stop', {}, 'ack'],
     ]);
   });
 
@@ -110,7 +110,7 @@ describe('RemoteSession', () => {
     await Promise.resolve(); await Promise.resolve();
     const next = session.mouse('mouse.move', { dx: -10, dy: 0 }, true);
     await Promise.resolve(); await Promise.resolve();
-    expect(calls).toEqual(['mouse.repeat.start']);
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
 
     releaseDeactivation();
     await next;
@@ -133,7 +133,7 @@ describe('RemoteSession', () => {
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
   });
 
-  it('still stops the PC when bridge deactivation never settles', async () => {
+  it('sends the PC stop before bridge deactivation and does not let deactivation block cleanup', async () => {
     const calls: string[] = [];
     const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
     const host = fakeBridge();
@@ -143,17 +143,19 @@ describe('RemoteSession', () => {
     const session = new RemoteSession(manager, profile(), undefined, null, host.bridge, 1);
 
     await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
-    await session.cleanup();
+    const cleanup = session.cleanup();
+    await Promise.resolve(); await Promise.resolve();
 
     expect(session.snapshot().repeat).toBeNull();
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+    await cleanup;
   });
 
-  it('uses no-ack repeat stop during lifecycle cleanup', async () => {
+  it('uses an acknowledged repeat stop during lifecycle cleanup', async () => {
     const calls: [string, string | undefined][] = [];
-    const manager = { send: (type: string, _payload: unknown, responseMode?: string) => {
+    const manager = { send: async (type: string, _payload: unknown, responseMode?: string) => {
       calls.push([type, responseMode]);
-      return responseMode === 'ack' ? new Promise<boolean>(() => undefined) : Promise.resolve(true);
+      return true;
     } } as unknown as ConnectionManager;
     const session = new RemoteSession(manager, profile());
 
@@ -162,7 +164,72 @@ describe('RemoteSession', () => {
 
     expect(calls).toEqual([
       ['mouse.repeat.start', undefined],
-      ['mouse.repeat.stop', 'none'],
+      ['mouse.repeat.stop', 'ack'],
+    ]);
+  });
+
+  it('stops the old session with acknowledgement before a replacement starts repeating', async () => {
+    const calls: [string, string | undefined][] = [];
+    const manager = { send: async (type: string, _payload: unknown, responseMode?: string) => {
+      calls.push([type, responseMode]);
+      return true;
+    } } as unknown as ConnectionManager;
+    const oldSession = new RemoteSession(manager, profile(), undefined, 'pc-1');
+    await oldSession.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+
+    const replacement = new RemoteSession(manager, profile(), undefined, 'pc-2');
+    await oldSession.cleanup();
+    await replacement.mouse('mouse.move', { dx: -10, dy: 0 }, true);
+
+    expect(calls).toEqual([
+      ['mouse.repeat.start', undefined],
+      ['mouse.repeat.stop', 'ack'],
+      ['mouse.repeat.start', undefined],
+    ]);
+    expect(oldSession.snapshot().repeat).toBeNull();
+    expect(replacement.snapshot().repeat).toBe('mouse.move');
+    oldSession.dispose();
+    replacement.dispose();
+  });
+
+  it('clears repeat once and keeps it cleared when the stop acknowledgement is missing', async () => {
+    let finishStop!: (sent: boolean) => void;
+    const stopResult = new Promise<boolean>((resolve) => { finishStop = resolve; });
+    const calls: string[] = [];
+    const manager = { send: (type: string) => {
+      calls.push(type);
+      return type === 'mouse.repeat.stop' ? stopResult : Promise.resolve(true);
+    } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+
+    const first = session.stopRepeat();
+    const duplicate = session.stopRepeat();
+    await Promise.resolve(); await Promise.resolve();
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+
+    finishStop(false);
+    await Promise.all([first, duplicate]);
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
+  it('keeps repeat cleared when the acknowledged stop reports a write failure', async () => {
+    const calls: [string, string | undefined][] = [];
+    const manager = { send: async (type: string, _payload: unknown, responseMode?: string) => {
+      calls.push([type, responseMode]);
+      return type !== 'mouse.repeat.stop';
+    } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+
+    await session.stopRepeat();
+
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual([
+      ['mouse.repeat.start', undefined],
+      ['mouse.repeat.stop', 'ack'],
     ]);
   });
 

@@ -27,7 +27,7 @@ export class RemoteSession {
     private readonly bridgeTimeoutMs = 1_000,
   ) {
     this.#bridgeUnsubscribe = bridge.subscribe((event) => {
-      if (event.type === 'repeatStop' && event.generation === this.#repeatGeneration && this.#state.repeat) void this.stopRepeat('ack');
+      if (event.type === 'repeatStop' && event.generation === this.#repeatGeneration && this.#state.repeat) void this.stopRepeat();
       if (event.type === 'snapshot') {
         const available = event.captureAvailable && event.externalSwitches.length > 0;
         if (!available) {
@@ -62,20 +62,20 @@ export class RemoteSession {
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
   }
 
-  stopRepeat(responseMode: 'ack' | 'none' = 'none'): Promise<void> {
-    return this.#enqueueRepeat(() => this.#stopRepeat(responseMode));
+  stopRepeat(): Promise<void> {
+    return this.#enqueueRepeat(() => this.#stopRepeat());
   }
 
-  async #stopRepeat(responseMode: 'ack' | 'none' = 'none'): Promise<void> {
+  async #stopRepeat(): Promise<void> {
     if (!this.#state.repeat) return;
     const generation = this.#repeatGeneration;
     this.#repeatArmAttempt += 1;
     this.#repeatGeneration = 0;
     this.#repeatBridgeArmed = false;
     this.#set({ repeat: null });
-    if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
     const [type, payload] = commandPayloads.repeatStop();
-    await this.manager.send(type, payload, responseMode);
+    await this.manager.send(type, payload, 'ack');
+    if (generation > 0) await this.#setRepeatActiveBounded(generation, false);
   }
 
   async #armRepeatBridge(): Promise<void> {
