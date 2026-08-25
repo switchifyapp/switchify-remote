@@ -38,7 +38,7 @@ export class ConnectionManager {
   #invalidSavedDesktopIds = new Set<string>();
   #profileRecoveryTimers = new Map<ReturnType<typeof setTimeout>, (active: boolean) => void>();
   #healthTimer: ReturnType<typeof setTimeout> | null = null;
-  #healthProbe: Promise<void> | null = null;
+  #healthProbe: Promise<boolean> | null = null;
   #protocolOperations = 0;
 
   constructor(
@@ -356,7 +356,7 @@ export class ConnectionManager {
     } else {
       this.#set({ kind: 'connected', desktop, profile: null, profileStatus: 'recovering' });
       this.diagnostics.add('profile_recovery_started');
-      void this.#recoverPointerProfile(token, operation);
+      void this.#recoverPointerProfile(token, desktop, operation);
     }
   }
 
@@ -369,9 +369,10 @@ export class ConnectionManager {
     return null;
   }
 
-  async #recoverPointerProfile(token: string, operation: number): Promise<void> {
+  async #recoverPointerProfile(token: string, desktop: DiscoveredDesktop, operation: number): Promise<void> {
     for (const delay of [1_000, 2_000, 4_000]) {
       if (!await this.#waitForProfileRecovery(delay, operation)) return;
+      if (!await this.#probeHealth(desktop, operation, false)) return;
       const profile = await this.#requestPointerProfileAttempt(token, operation);
       if (!this.#current(operation)) return;
       if (profile) {
@@ -382,6 +383,10 @@ export class ConnectionManager {
         }
         return;
       }
+      // A missing profile response is not itself a disconnect signal. Probe
+      // immediately so a lost PC is still detected within the request's
+      // five-second timeout plus the four-second health-check bound.
+      if (!await this.#probeHealth(desktop, operation, false)) return;
     }
     if (this.#current(operation) && this.#state.kind === 'connected' && this.#state.profileStatus === 'recovering') {
       this.#set({ ...this.#state, profileStatus: 'unavailable' });
@@ -480,19 +485,27 @@ export class ConnectionManager {
       this.#healthTimer = null;
       if (!this.#current(operation) || this.#state.kind !== 'connected') return;
       if (this.#protocolOperations > 0 || this.#healthProbe) { this.#scheduleHealth(); return; }
-      const probe = this.#runHealthProbe(desktop, operation);
-      this.#healthProbe = probe;
-      void probe.finally(() => { if (this.#healthProbe === probe) this.#healthProbe = null; });
+      void this.#probeHealth(desktop, operation, true);
     }, delay);
     (this.#healthTimer as unknown as { unref?: () => void }).unref?.();
   }
 
-  async #runHealthProbe(desktop: DiscoveredDesktop, operation: number): Promise<void> {
-    const healthy = await this.transport.verifyConnection(desktop.desktopId);
-    if (!this.#current(operation) || this.#state.kind !== 'connected') return;
-    if (healthy) { this.#scheduleHealth(); return; }
-    this.diagnostics.add('connection_health_failed', 'warning');
-    void this.#unexpectedDisconnect(desktop, operation);
+  #probeHealth(desktop: DiscoveredDesktop, operation: number, scheduleOnSuccess: boolean): Promise<boolean> {
+    if (this.#healthProbe) return this.#healthProbe;
+    const probe = (async () => {
+      const healthy = await this.transport.verifyConnection(desktop.desktopId).catch(() => false);
+      if (!this.#current(operation) || this.#state.kind !== 'connected') return false;
+      if (healthy) {
+        if (scheduleOnSuccess) this.#scheduleHealth();
+        return true;
+      }
+      this.diagnostics.add('connection_health_failed', 'warning');
+      void this.#unexpectedDisconnect(desktop, operation);
+      return false;
+    })();
+    this.#healthProbe = probe;
+    void probe.finally(() => { if (this.#healthProbe === probe) this.#healthProbe = null; });
+    return probe;
   }
 
   #cancelHealthTimer(): void {

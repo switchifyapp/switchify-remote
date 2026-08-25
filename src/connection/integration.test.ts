@@ -274,6 +274,38 @@ describe('pairing and authenticated connection integration', () => {
     }
   });
 
+  it('detects a lost PC while pointer profile recovery is waiting for a response', async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new LoopbackTransport();
+      transport.dropResponses.add('pointer.profile');
+      const manager = new ConnectionManager(transport, new MemoryStorage(), new DiagnosticLog(), async () => true, () => 1000, undefined, () => new Promise<void>(() => undefined));
+
+      const connecting = manager.connect(desktop);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 1);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await connecting;
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      await waitForMicrotasks(() => transport.requests.filter((type) => type === 'pointer.profile').length === 3);
+      expect(transport.healthChecks).toBe(1);
+      transport.healthResult = false;
+
+      await jest.advanceTimersByTimeAsync(4_999);
+      expect(manager.snapshot()).toMatchObject({ kind: 'connected', profileStatus: 'recovering' });
+      await jest.advanceTimersByTimeAsync(1);
+      await waitForMicrotasks(() => manager.snapshot().kind === 'reconnecting');
+
+      expect(transport.healthChecks).toBe(2);
+      expect(manager.snapshot()).toMatchObject({ kind: 'reconnecting', attempt: 1 });
+      expect(manager.diagnostics.snapshot().some(({ code }) => code === 'connection_health_failed')).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('exhausts exactly five authenticated profile requests after 1, 2, and 4 second delays', async () => {
     jest.useFakeTimers();
     try {
