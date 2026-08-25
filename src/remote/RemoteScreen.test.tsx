@@ -22,7 +22,7 @@ const mockBridge = {
   subscribe: jest.fn(() => () => undefined),
 };
 const mockBridgeSnapshot = { version: 1, captureAvailable: false, externalSwitches: [] };
-const mockPreferences = { surface: 'mouse' as const, typingMode: 'live' as const, draft: '', forwardingHoldToStopMs: 5_000, forwardingProfiles: {}, remoteName: null };
+let mockPreferences = { surface: 'mouse' as 'mouse' | 'typing' | 'window' | 'forwarding', typingMode: 'live' as const, draft: '', forwardingHoldToStopMs: 5_000, forwardingProfiles: {}, remoteName: null };
 const mockSessionState = { repeat: null, dragging: false, modifiers: [], streamOpen: false };
 let mockConnection: ConnectionState;
 
@@ -74,25 +74,41 @@ const profile: PointerProfile = {
 describe('RemoteScreen sticky surface selector', () => {
   beforeEach(() => {
     mockConnection = { kind: 'connected', desktop, profile, profileStatus: 'ready' };
+    mockPreferences = { surface: 'mouse', typingMode: 'live', draft: '', forwardingHoldToStopMs: 5_000, forwardingProfiles: {}, remoteName: null };
     jest.clearAllMocks();
   });
 
   it('pins the selector when connected controls are available', async () => {
     const view = await render(<RemoteScreen />);
     expect(view.getByTestId('screen-sticky-accessory')).toBeTruthy();
+    expect(view.getByTestId('screen-scroll-to-top-container')).toBeTruthy();
     expect(view.getByRole('button', { name: 'Surface' })).toBeTruthy();
     expect(view.getByText('Mouse controls')).toBeTruthy();
+  });
+
+  it.each([
+    ['mouse', 'Mouse controls'],
+    ['typing', 'Typing controls'],
+    ['window', 'Window controls'],
+    ['forwarding', 'Forwarding controls'],
+  ] as const)('enables scroll-to-top for the connected %s controls', async (surface, label) => {
+    mockPreferences = { ...mockPreferences, surface };
+    const view = await render(<RemoteScreen />);
+    expect(view.getByTestId('screen-scroll-to-top-container')).toBeTruthy();
+    expect(view.getByText(label)).toBeTruthy();
   });
 
   it('does not expose the selector while a profile is recovering or unavailable', async () => {
     mockConnection = { kind: 'connected', desktop, profile: null, profileStatus: 'recovering' };
     const view = await render(<RemoteScreen />);
     expect(view.queryByTestId('screen-sticky-accessory')).toBeNull();
+    expect(view.queryByTestId('screen-scroll-to-top-container')).toBeNull();
     expect(view.queryByRole('button', { name: 'Surface' })).toBeNull();
 
     mockConnection = { kind: 'connected', desktop, profile: null, profileStatus: 'unavailable' };
     await view.rerender(<RemoteScreen />);
     expect(view.queryByTestId('screen-sticky-accessory')).toBeNull();
+    expect(view.queryByTestId('screen-scroll-to-top-container')).toBeNull();
     expect(view.queryByRole('button', { name: 'Surface' })).toBeNull();
   });
 
@@ -100,6 +116,7 @@ describe('RemoteScreen sticky surface selector', () => {
     mockConnection = { kind: 'idle', saved: [] };
     const view = await render(<RemoteScreen />);
     expect(view.getByTestId('screen-sticky-accessory')).toBeTruthy();
+    expect(view.queryByTestId('screen-scroll-to-top-container')).toBeNull();
     expect(view.getByRole('button', { name: 'Surface' })).toBeTruthy();
   });
 });

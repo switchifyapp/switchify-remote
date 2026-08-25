@@ -1,9 +1,10 @@
 import { BlurTargetView } from 'expo-blur';
 import { type PropsWithChildren, type ReactNode, useCallback, useRef, useState } from 'react';
-import { ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AccessibilityInfo, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from './AppText';
+import { ScrollToTopButton } from './ScrollToTopButton';
 import { StickyBackdrop } from './StickyBackdrop';
 import { useLayout, useTheme } from '@/theme/ThemeContext';
 
@@ -13,6 +14,7 @@ type ScreenProps = PropsWithChildren<{
   headerAccessory?: ReactNode;
   bottomAccessory?: ReactNode;
   nativeHeader?: boolean;
+  scrollToTop?: boolean;
   stickyAccessory?: ReactNode;
 }>;
 
@@ -34,17 +36,21 @@ type StickyScreenContentProps = PropsWithChildren<{
   nativeHeader: boolean;
   paddingBottom: number;
   paddingHorizontal: number;
+  scrollToTop: boolean;
   stackHeader: boolean;
   stickyAccessory: ReactNode;
   title: string;
 }>;
 
-function StickyScreenContent({ children, description, headerAccessory, isExpanded, nativeHeader, paddingBottom, paddingHorizontal, stackHeader, stickyAccessory, title }: StickyScreenContentProps) {
-  const { spacing } = useTheme();
+function StickyScreenContent({ children, description, headerAccessory, isExpanded, nativeHeader, paddingBottom, paddingHorizontal, scrollToTop, stackHeader, stickyAccessory, title }: StickyScreenContentProps) {
+  const { reducedMotion, spacing } = useTheme();
   const [pinned, setPinned] = useState(false);
+  const [scrollingToTop, setScrollingToTop] = useState(false);
   const blurTarget = useRef<View>(null);
   const pinnedRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
+  const scrollToTopPendingRef = useRef(false);
   const stickyTopRef = useRef<number | null>(null);
   const maxWidth = isExpanded ? 960 : 640;
 
@@ -59,12 +65,32 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
     updatePinned();
+    if (scrollToTopPendingRef.current && scrollOffsetRef.current <= 1) {
+      scrollToTopPendingRef.current = false;
+      setScrollingToTop(false);
+      AccessibilityInfo.announceForAccessibilityWithOptions('Top of Remote', { queue: true });
+    }
   }, [updatePinned]);
 
-  return <ScrollView
+  const handleScrollBeginDrag = useCallback(() => {
+    if (!scrollToTopPendingRef.current) return;
+    scrollToTopPendingRef.current = false;
+    setScrollingToTop(false);
+  }, []);
+
+  const handleScrollToTop = useCallback(() => {
+    if (scrollToTopPendingRef.current || scrollRef.current === null) return;
+    scrollToTopPendingRef.current = true;
+    setScrollingToTop(true);
+    scrollRef.current.scrollTo({ animated: !reducedMotion, y: 0 });
+  }, [reducedMotion]);
+
+  const scrollView = <ScrollView
+    ref={scrollRef}
     testID="screen-scroll"
-    contentContainerStyle={{ alignItems: 'center', flexGrow: 1, gap: spacing.md, paddingBottom, paddingHorizontal }}
+    contentContainerStyle={{ alignItems: 'center', flexGrow: 1, gap: spacing.md, paddingBottom: paddingBottom + (scrollToTop ? 48 + spacing.md : 0), paddingHorizontal }}
     onScroll={handleScroll}
+    onScrollBeginDrag={scrollToTop ? handleScrollBeginDrag : undefined}
     scrollEventThrottle={16}
     stickyHeaderIndices={[1]}
   >
@@ -86,9 +112,20 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
       {children}
     </BlurTargetView>
   </ScrollView>;
+
+  if (!scrollToTop) return scrollView;
+
+  return <View style={{ flex: 1 }} testID="screen-scroll-to-top-container">
+    {scrollView}
+    {pinned ? <View accessible={false} pointerEvents="box-none" style={{ alignItems: 'center', bottom: 0, left: 0, position: 'absolute', right: 0 }} testID="screen-scroll-to-top-overlay">
+      <View accessible={false} pointerEvents="box-none" style={{ alignItems: 'flex-end', maxWidth, paddingBottom: spacing.md, paddingHorizontal, width: '100%' }}>
+        <ScrollToTopButton disabled={scrollingToTop} onPress={handleScrollToTop} />
+      </View>
+    </View> : null}
+  </View>;
 }
 
-export function Screen({ title, description, headerAccessory, bottomAccessory, nativeHeader = false, stickyAccessory, children }: ScreenProps) {
+export function Screen({ title, description, headerAccessory, bottomAccessory, nativeHeader = false, scrollToTop = false, stickyAccessory, children }: ScreenProps) {
   const { colors, spacing } = useTheme();
   const { isCompact, isExpanded, isLargeText } = useLayout();
   const insets = useSafeAreaInsets();
@@ -109,6 +146,7 @@ export function Screen({ title, description, headerAccessory, bottomAccessory, n
         nativeHeader={nativeHeader}
         paddingBottom={paddingBottom}
         paddingHorizontal={paddingHorizontal}
+        scrollToTop={scrollToTop}
         stackHeader={stackHeader}
         stickyAccessory={stickyAccessory}
         title={title}
