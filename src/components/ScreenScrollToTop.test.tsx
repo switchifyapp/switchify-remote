@@ -84,13 +84,13 @@ describe('Screen scroll-to-top control', () => {
     expect(scrollTo).toHaveBeenCalledWith({ animated: false, y: 0 });
   });
 
-  it('cancels pending completion when the user interrupts the scroll', async () => {
+  it.each(['scrollBeginDrag', 'touchStart'] as const)('cancels pending completion on %s', async (eventName) => {
     jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => undefined);
     const view = await renderScrollableScreen();
     const scroll = await pinSelector(view);
     await fireEvent.press(view.getByRole('button', { name: 'Scroll to top' }));
 
-    await fireEvent(scroll, 'scrollBeginDrag');
+    await fireEvent(scroll, eventName);
     expect(view.getByRole('button', { name: 'Scroll to top' }).props.accessibilityState.disabled).toBe(false);
     await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 0, y: 0 } } });
     expect(AccessibilityInfo.announceForAccessibilityWithOptions).not.toHaveBeenCalled();

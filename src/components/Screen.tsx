@@ -72,7 +72,7 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
     }
   }, [updatePinned]);
 
-  const handleScrollBeginDrag = useCallback(() => {
+  const cancelScrollToTop = useCallback(() => {
     if (!scrollToTopPendingRef.current) return;
     scrollToTopPendingRef.current = false;
     setScrollingToTop(false);
@@ -90,7 +90,8 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
     testID="screen-scroll"
     contentContainerStyle={{ alignItems: 'center', flexGrow: 1, gap: spacing.md, paddingBottom: paddingBottom + (scrollToTop ? 48 + spacing.md : 0), paddingHorizontal }}
     onScroll={handleScroll}
-    onScrollBeginDrag={scrollToTop ? handleScrollBeginDrag : undefined}
+    onScrollBeginDrag={scrollToTop ? cancelScrollToTop : undefined}
+    onTouchStart={scrollToTop ? cancelScrollToTop : undefined}
     scrollEventThrottle={16}
     stickyHeaderIndices={[1]}
   >
