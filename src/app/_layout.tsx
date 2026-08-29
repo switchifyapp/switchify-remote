@@ -6,12 +6,13 @@ import { BridgeProvider } from '@/bridge/BridgeContext';
 import { ConnectionProvider } from '@/connection/ConnectionContext';
 import { diagnosticsScreenOptions } from '@/navigation/diagnosticsScreenOptions';
 import { FirstRunSetupGate } from '@/onboarding/FirstRunSetup';
+import { StoreCaptureRoot, storeCaptureEnabled } from '@/store-capture/StoreCaptureRoot';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider><ThemedApp /></ThemeProvider>
+      <ThemeProvider>{storeCaptureEnabled() ? <StoreCaptureRoot /> : <ThemedApp />}</ThemeProvider>
     </SafeAreaProvider>
   );
 }

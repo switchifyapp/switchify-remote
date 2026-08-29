@@ -1,6 +1,6 @@
 # App Store Connect and internal TestFlight
 
-Switchify Remote uses App Store Connect only for internal TestFlight distribution in this milestone. External testers, beta review, public App Store metadata completion, pricing, screenshots, and App Review are separate work.
+Switchify Remote uses App Store Connect for internal TestFlight distribution and a saved public-listing draft. The canonical listing values and draft-only guardrails are in [App Store listing](app-store-listing.md). External testers and App Review remain separate work.
 
 ## Apple records
 
