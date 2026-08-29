@@ -42,7 +42,7 @@ NSColor(calibratedRed: 23 / 255, green: 23 / 255, blue: 26 / 255, alpha: 1).setF
 NSBezierPath(roundedRect: inner, xRadius: CGFloat(width) * 0.027, yRadius: CGFloat(width) * 0.027).fill()
 let scale = min(inner.width / source.size.width, inner.height / source.size.height)
 let imageRect = NSRect(x: inner.midX - source.size.width * scale / 2, y: inner.midY - source.size.height * scale / 2, width: source.size.width * scale, height: source.size.height * scale)
-source.draw(in: imageRect, from: .zero, operation: .copy, fraction: 1)
+source.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1)
 
 func drawCentered(_ text: String, y: CGFloat, size: CGFloat, color: NSColor, weight: NSFont.Weight) {
   let paragraph = NSMutableParagraphStyle()

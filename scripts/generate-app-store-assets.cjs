@@ -42,10 +42,8 @@ for (const set of sets) {
       if (!fs.existsSync(source)) throw new Error(`Missing capture: ${source}`);
       if (process.platform !== "darwin") throw new Error("App Store screenshot rendering requires macOS and Xcode.");
       const rendered = path.join(temp, fileName);
-      const jpeg = path.join(temp, `${fileName}.jpg`);
       run("xcrun", ["swift", path.join(root, "scripts", "generate-app-store-asset.swift"), source, rendered, String(set.width), String(set.height), caption]);
-      run("sips", ["-s", "format", "jpeg", "-s", "formatOptions", "100", rendered, "--out", jpeg]);
-      run("sips", ["-s", "format", "png", jpeg, "--out", path.join(output, fileName)]);
+      fs.copyFileSync(rendered, path.join(output, fileName));
     }
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
