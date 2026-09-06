@@ -17,7 +17,7 @@ Switchify Remote is designed for VoiceOver, TalkBack, iOS Switch Control, and An
 - Content remains operable in portrait, landscape, and tablet widths, with scrolling available at large text sizes.
 - The palette maintains at least 4.5:1 contrast for normal text. Color is never the only status cue.
 - Light and dark appearance follow the device setting. Both palettes maintain the same contrast and state-cue requirements.
-- The primary tab bar contains PCs, Remote, and Settings. Diagnostics is available from Settings and uses a standard back action. Settings also exposes the Remote privacy policy as one clearly named browser action.
+- The primary tab bar contains PCs, Remote, and Settings. Its height follows text scaling and the platform safe area so every label remains complete. Diagnostics is available from Settings and uses a standard back action. Settings also exposes the Remote privacy policy as one clearly named browser action.
 - Settings exposes a Remote name text field with complete validation and synchronization status. Save and Use device model remain separate 48-point controls at large text sizes.
 - Selected controls combine color with a check icon and selected accessibility state.
 - Repeating pointer movement exposes a dedicated Stop movement button alongside the existing stop-on-control behavior. Both send the PC an acknowledged stop command before Android switch-capture cleanup.
