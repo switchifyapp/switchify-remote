@@ -327,16 +327,38 @@ it.each(["typing", "window"] as const)(
 );
 
 it("lets the first keyboard tap reach a customized Typing action", async () => {
-  await layoutStore.save("typing", "keys", { columns: 1, cells: ["key.Enter"] });
+  await layoutStore.save("typing", "keys", {
+    columns: 1,
+    cells: ["key.Enter"],
+  });
   const enter = jest.fn();
   const view = await render(
-    <SurfaceLayout surface="typing" section="keys" controls={[
-      { id: "key.Enter", label: "Enter", onPress: enter },
-    ]} />,
+    <SurfaceLayout
+      surface="typing"
+      section="keys"
+      controls={[{ id: "key.Enter", label: "Enter", onPress: enter }]}
+    />,
   );
   // The nested native responder must not consume the first tap to dismiss text input.
-  expect(view.getByTestId("section-grid-scroll").props.keyboardShouldPersistTaps).toBe("handled");
+  expect(
+    view.getByTestId("section-grid-scroll").props.keyboardShouldPersistTaps,
+  ).toBe("handled");
   expect(enter).not.toHaveBeenCalled();
   await fireEvent.press(view.getByLabelText("Enter"));
   expect(enter).toHaveBeenCalledTimes(1);
+});
+
+it("fits saved columns to a narrow viewport without rewriting the layout", async () => {
+  const saved = { columns: 3, cells: ["click.double", null, "drag.toggle"] };
+  await layoutStore.save("mouse", "clicks", saved);
+  const view = await render(
+    <SurfaceLayout surface="mouse" section="clicks" controls={clicks} />,
+  );
+  await fireEvent(view.getByTestId("section-mouse-clicks"), "layout", {
+    nativeEvent: { layout: { width: 280 } },
+  });
+  const scroll = view.getByTestId("section-grid-scroll");
+  expect(scroll.props.showsHorizontalScrollIndicator).toBe(false);
+  expect(scroll.props.contentContainerStyle.width).toBeLessThanOrEqual(280);
+  expect(layoutStore.snapshot().mouse?.clicks).toEqual(saved);
 });

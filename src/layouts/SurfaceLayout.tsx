@@ -14,6 +14,7 @@ import { useLayout, useTheme } from "@/theme/ThemeContext";
 import { useLayoutEditMode } from "./LayoutEditMode";
 import { layoutStore } from "./LayoutStore";
 import type { ActionOption } from "@/remote/actions/catalog";
+import { sectionGridMetrics } from "./gridMetrics";
 import { LayoutEditor } from "./LayoutEditor";
 import { type ButtonLayout, type LayoutSurface } from "./model";
 import { getSection, sectionDefault, validSectionLayout } from "./sections";
@@ -82,10 +83,10 @@ export function SurfaceLayout({
       if (mounted.current) focusAccessibilityTarget(trigger.current);
     });
   };
-  const cellWidth = Math.max(
-    96 * Math.max(1, fontScale),
-    (width - spacing.sm * ((layout?.columns ?? 1) - 1)) /
-      (layout?.columns ?? 1),
+  const { cellWidth, gridWidth, overflows } = sectionGridMetrics(
+    width,
+    layout?.columns ?? 1,
+    spacing.sm,
   );
   return (
     <View
@@ -135,7 +136,8 @@ export function SurfaceLayout({
           horizontal
           keyboardShouldPersistTaps="handled"
           testID="section-grid-scroll"
-          contentContainerStyle={{ minWidth: "100%" }}
+          showsHorizontalScrollIndicator={overflows}
+          contentContainerStyle={{ width: gridWidth }}
         >
           <View style={{ gap: spacing.sm }}>
             {Array.from(
@@ -159,7 +161,12 @@ export function SurfaceLayout({
                           key={column}
                           style={{ width: cellWidth, minWidth: 48 }}
                         >
-                          {control ? <ControlButton {...control} /> : null}
+                          {control ? (
+                            <ControlButton
+                              {...control}
+                              contentLayout="stacked"
+                            />
+                          ) : null}
                         </View>
                       );
                     })}
