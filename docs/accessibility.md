@@ -2,6 +2,14 @@
 
 Switchify Remote is designed for VoiceOver, TalkBack, iOS Switch Control, and Android Switch Access.
 
+## Custom button layouts
+
+Mouse, Typing, and Window offer Edit layout when movement repeat, dragging, held modifiers, and live Enter delivery are inactive. The editor supports long-press dragging and cell actions for moving, swapping, adding, and removing buttons without sending PC commands. Select a cell to insert or remove a row or column at that position. Occupied row/column removal asks for confirmation.
+
+Layouts retain explicit positions across rotation and text scaling. Labels wrap, rows grow vertically, and targets remain at least 48 points. Empty cells and row wrappers add no scan stops during normal use; buttons scan in row-major order. Unavailable capabilities keep their disabled positions. The typing field, mode selector, status and recovery actions, and Stop movement remain outside the editable grid.
+
+The editor is the only accessibility context while open. Cell actions restore focus to the edited cell, moves announce their destination once, and dismissing the editor returns focus to Edit layout. All operations must be possible with TalkBack, VoiceOver, Switch Access, and Switch Control without dragging. Save persists locally; Cancel discards only after confirmation when changes exist. Reset to default takes effect on Save.
+
 - Every interactive target is at least 48 by 48 logical points and has a concise accessible name.
 - First-run setup explains the Remote before asking for Bluetooth. Its two steps expose headings and "Step 1 of 2"/"Step 2 of 2" announcements in logical reading order, remain scrollable at large text sizes, and never move focus to a permission prompt until Allow Bluetooth is selected.
 - Surface selection is one button that announces its current value and opens a modal option list. Options expose selected state, scanning stays inside the modal, and focus returns to the selector after selection or dismissal. Toggles expose selected or disabled state.

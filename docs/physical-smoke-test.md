@@ -2,6 +2,12 @@
 
 Record the app commit, Switchify PC release, phone model/OS, and desktop platform for each run. Never paste pairing credentials or typed personal content into the record.
 
+## Button layout editor checks
+
+On Android and iOS, customize Mouse, Typing, and Window at 100%, 150%, and 200% text in both themes and orientations. Move into empty cells, swap occupied cells, drag near scroll edges, and rotate during a drag. Confirm cancelled drags do not change the grid. Insert and remove rows and columns, cancel an occupied deletion, restore a removed button, Save, restart, and verify positions. Confirm Reset returns to the original arrangement only after Save and Cancel preserves the saved layout.
+
+Repeat editing without gestures using TalkBack, VoiceOver, Switch Access, and Switch Control. Confirm modal containment, cell labels, row-major scanning, destination announcements, focus return, complete labels, and 48-point targets. Check the last row clears system navigation. Confirm editing sends no PC input, retains live typing text, and is unavailable during active repeat, drag, modifiers, or Enter delivery. Verify Stop movement and typing recovery actions remain available after customization. Reconnect to a PC with fewer capabilities and verify unavailable buttons stay disabled in their saved positions.
+
 Run the matrix on a physical Android phone and iPhone against current Switchify PC on both Windows and macOS:
 
 1. Install a native development build; confirm Expo Go is not offered as a supported path.

@@ -10,6 +10,7 @@ import { preferencesStore, type TypingMode } from '@/storage/PreferencesStore';
 import { useTheme } from '@/theme/ThemeContext';
 import { scheduleLiveTextInputFocus } from './focusLiveTextInput';
 import { LiveTypingController } from './LiveTypingController';
+import { SurfaceLayout, type LayoutControl } from '@/layouts/SurfaceLayout';
 import type { RemoteSession } from './RemoteSession';
 
 const keys = ['Backspace', 'Enter', 'Escape', 'Tab', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight'];
@@ -99,11 +100,18 @@ export function TypingSurface({ session, mode, draft }: { session: RemoteSession
     const [type, payload] = commandPayloads.typeText(draft);
     if (await session.command(type, payload)) await preferencesStore.update({ draft: '' });
   };
+  const controls: LayoutControl[] = keys.map((key) => ({ id: `key.${key}`, size: 'key', label: key.replace('Arrow', ''), disabled: !keySupported || (mode === 'live' && liveSubmitting && key === 'Enter'), onPress: () => { if (mode === 'live') { if (key === 'Enter') void submitLive(); else void session.streamKey(key); } else { const [type, payload] = commandPayloads.key(key); void session.command(type, payload); } } }));
+  controls.push({ id: 'draft.clear', label: 'Clear', disabled: mode !== 'draft' || !draft, onPress: () => void preferencesStore.update({ draft: '' }) }, { id: 'draft.send', label: 'Send to PC', disabled: mode !== 'draft' || !draft || !draftSupported, onPress: () => void sendDraft() });
+  const sessionState = session.snapshot();
+  const blocked = liveSubmitting ? 'Finish sending Enter before editing.' : sessionState.repeat || sessionState.dragging || sessionState.modifiers.length ? 'Stop movement, end dragging, and release modifiers before editing.' : null;
   return <View style={{ gap: spacing.md }}>
     <View style={{ flexDirection: 'row', gap: spacing.sm }}><ControlButton label="Type live" disabled={!liveSupported} selected={mode === 'live'} onPress={() => void preferencesStore.update({ typingMode: 'live' })} /><ControlButton label="Write a draft" disabled={!draftSupported} selected={mode === 'draft'} onPress={() => { void session.closeStream(); void preferencesStore.update({ typingMode: 'draft' }); }} /></View>
     <TextInput ref={liveInputRef} accessibilityLabel={mode === 'live' ? 'Live text' : 'Draft text'} editable={mode === 'live' ? liveSupported && !liveSubmitting : draftSupported} maxLength={2000} multiline submitBehavior={mode === 'live' ? 'submit' : 'newline'} placeholder={mode === 'live' ? 'Type on your PC' : 'Nothing is sent until you choose Send'} placeholderTextColor={colors.textMuted} style={[typography.body, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, color: colors.text, minHeight: 150, padding: spacing.lg, textAlignVertical: 'top' }]} value={mode === 'live' ? liveText : draft} onChangeText={mode === 'live' ? changeLive : (text) => void preferencesStore.update({ draft: text })} onSubmitEditing={mode === 'live' ? () => void submitLive() : undefined} />
-    {mode === 'live' ? <View style={{ gap: spacing.sm }}><StatusBadge icon={liveFailure ? 'error-outline' : 'check-circle'} label={!liveSupported ? 'Live typing is not supported by this PC.' : liveFailure === 'enter' ? 'Enter has not reached your PC.' : liveFailure === 'text' ? 'Some text has not reached your PC.' : liveSubmitting ? 'Sending Enter' : 'Live · sent as you type'} tone={liveFailure ? 'danger' : 'success'} />{liveFailure === 'text' ? <ControlButton label="Retry unsent text" onPress={() => reconcileLive(liveText)} /> : liveFailure === 'enter' ? <ControlButton label="Retry Enter" onPress={() => void submitLive()} /> : null}</View> : <ResponsiveGrid maxColumns={2} minItemWidth={130}><ControlButton label="Clear" disabled={!draft} onPress={() => void preferencesStore.update({ draft: '' })} /><ControlButton label="Send to PC" disabled={!draft || !draftSupported} onPress={() => void sendDraft()} /></ResponsiveGrid>}
+    {mode === 'live' ? <View style={{ gap: spacing.sm }}><StatusBadge icon={liveFailure ? 'error-outline' : 'check-circle'} label={!liveSupported ? 'Live typing is not supported by this PC.' : liveFailure === 'enter' ? 'Enter has not reached your PC.' : liveFailure === 'text' ? 'Some text has not reached your PC.' : liveSubmitting ? 'Sending Enter' : 'Live · sent as you type'} tone={liveFailure ? 'danger' : 'success'} />{liveFailure === 'text' ? <ControlButton label="Retry unsent text" onPress={() => reconcileLive(liveText)} /> : liveFailure === 'enter' ? <ControlButton label="Retry Enter" onPress={() => void submitLive()} /> : null}</View> : null}
+    <SurfaceLayout surface="typing" controls={controls} blocked={blocked}>
+    {mode === 'draft' ? <ResponsiveGrid maxColumns={2} minItemWidth={130}>{controls.slice(-2).map((control) => <ControlButton key={control.id} {...control} />)}</ResponsiveGrid> : null}
     <AppText accessibilityRole="header" variant="heading">PC keys</AppText>
-    <ResponsiveGrid maxColumns={4} minItemWidth={80}>{keys.map((key) => <ControlButton key={key} size="key" label={key.replace('Arrow', '')} disabled={!keySupported || (mode === 'live' && liveSubmitting && key === 'Enter')} onPress={() => { if (mode === 'live') { if (key === 'Enter') void submitLive(); else void session.streamKey(key); } else { const [type, payload] = commandPayloads.key(key); void session.command(type, payload); } }} />)}</ResponsiveGrid>
+    <ResponsiveGrid maxColumns={4} minItemWidth={80}>{controls.slice(0, keys.length).map((control) => <ControlButton key={control.id} {...control} />)}</ResponsiveGrid>
+    </SurfaceLayout>
   </View>;
 }
