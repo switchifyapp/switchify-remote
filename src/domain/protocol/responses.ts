@@ -84,6 +84,9 @@ function parsePointerProfile(payload: JsonObject): PointerProfile | null {
   const deltas = object(payload.recommendedDeltas);
   const capabilities = object(payload.capabilities) ?? {};
   const repeat = object(capabilities.mouseRepeat) ?? {};
+  // Absent on desktops built before key repeat: every field then falls back to
+  // unsupported, which is what makes the single-key-press fallback automatic.
+  const keyRepeat = object(capabilities.keyRepeat) ?? {};
   const speed = object(capabilities.pointerSpeed) ?? {};
   const displays = object(capabilities.displayNavigation) ?? {};
   const displayId = string(payload.displayId);
@@ -105,6 +108,7 @@ function parsePointerProfile(payload: JsonObject): PointerProfile | null {
       noAckCommands: strings(capabilities.noAckCommands),
       supportedCommands: strings(capabilities.supportedCommands),
       mouseRepeat: { supported: bool(repeat.supported), enabled: bool(repeat.enabled), intervalMs: numeric(repeat.intervalMs, 250), minIntervalMs: numeric(repeat.minIntervalMs, 100), maxIntervalMs: numeric(repeat.maxIntervalMs, 2000) },
+      keyRepeat: { supported: bool(keyRepeat.supported), enabled: bool(keyRepeat.enabled), intervalMs: numeric(keyRepeat.intervalMs, 250), initialDelayMs: numeric(keyRepeat.initialDelayMs, 500), minIntervalMs: numeric(keyRepeat.minIntervalMs, 100), maxIntervalMs: numeric(keyRepeat.maxIntervalMs, 1000), repeatableKeys: strings(keyRepeat.repeatableKeys) },
       pointerSpeed: { supported: bool(speed.supported), setSupported: bool(speed.setSupported), scalePercent: numeric(speed.scalePercent, 100), minScalePercent: numeric(speed.minScalePercent, 5), maxScalePercent: numeric(speed.maxScalePercent, 225), stepPercent: numeric(speed.stepPercent, 5), baseMoveDelta: numeric(speed.baseMoveDelta, 128), effectiveMoveDelta: numeric(speed.effectiveMoveDelta, 128) },
       displayNavigation: { supported: bool(displays.supported), displayCount: numeric(displays.displayCount, 1) },
     },

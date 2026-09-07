@@ -40,7 +40,7 @@ const profile: PointerProfile = {
     noAckMouseMove: true,
     noAckCommands: ['mouse.move'],
     supportedCommands: commands,
-    mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2_000 },
+    mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2_000 }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] },
     pointerSpeed: { supported: true, setSupported: true, scalePercent: 75, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 48 },
     displayNavigation: { supported: true, displayCount: 2 },
   },

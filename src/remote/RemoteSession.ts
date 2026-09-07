@@ -67,6 +67,50 @@ export class RemoteSession {
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
   }
 
+  /**
+   * Sends a key press, repeating it when the desktop supports repeating that
+   * key. Shares the repeat queue with pointer repeats so tapping any control
+   * stops whatever is currently repeating.
+   */
+  key(key: string): Promise<boolean> {
+    return this.#enqueueRepeat(() => this.#key(key));
+  }
+
+  async #key(key: string): Promise<boolean> {
+    if (!this.supports('keyboard.key')) return false;
+    if (this.#state.repeat) {
+      const generation = this.#reserveRepeatStop();
+      if (generation !== null) await this.#completeRepeatStop(generation);
+      return true;
+    }
+    if (this.#repeatableKey(key)) {
+      const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: 'keyboard.key', key });
+      const ok = await this.manager.send(repeatType, repeatPayload);
+      if (ok) {
+        this.#set({ repeat: 'keyboard.key' });
+        await this.#armRepeatBridge();
+      }
+      return ok;
+    }
+    const [type, payload] = commandPayloads.key(key);
+    return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
+  }
+
+  /**
+   * A desktop without the capability reports it unsupported, which is what
+   * makes an older desktop fall back to a single key press.
+   */
+  #repeatableKey(key: string): boolean {
+    const keyRepeat = this.profile?.capabilities.keyRepeat;
+    return Boolean(
+      this.supports('mouse.repeat.start')
+      && this.supports('mouse.repeat.stop')
+      && keyRepeat?.supported
+      && keyRepeat.enabled
+      && keyRepeat.repeatableKeys.includes(key),
+    );
+  }
+
   stopRepeat(): Promise<void> {
     const generation = this.#reserveRepeatStop();
     if (generation === null) return this.#repeatQueue;

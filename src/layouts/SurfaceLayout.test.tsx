@@ -151,7 +151,7 @@ it("keeps speed status and other Mouse sections after saving, hides unavailable 
         intervalMs: 250,
         minIntervalMs: 100,
         maxIntervalMs: 2000,
-      },
+      }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] },
       pointerSpeed: {
         supported: true,
         setSupported: true,

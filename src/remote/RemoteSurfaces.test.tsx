@@ -14,7 +14,7 @@ jest.mock('./focusLiveTextInput', () => ({ scheduleLiveTextInputFocus: jest.fn((
 
 function profile(supportedCommands: string[]): PointerProfile {
   const repeat = supportedCommands.includes('mouse.repeat.start') && supportedCommands.includes('mouse.repeat.stop');
-  return { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: repeat, enabled: repeat, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } };
+  return { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: repeat, enabled: repeat, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } };
 }
 
 const manager = { send: jest.fn(async () => true) } as unknown as ConnectionManager;
@@ -309,12 +309,25 @@ describe('capability-driven remote surfaces', () => {
     );
     const mouse = await render(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />);
 
-    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop movement repeat.'))).toBe(showsGuidance);
+    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop a repeat.'))).toBe(showsGuidance);
     await act(async () => { fireEvent.press(mouse.getByLabelText('Move up')); await Promise.resolve(); });
     await act(async () => { mouse.rerender(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />); });
 
     expect(mouse.getByRole('button', { name: 'Stop movement' })).toBeTruthy();
-    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop movement repeat.'))).toBe(showsGuidance);
+    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop a repeat.'))).toBe(showsGuidance);
+  });
+
+  it('announces a repeating key with key wording rather than pointer wording', async () => {
+    jest.restoreAllMocks();
+    const session = new RemoteSession(
+      { send: jest.fn(async () => true) } as unknown as ConnectionManager,
+      profile(['keyboard.key', 'mouse.repeat.start', 'mouse.repeat.stop']),
+    );
+    await act(async () => { await session.key('ArrowDown'); });
+    const view = await render(<MouseSurface session={session} state={session.snapshot()} />);
+    expect(view.getByRole('button', { name: 'Stop repeating' })).toBeTruthy();
+    expect(view.queryByRole('button', { name: 'Stop movement' })).toBeNull();
+    expect(view.getByText(/A key is repeating/)).toBeTruthy();
   });
 
   it('routes every displayed remote action through the capability-approved session', async () => {

@@ -44,8 +44,12 @@ export const commandPayloads = {
   displayMove: (direction: 'up' | 'down' | 'left' | 'right') => ['pointer.display.move', { direction }] as const,
   move: (dx: number, dy: number) => ['mouse.move', { dx, dy }] as const,
   scroll: (dx: number, dy: number) => ['mouse.scroll', { dx, dy }] as const,
-  repeatStart: (command: { type: 'mouse.move' | 'mouse.scroll'; dx: number; dy: number }) => ['mouse.repeat.start', {
-    command: { type: command.type, payload: { dx: command.dx, dy: command.dy } },
+  // Key repeat rides the same envelope as pointer repeat, so `mouse.repeat.stop`
+  // remains the single stop for every repeat kind.
+  repeatStart: (command: { type: 'mouse.move' | 'mouse.scroll'; dx: number; dy: number } | { type: 'keyboard.key'; key: string }) => ['mouse.repeat.start', {
+    command: command.type === 'keyboard.key'
+      ? { type: command.type, payload: { key: command.key } }
+      : { type: command.type, payload: { dx: command.dx, dy: command.dy } },
   }] as const,
   repeatStop: () => ['mouse.repeat.stop', {}] as const,
   dragStart: (button = 'left') => ['mouse.dragStart', { button }] as const,

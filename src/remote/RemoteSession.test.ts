@@ -4,7 +4,7 @@ import { RemoteSession } from './RemoteSession';
 import type { BridgeEvent, BridgeSnapshot, SwitchifyBridge } from '@/bridge/types';
 
 const allCommands = ['mouse.move', 'mouse.click', 'mouse.doubleClick', 'mouse.rightClick', 'mouse.scroll', 'mouse.dragStart', 'mouse.dragEnd', 'mouse.repeat.start', 'mouse.repeat.stop', 'pointer.speed.set', 'pointer.display.move', 'keyboard.key', 'keyboard.modifierDown', 'keyboard.modifierUp', 'keyboard.shortcut', 'keyboard.typeText', 'keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.key', 'keyboard.textStream.close', 'window.control'];
-const profile = (supportedCommands = allCommands): PointerProfile => ({ displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } });
+const profile = (supportedCommands = allCommands): PointerProfile => ({ displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } });
 
 function fakeBridge() {
   let listener: ((event: BridgeEvent) => void) | null = null;
@@ -44,6 +44,85 @@ describe('RemoteSession', () => {
       ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 10, dy: 0 } } }, undefined],
       ['mouse.repeat.stop', {}, 'ack'],
     ]);
+  });
+
+  it('repeats an allowlisted key and stops it on the next control', async () => {
+    const calls: [string, unknown, string | undefined][] = [];
+    const manager = { send: async (type: string, payload: unknown, responseMode?: string) => { calls.push([type, payload, responseMode]); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+    await session.key('ArrowDown');
+    expect(session.snapshot().repeat).toBe('keyboard.key');
+    await session.key('ArrowDown');
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'keyboard.key', payload: { key: 'ArrowDown' } } }, undefined],
+      ['mouse.repeat.stop', {}, 'ack'],
+    ]);
+  });
+
+  it('falls back to a single key press when the desktop cannot repeat that key', async () => {
+    const base = profile();
+    const cases: [string, PointerProfile, string][] = [
+      // An older desktop advertises no keyRepeat block at all.
+      ['capability absent', { ...base, capabilities: { ...base.capabilities, keyRepeat: { supported: false, enabled: false, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: [] } } }, 'ArrowDown'],
+      ['repeat disabled in desktop settings', { ...base, capabilities: { ...base.capabilities, keyRepeat: { ...base.capabilities.keyRepeat, enabled: false } } }, 'ArrowDown'],
+      ['key outside the allowlist', base, 'Enter'],
+    ];
+    for (const [name, used, key] of cases) {
+      const calls: [string, unknown][] = [];
+      const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+      const session = new RemoteSession(manager, used);
+      await session.key(key);
+      expect([name, calls]).toEqual([name, [['keyboard.key', { key }]]]);
+      expect([name, session.snapshot().repeat]).toEqual([name, null]);
+    }
+  });
+
+  it('falls back to a single key press when the desktop lacks the repeat commands', async () => {
+    const calls: [string, unknown][] = [];
+    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile(allCommands.filter((type) => !type.startsWith('mouse.repeat.'))));
+    await session.key('ArrowDown');
+    expect(calls).toEqual([['keyboard.key', { key: 'ArrowDown' }]]);
+  });
+
+  it('does not send a key the desktop does not support at all', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile(allCommands.filter((type) => type !== 'keyboard.key')));
+    expect(await session.key('ArrowDown')).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('stops a repeating key for a physical switch and on cleanup', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const host = fakeBridge();
+    const session = new RemoteSession(manager, profile(), undefined, null, host.bridge);
+    await session.key('Backspace');
+    expect(host.bridge.setRepeatActive).toHaveBeenCalledWith(101, true);
+    host.emit({ type: 'repeatStop', generation: 101 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop']);
+
+    await session.key('Tab');
+    await session.cleanup();
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
+  it('lets a pointer repeat be stopped by a key press and the reverse', async () => {
+    const calls: string[] = [];
+    const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    await session.key('ArrowDown');
+    expect(session.snapshot().repeat).toBeNull();
+    await session.key('ArrowDown');
+    await session.mouse('mouse.click');
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'mouse.repeat.start', 'mouse.repeat.stop']);
   });
 
   it('publishes acknowledged repeat state and stops for the matching Switchify request', async () => {

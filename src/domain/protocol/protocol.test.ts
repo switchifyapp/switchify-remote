@@ -26,6 +26,50 @@ describe('Switchify PC protocol v1', () => {
     ]);
   });
 
+  it('treats a desktop without the keyRepeat capability as unable to repeat keys', () => {
+    const pointerProfile = (capabilities: Record<string, unknown>) => JSON.stringify({
+      version: 1, id: 'profile-1', type: 'pointer.profile', ok: true, error: null,
+      payload: {
+        displayId: 'display:0:0:1920:1080:1', scaleFactor: 1, maxDelta: 500,
+        bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        recommendedDeltas: { small: 49, medium: 130, large: 281 },
+        capabilities,
+      },
+    });
+    const mouseRepeat = { supported: true, enabled: true, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 };
+
+    // A desktop built before key repeat existed: the block is simply absent.
+    const older = parseResponse(pointerProfile({ mouseRepeat }));
+    expect(older.kind).toBe('pointerProfile');
+    if (older.kind !== 'pointerProfile') throw new Error('expected a profile');
+    expect(older.profile.capabilities.keyRepeat).toEqual({
+      supported: false, enabled: false, intervalMs: 250, initialDelayMs: 500,
+      minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: [],
+    });
+    // The existing mouse repeat capability must parse exactly as it always did.
+    expect(older.profile.capabilities.mouseRepeat).toEqual(mouseRepeat);
+
+    const current = parseResponse(pointerProfile({
+      mouseRepeat,
+      keyRepeat: { supported: true, enabled: true, intervalMs: 500, initialDelayMs: 250, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['Tab', 'ArrowUp'] },
+    }));
+    if (current.kind !== 'pointerProfile') throw new Error('expected a profile');
+    expect(current.profile.capabilities.keyRepeat.repeatableKeys).toEqual(['Tab', 'ArrowUp']);
+    expect(current.profile.capabilities.keyRepeat.initialDelayMs).toBe(250);
+  });
+
+  it('matches the desktop nested key-repeat payload shape', () => {
+    expect(commandPayloads.repeatStart({ type: 'keyboard.key', key: 'ArrowDown' })).toEqual([
+      'mouse.repeat.start',
+      { command: { type: 'keyboard.key', payload: { key: 'ArrowDown' } } },
+    ]);
+    // The desktop validator requires exactly one payload field for this arm.
+    const [, payload] = commandPayloads.repeatStart({ type: 'keyboard.key', key: 'Tab' });
+    expect(Object.keys((payload.command as { payload: Record<string, unknown> }).payload)).toEqual(['key']);
+    // One stop command serves every repeat kind.
+    expect(commandPayloads.repeatStop()).toEqual(['mouse.repeat.stop', {}]);
+  });
+
   it('round trips single and multi-frame UTF-8 messages', () => {
     const frames = createFrames('Switchify 👋 remote', 'message-1', 5);
     const reassembler = new FrameReassembler();

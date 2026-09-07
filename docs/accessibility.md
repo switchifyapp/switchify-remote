@@ -34,7 +34,7 @@ Save persists only the selected section and preserves neighboring sections. An u
 - The primary tab bar contains PCs, Remote, and Settings. Its height follows text scaling and the platform safe area so every label remains complete. Diagnostics is available from Settings and uses a standard back action. Settings also exposes the Remote privacy policy as one clearly named browser action.
 - Settings exposes a Remote name text field with complete validation and synchronization status. Save and Use device model remain separate 48-point controls at large text sizes.
 - Selected controls combine color with a check icon and selected accessibility state.
-- Repeating pointer movement exposes a dedicated Stop movement button alongside the existing stop-on-control behavior. Both send the PC an acknowledged stop command before Android switch-capture cleanup.
+- Repeating pointer movement exposes a dedicated Stop movement button alongside the existing stop-on-control behavior. A repeating key exposes the same control as Stop repeating, and announces "Key is repeating." rather than the pointer wording. Both send the PC an acknowledged stop command before Android switch-capture cleanup.
 - Switch scanning stops on actionable controls and scroll containers, not read-only headings, descriptions, status badges, summaries, or capability values.
 - Unpairing a saved computer opens a native confirmation alert. Cancel and dismissal leave the pairing unchanged, and the destructive action names the computer before removing access.
 - Scroll content clears the bottom tab bar, gesture area, and home indicator at maximum text size.

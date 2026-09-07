@@ -15,34 +15,42 @@ export function RepeatStatus({
   state: RemoteSessionState;
   physicalSwitchStopAvailable?: boolean;
 }) {
+  const repeatingKey = state.repeat === "keyboard.key";
+  const stopLabel = repeatingKey ? "Stop repeating" : "Stop movement";
   useAccessibilityAnnouncement(
-    state.repeat ? "Pointer movement is repeating." : null,
+    state.repeat
+      ? repeatingKey
+        ? "Key is repeating."
+        : "Pointer movement is repeating."
+      : null,
   );
+  const capabilities = session.profile?.capabilities;
+  const repeatUnavailableWarning =
+    (capabilities?.mouseRepeat.supported && capabilities.mouseRepeat.enabled) ||
+    (capabilities?.keyRepeat.supported && capabilities.keyRepeat.enabled);
   return (
     <>
       {state.repeat ? (
         <>
           <ActionButton
             icon="stop-circle"
-            label="Stop movement"
+            label={stopLabel}
             tone="danger"
             onPress={() => void session.stopRepeat()}
           />
           <StatusBadge
             icon="autorenew"
-            label="Movement is repeating. Use Stop movement or another control to stop."
+            label={`${repeatingKey ? "A key is" : "Movement is"} repeating. Use ${stopLabel} or another control to stop.`}
             tone="warning"
           />
         </>
       ) : null}
       {Platform.OS === "android" &&
       !physicalSwitchStopAvailable &&
-      session.profile?.capabilities.mouseRepeat.supported &&
-      session.profile.capabilities.mouseRepeat.enabled ? (
+      repeatUnavailableWarning ? (
         <Card>
           <AppText muted>
-            Switchify is unavailable. Use a Remote control to stop movement
-            repeat.
+            Switchify is unavailable. Use a Remote control to stop a repeat.
           </AppText>
         </Card>
       ) : null}
