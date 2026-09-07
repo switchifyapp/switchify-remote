@@ -30,6 +30,7 @@ function setup(
     "keyboard.textStream.key",
     "keyboard.textStream.close",
   ],
+  keyRepeat = false,
 ) {
   const send = jest.fn(async (_type: string, _payload?: unknown) => true);
   const profile: PointerProfile = {
@@ -48,7 +49,18 @@ function setup(
         intervalMs: 250,
         minIntervalMs: 100,
         maxIntervalMs: 2000,
-      }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] },
+      },
+      keyRepeat: {
+        supported: keyRepeat,
+        enabled: keyRepeat,
+        intervalMs: 250,
+        initialDelayMs: 500,
+        minIntervalMs: 100,
+        maxIntervalMs: 1000,
+        repeatableKeys: keyRepeat
+          ? ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Backspace", "Delete", "PageUp", "PageDown"]
+          : [],
+      },
       pointerSpeed: {
         supported: true,
         setSupported: true,
@@ -128,6 +140,42 @@ it("retains live Enter submission and uses the stream for other live keys", asyn
     typing: { ...live.typing!, submitting: true },
   });
   expect(submitLive).toHaveBeenCalledTimes(1);
+});
+it("repeats a repeatable key outside live typing and never repeats one inside it", async () => {
+  const commands = [
+    "keyboard.key",
+    "keyboard.textStream.open",
+    "keyboard.textStream.chunk",
+    "keyboard.textStream.key",
+    "keyboard.textStream.close",
+    "mouse.repeat.start",
+    "mouse.repeat.stop",
+  ];
+  const { context, session, send } = setup(commands, true);
+
+  // Outside live typing a repeatable key starts a repeat.
+  await executeAction(getAction("key.ArrowDown")!, context);
+  expect(send).toHaveBeenCalledWith("mouse.repeat.start", {
+    command: { type: "keyboard.key", payload: { key: "ArrowDown" } },
+  });
+  expect(session.snapshot().repeat).toBe("keyboard.key");
+
+  // Activating it again toggles the repeat off.
+  await executeAction(getAction("key.ArrowDown")!, context);
+  expect(session.snapshot().repeat).toBeNull();
+
+  // Live typing keeps the stream path, so chunk sequencing is preserved and a
+  // repeatable key is never repeated there.
+  const stream = jest.spyOn(session, "streamKey");
+  send.mockClear();
+  await executeAction(getAction("key.ArrowDown")!, {
+    ...context,
+    surface: "typing",
+    typing: { mode: "live", draft: "", submitting: false, submitLive: jest.fn(async () => undefined) },
+  });
+  expect(stream).toHaveBeenCalledWith("ArrowDown");
+  expect(send).not.toHaveBeenCalledWith("mouse.repeat.start", expect.anything());
+  expect(session.snapshot().repeat).toBeNull();
 });
 it("prevents draft actions outside Typing and respects draft mode and text", async () => {
   const { context, send } = setup();

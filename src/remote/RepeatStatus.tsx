@@ -6,6 +6,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useAccessibilityAnnouncement } from "@/components/useAccessibilityAnnouncement";
 import type { RemoteSession, RemoteSessionState } from "./RemoteSession";
 
+/**
+ * Names the control that stops the active repeat. Shared so the surfaces'
+ * blocked-editing explanations name a control that is actually on screen.
+ */
+export function repeatStopLabel(repeat: string | null): string {
+  return repeat === "keyboard.key" ? "Stop repeating" : "Stop movement";
+}
+
 export function RepeatStatus({
   session,
   state,
@@ -16,7 +24,7 @@ export function RepeatStatus({
   physicalSwitchStopAvailable?: boolean;
 }) {
   const repeatingKey = state.repeat === "keyboard.key";
-  const stopLabel = repeatingKey ? "Stop repeating" : "Stop movement";
+  const stopLabel = repeatStopLabel(state.repeat);
   useAccessibilityAnnouncement(
     state.repeat
       ? repeatingKey
@@ -25,9 +33,16 @@ export function RepeatStatus({
       : null,
   );
   const capabilities = session.profile?.capabilities;
+  // Only warn when a repeat could actually start: the capability flags alone
+  // are not enough without the commands that carry a repeat.
+  const repeatCommandsAvailable =
+    session.supports("mouse.repeat.start") && session.supports("mouse.repeat.stop");
   const repeatUnavailableWarning =
-    (capabilities?.mouseRepeat.supported && capabilities.mouseRepeat.enabled) ||
-    (capabilities?.keyRepeat.supported && capabilities.keyRepeat.enabled);
+    repeatCommandsAvailable &&
+    Boolean(
+      (capabilities?.mouseRepeat.supported && capabilities.mouseRepeat.enabled) ||
+        (capabilities?.keyRepeat.supported && capabilities.keyRepeat.enabled),
+    );
   return (
     <>
       {state.repeat ? (

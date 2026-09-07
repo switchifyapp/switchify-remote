@@ -78,12 +78,17 @@ export class RemoteSession {
 
   async #key(key: string): Promise<boolean> {
     if (!this.supports('keyboard.key')) return false;
+    const repeatable = this.#repeatableKey(key);
     if (this.#state.repeat) {
       const generation = this.#reserveRepeatStop();
       if (generation !== null) await this.#completeRepeatStop(generation);
-      return true;
+      // A repeatable key is the toggle that ends its own repeat, so it stops
+      // there. A key that cannot repeat must still be delivered: dropping it
+      // would cost the user a second activation for no reason.
+      if (repeatable) return true;
+      return this.#sendKey(key);
     }
-    if (this.#repeatableKey(key)) {
+    if (repeatable) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: 'keyboard.key', key });
       const ok = await this.manager.send(repeatType, repeatPayload);
       if (ok) {
@@ -92,6 +97,10 @@ export class RemoteSession {
       }
       return ok;
     }
+    return this.#sendKey(key);
+  }
+
+  #sendKey(key: string): Promise<boolean> {
     const [type, payload] = commandPayloads.key(key);
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
   }

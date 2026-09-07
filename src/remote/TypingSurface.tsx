@@ -10,7 +10,7 @@ import { LiveTypingController } from "./LiveTypingController";
 import { SurfaceLayout } from "@/layouts/SurfaceLayout";
 import type { PcPlatform } from "@/domain/protocol/types";
 import { useRemoteActions } from "./actions/useRemoteActions";
-import { RepeatStatus } from "./RepeatStatus";
+import { RepeatStatus, repeatStopLabel } from "./RepeatStatus";
 import type { RemoteSession } from "./RemoteSession";
 
 export function TypingSurface({
@@ -127,7 +127,7 @@ export function TypingSurface({
     : sessionState.repeat ||
         sessionState.dragging ||
         sessionState.modifiers.length
-      ? "Stop movement, end dragging, and release modifiers before editing."
+      ? `${repeatStopLabel(sessionState.repeat)}, end dragging, and release modifiers before editing.`
       : null;
   return (
     <View style={{ gap: spacing.md }}>

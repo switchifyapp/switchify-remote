@@ -78,6 +78,38 @@ describe('RemoteSession', () => {
     }
   });
 
+  it('delivers a non-repeatable key that stops an active repeat instead of dropping it', async () => {
+    const calls: [string, unknown][] = [];
+    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+    await session.key('ArrowDown');
+    // Escape cannot repeat, so it is not a toggle: the repeat stops and the key
+    // must still reach the desktop, or the user pays a second activation.
+    await session.key('Escape');
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'keyboard.key', payload: { key: 'ArrowDown' } } }],
+      ['mouse.repeat.stop', {}],
+      ['keyboard.key', { key: 'Escape' }],
+    ]);
+  });
+
+  it('delivers a key pressed during a pointer repeat on a desktop that cannot repeat keys', async () => {
+    const base = profile();
+    const withoutKeyRepeat: PointerProfile = { ...base, capabilities: { ...base.capabilities, keyRepeat: { ...base.capabilities.keyRepeat, supported: false, enabled: false, repeatableKeys: [] } } };
+    const calls: [string, unknown][] = [];
+    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, withoutKeyRepeat);
+    await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    await session.key('ArrowDown');
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'mouse.move', payload: { dx: 10, dy: 0 } } }],
+      ['mouse.repeat.stop', {}],
+      ['keyboard.key', { key: 'ArrowDown' }],
+    ]);
+  });
+
   it('falls back to a single key press when the desktop lacks the repeat commands', async () => {
     const calls: [string, unknown][] = [];
     const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;

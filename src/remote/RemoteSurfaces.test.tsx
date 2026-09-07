@@ -12,9 +12,10 @@ import { scheduleLiveTextInputFocus } from './focusLiveTextInput';
 
 jest.mock('./focusLiveTextInput', () => ({ scheduleLiveTextInputFocus: jest.fn(() => jest.fn()) }));
 
-function profile(supportedCommands: string[]): PointerProfile {
+/** Key repeat is opt-in so existing cases keep exercising plain key presses. */
+function profile(supportedCommands: string[], keyRepeat = false): PointerProfile {
   const repeat = supportedCommands.includes('mouse.repeat.start') && supportedCommands.includes('mouse.repeat.stop');
-  return { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: repeat, enabled: repeat, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } };
+  return { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: repeat, enabled: repeat, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, keyRepeat: { supported: repeat && keyRepeat, enabled: repeat && keyRepeat, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: repeat && keyRepeat ? ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] : [] }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } };
 }
 
 const manager = { send: jest.fn(async () => true) } as unknown as ConnectionManager;
@@ -321,7 +322,7 @@ describe('capability-driven remote surfaces', () => {
     jest.restoreAllMocks();
     const session = new RemoteSession(
       { send: jest.fn(async () => true) } as unknown as ConnectionManager,
-      profile(['keyboard.key', 'mouse.repeat.start', 'mouse.repeat.stop']),
+      profile(['keyboard.key', 'mouse.repeat.start', 'mouse.repeat.stop'], true),
     );
     await act(async () => { await session.key('ArrowDown'); });
     const view = await render(<MouseSurface session={session} state={session.snapshot()} />);

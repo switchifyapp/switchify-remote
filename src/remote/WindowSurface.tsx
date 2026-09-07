@@ -5,7 +5,7 @@ import { Card } from "@/components/Card";
 import type { PcPlatform } from "@/domain/protocol/types";
 import { useTheme } from "@/theme/ThemeContext";
 import { useRemoteActions } from "./actions/useRemoteActions";
-import { RepeatStatus } from "./RepeatStatus";
+import { RepeatStatus, repeatStopLabel } from "./RepeatStatus";
 import type { RemoteSession, RemoteSessionState } from "./RemoteSession";
 
 export function WindowSurface({
@@ -22,7 +22,7 @@ export function WindowSurface({
   const { spacing } = useTheme();
   const blocked =
     state.repeat || state.dragging || state.modifiers.length
-      ? "Stop movement, end dragging, and release modifiers before editing."
+      ? `${repeatStopLabel(state.repeat)}, end dragging, and release modifiers before editing.`
       : null;
   const controls = useRemoteActions({ surface: "window", session, platform });
   return (
