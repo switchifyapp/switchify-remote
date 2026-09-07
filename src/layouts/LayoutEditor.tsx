@@ -1,3 +1,5 @@
+import { ResponsiveGrid } from "@/components/ResponsiveGrid";
+import { sectionGridMetrics } from "./gridMetrics";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -11,7 +13,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ControlButton } from "@/components/ControlButton";
 import { AppText } from "@/components/AppText";
 import { focusAccessibilityTarget } from "@/components/accessibilityFocus";
@@ -70,7 +72,6 @@ export function LayoutEditor({
   const [target, setTarget] = useState<DropTarget | null>(null);
   const [width, setWidth] = useState(0);
   const { colors, spacing, reducedMotion } = useTheme();
-  const insets = useSafeAreaInsets();
   const dimensions = useWindowDimensions();
   const mounted = useRef(true);
   const savingRef = useRef(false);
@@ -113,12 +114,13 @@ export function LayoutEditor({
   const [dragPosition] = useState(() => new Animated.ValueXY());
   const offset = useRef({ x: 0, y: 0 });
   const maxOffset = useRef({ x: 0, y: 0 });
-  const trackWidth = Math.max(100, 96 * dimensions.fontScale);
-  const cellWidth = Math.max(
-    96 * Math.max(1, dimensions.fontScale),
-    (width - trackWidth - spacing.sm * draft.columns) / draft.columns,
+  const trackWidth = 48;
+  const { cellWidth, gridWidth, overflows } = sectionGridMetrics(
+    width,
+    draft.columns,
+    spacing.sm,
+    trackWidth,
   );
-  const gridWidth = trackWidth + (cellWidth + spacing.sm) * draft.columns;
   const measure = () => {
     const current = ++generation.current;
     viewport.current?.measureInWindow((x, y, width, height) => {
@@ -444,411 +446,436 @@ export function LayoutEditor({
       onDismiss={onDismiss}
       onShow={() => focus(() => heading.current)}
     >
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <View
-          accessibilityViewIsModal={pickerCell === null}
-          accessibilityElementsHidden={pickerCell !== null}
-          importantForAccessibility={
-            pickerCell !== null ? "no-hide-descendants" : "auto"
-          }
-          pointerEvents={pickerCell !== null ? "none" : "auto"}
-          onAccessibilityEscape={dismiss}
-          style={{
-            flex: 1,
-            backgroundColor: colors.background,
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-          }}
-        >
-          <View style={{ padding: spacing.md, gap: spacing.sm }}>
-            <View ref={heading} accessible accessibilityRole="header">
-              <AppText variant="heading">Edit {title}</AppText>
-            </View>
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: spacing.sm,
-              }}
-            >
-              <ControlButton
-                label={saving ? "Saving layout" : "Save layout"}
-                disabled={saving}
-                onPress={() => void save()}
-              />
-              <ControlButton
-                label="Cancel"
-                disabled={saving}
-                onPress={dismiss}
-              />
-            </View>
-            {error ? <AppText>{error}</AppText> : null}
-          </View>
-          <View
-            ref={viewport}
-            testID="layout-editor-viewport"
-            style={{ flex: 1 }}
-            onLayout={(event) => {
-              setWidth(event.nativeEvent.layout.width - spacing.md * 2);
-              cancelDrag();
-              measure();
+      <SafeAreaProvider style={{ flex: 1 }}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <SafeAreaView
+            accessibilityViewIsModal={pickerCell === null}
+            accessibilityElementsHidden={pickerCell !== null}
+            importantForAccessibility={
+              pickerCell !== null ? "no-hide-descendants" : "auto"
+            }
+            pointerEvents={pickerCell !== null ? "none" : "auto"}
+            onAccessibilityEscape={dismiss}
+            style={{
+              flex: 1,
+              backgroundColor: colors.background,
             }}
           >
-            <ScrollView
-              ref={scroll}
-              testID="layout-editor-scroll"
-              pointerEvents={saving ? "none" : "auto"}
-              accessibilityElementsHidden={saving}
-              importantForAccessibility={
-                saving ? "no-hide-descendants" : "auto"
-              }
-              onScroll={(event) => {
-                offset.current.y = event.nativeEvent.contentOffset.y;
+            <View style={{ padding: spacing.md, gap: spacing.sm }}>
+              <View ref={heading} accessible accessibilityRole="header">
+                <AppText variant="heading">Edit {title}</AppText>
+              </View>
+              <ResponsiveGrid minItemWidth={120} maxColumns={2}>
+                <ControlButton
+                  label={saving ? "Saving layout" : "Save layout"}
+                  contentLayout="stacked"
+                  disabled={saving}
+                  onPress={() => void save()}
+                />
+                <ControlButton
+                  label="Cancel"
+                  contentLayout="stacked"
+                  disabled={saving}
+                  onPress={dismiss}
+                />
+              </ResponsiveGrid>
+              {error ? <AppText>{error}</AppText> : null}
+            </View>
+            <View
+              ref={viewport}
+              testID="layout-editor-viewport"
+              style={{ flex: 1 }}
+              onLayout={() => {
+                cancelDrag();
                 measure();
               }}
-              scrollEventThrottle={16}
-              onContentSizeChange={(_, height) => {
-                maxOffset.current.y = Math.max(
-                  0,
-                  height - (bounds.current?.height ?? 0),
-                );
-              }}
-              contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
             >
-              <AppText muted>
-                Hold a button, row handle, or column handle to drag it. Or
-                select it for editing actions. Buttons do not control your PC
-                here.
-              </AppText>
-              {selected ? (
-                <View style={{ gap: spacing.sm }}>
-                  <View
-                    ref={actionHeading}
-                    accessible
-                    accessibilityRole="header"
-                  >
-                    <AppText variant="heading">
-                      {selected.kind === "cell"
-                        ? `Row ${selectedRow + 1}, column ${selectedColumn + 1}`
-                        : `${selected.kind === "row" ? "Row" : "Column"} ${selected.index + 1}`}
-                    </AppText>
-                  </View>
-                  {moving ? (
-                    <AppText>
-                      {selected.kind === "cell"
-                        ? "Select a destination cell to move or swap this button."
-                        : `Select the ${selected.kind} at the final position. Other ${selected.kind}s shift to make room.`}
-                    </AppText>
-                  ) : (
-                    <>
-                      {selected.kind !== "cell" ||
-                      draft.cells[selected.index] ? (
-                        <ControlButton
-                          label={`Move ${selected.kind === "cell" ? "button" : selected.kind}`}
-                          onPress={() => {
-                            setMoving(true);
-                            focus(
-                              () =>
-                                nodes.current.get(`${selected.kind}-0`) ?? null,
-                            );
-                          }}
-                        />
-                      ) : null}
-                      {selected.kind === "cell" ? (
+              <ScrollView
+                ref={scroll}
+                testID="layout-editor-scroll"
+                pointerEvents={saving ? "none" : "auto"}
+                accessibilityElementsHidden={saving}
+                importantForAccessibility={
+                  saving ? "no-hide-descendants" : "auto"
+                }
+                onScroll={(event) => {
+                  offset.current.y = event.nativeEvent.contentOffset.y;
+                  measure();
+                }}
+                scrollEventThrottle={16}
+                onContentSizeChange={(_, height) => {
+                  maxOffset.current.y = Math.max(
+                    0,
+                    height - (bounds.current?.height ?? 0),
+                  );
+                }}
+                contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+              >
+                <AppText muted>
+                  Hold a button, row handle, or column handle to drag it. Or
+                  select it for editing actions. Buttons do not control your PC
+                  here.
+                </AppText>
+                {selected ? (
+                  <View style={{ gap: spacing.sm }}>
+                    <View
+                      ref={actionHeading}
+                      accessible
+                      accessibilityRole="header"
+                    >
+                      <AppText variant="heading">
+                        {selected.kind === "cell"
+                          ? `Row ${selectedRow + 1}, column ${selectedColumn + 1}`
+                          : `${selected.kind === "row" ? "Row" : "Column"} ${selected.index + 1}`}
+                      </AppText>
+                    </View>
+                    {moving ? (
+                      <AppText>
+                        {selected.kind === "cell"
+                          ? "Select a destination cell to move or swap this button."
+                          : `Select the ${selected.kind} at the final position. Other ${selected.kind}s shift to make room.`}
+                      </AppText>
+                    ) : (
+                      <>
+                        {selected.kind !== "cell" ||
                         draft.cells[selected.index] ? (
                           <ControlButton
-                            label="Remove button"
+                            label={`Move ${selected.kind === "cell" ? "button" : selected.kind}`}
                             onPress={() => {
-                              change(setCell(draft, selected.index, null));
-                              closeActions();
+                              setMoving(true);
+                              focus(
+                                () =>
+                                  nodes.current.get(`${selected.kind}-0`) ??
+                                  null,
+                              );
                             }}
                           />
-                        ) : null
-                      ) : null}
-                      {(["row", "column"] as const)
-                        .filter(
-                          (axis) =>
-                            selected.kind === axis,
-                        )
-                        .map((axis) => {
-                          const index =
-                            axis === "row" ? selectedRow : selectedColumn;
-                          const count = axis === "row" ? rows : draft.columns;
-                          return (
-                            <View key={axis} style={{ gap: spacing.sm }}>
-                              <ControlButton
-                                label={`Insert ${axis} before`}
-                                disabled={
-                                  count >=
-                                  (axis === "row" ? MAX_ROWS : MAX_COLUMNS)
-                                }
-                                onPress={() => resize(axis, index, true)}
-                              />
-                              <ControlButton
-                                label={`Insert ${axis} after`}
-                                disabled={
-                                  count >=
-                                  (axis === "row" ? MAX_ROWS : MAX_COLUMNS)
-                                }
-                                onPress={() => resize(axis, index + 1, true)}
-                              />
-                              <ControlButton
-                                label={`Remove ${axis}`}
-                                disabled={count <= 1}
-                                onPress={() => resize(axis, index, false)}
-                              />
-                            </View>
-                          );
-                        })}
-                    </>
-                  )}
-                  <ControlButton
-                    label="Close editing actions"
-                    onPress={closeActions}
-                  />
-                </View>
-              ) : null}
-              <View ref={gridViewport} onLayout={measure}>
-                <ScrollView
-                  ref={horizontal}
-                  horizontal
-                  testID="layout-editor-horizontal"
-                  onScroll={(event) => {
-                    offset.current.x = event.nativeEvent.contentOffset.x;
-                    measure();
-                  }}
-                  scrollEventThrottle={16}
-                  onContentSizeChange={(contentWidth) => {
-                    maxOffset.current.x = Math.max(0, contentWidth - width);
-                  }}
-                >
-                  <View
-                    style={{ width: gridWidth, gap: spacing.sm }}
-                    onLayout={measure}
-                  >
-                    <View style={{ flexDirection: "row", gap: spacing.sm }}>
-                      <View style={{ width: trackWidth }} />
-                      {Array.from({ length: draft.columns }, (_, index) => (
-                        <DragHandle
-                          key={index}
-                          selection={{ kind: "column", index }}
-                          enabled={!saving && selected === null}
-                          start={startDrag}
-                          update={updateDrag}
-                          end={endDrag}
-                          cancel={cancelDrag}
-                        >
-                          <View style={{ width: cellWidth }}>
+                        ) : null}
+                        {selected.kind === "cell" ? (
+                          draft.cells[selected.index] ? (
                             <ControlButton
-                              controlRef={nodeRefs[`column-${index}`]!}
-                              label={`Column ${index + 1}`}
-                              icon="drag-indicator"
-                              hint="Select for column actions, or hold to drag."
-                              selected={
-                                selected?.kind === "column" &&
-                                selected.index === index
-                              }
-                              disabled={saving}
-                              onPress={() => select({ kind: "column", index })}
+                              label="Remove button"
+                              onPress={() => {
+                                change(setCell(draft, selected.index, null));
+                                closeActions();
+                              }}
                             />
-                          </View>
-                        </DragHandle>
-                      ))}
-                    </View>
-                    {Array.from({ length: rows }, (_, row) => (
-                      <View
-                        key={row}
-                        style={{
-                          flexDirection: "row",
-                          gap: spacing.sm,
-                          borderTopWidth: 2,
-                          borderTopColor:
-                            dragging?.kind === "row" && target?.boundary === row
-                              ? colors.brand
-                              : "transparent",
-                          borderBottomWidth: 2,
-                          borderBottomColor:
-                            dragging?.kind === "row" &&
-                            target?.boundary === rows &&
-                            row === rows - 1
-                              ? colors.brand
-                              : "transparent",
-                        }}
-                      >
-                        <DragHandle
-                          selection={{ kind: "row", index: row }}
-                          enabled={!saving && selected === null}
-                          start={startDrag}
-                          update={updateDrag}
-                          end={endDrag}
-                          cancel={cancelDrag}
-                        >
-                          <View style={{ width: trackWidth }}>
-                            <ControlButton
-                              controlRef={nodeRefs[`row-${row}`]!}
-                              label={`Row ${row + 1}`}
-                              icon="drag-indicator"
-                              hint="Select for row actions, or hold to drag."
-                              selected={
-                                selected?.kind === "row" &&
-                                selected.index === row
-                              }
-                              disabled={saving}
-                              onPress={() =>
-                                select({ kind: "row", index: row })
-                              }
-                            />
-                          </View>
-                        </DragHandle>
-                        {draft.cells
-                          .slice(row * draft.columns, (row + 1) * draft.columns)
-                          .map((id, column) => {
-                            const index = row * draft.columns + column;
-                            const control = controls.find(
-                              (item) => item.id === id,
-                            );
+                          ) : null
+                        ) : null}
+                        {(["row", "column"] as const)
+                          .filter((axis) => selected.kind === axis)
+                          .map((axis) => {
+                            const index =
+                              axis === "row" ? selectedRow : selectedColumn;
+                            const count = axis === "row" ? rows : draft.columns;
                             return (
-                              <DragHandle
-                                key={column}
-                                selection={{ kind: "cell", index }}
-                                enabled={!!id && !saving && selected === null}
-                                start={startDrag}
-                                update={updateDrag}
-                                end={endDrag}
-                                cancel={cancelDrag}
-                              >
-                                <View
-                                  style={{
-                                    width: cellWidth,
-                                    opacity:
-                                      dragging &&
-                                      (dragging.kind === "cell"
-                                        ? dragging.index === index
-                                        : dragging.kind === "row"
-                                          ? dragging.index === row
-                                          : dragging.index === column)
-                                        ? 0.5
-                                        : 1,
-                                    borderWidth: 2,
-                                    borderColor:
-                                      dragging?.kind === "cell" &&
-                                      target?.index === index
-                                        ? colors.brand
-                                        : "transparent",
-                                    borderLeftColor:
-                                      dragging?.kind === "column" &&
-                                      target?.boundary === column
-                                        ? colors.brand
-                                        : undefined,
-                                    borderRightColor:
-                                      dragging?.kind === "column" &&
-                                      target?.boundary === draft.columns &&
-                                      column === draft.columns - 1
-                                        ? colors.brand
-                                        : undefined,
-                                  }}
-                                >
-                                  <ControlButton
-                                    controlRef={nodeRefs[`cell-${index}`]!}
-                                    label={control?.label ?? "Empty"}
-                                    accessibilityLabel={`Row ${row + 1}, column ${column + 1}: ${control?.accessibilityLabel ?? control?.label ?? "Empty"}`}
-                                    selected={
-                                      selected?.kind === "cell" &&
-                                      selected.index === index
-                                    }
-                                    disabled={saving}
-                                    onPress={() =>
-                                      select({ kind: "cell", index })
-                                    }
-                                  />
-                                </View>
-                              </DragHandle>
+                              <View key={axis} style={{ gap: spacing.sm }}>
+                                <ControlButton
+                                  label={`Insert ${axis} before`}
+                                  disabled={
+                                    count >=
+                                    (axis === "row" ? MAX_ROWS : MAX_COLUMNS)
+                                  }
+                                  onPress={() => resize(axis, index, true)}
+                                />
+                                <ControlButton
+                                  label={`Insert ${axis} after`}
+                                  disabled={
+                                    count >=
+                                    (axis === "row" ? MAX_ROWS : MAX_COLUMNS)
+                                  }
+                                  onPress={() => resize(axis, index + 1, true)}
+                                />
+                                <ControlButton
+                                  label={`Remove ${axis}`}
+                                  disabled={count <= 1}
+                                  onPress={() => resize(axis, index, false)}
+                                />
+                              </View>
                             );
                           })}
-                      </View>
-                    ))}
+                      </>
+                    )}
+                    <ControlButton
+                      label="Close editing actions"
+                      onPress={closeActions}
+                    />
                   </View>
-                </ScrollView>
-              </View>
-              <ControlButton
-                label="Add row at end"
-                disabled={saving || rows >= MAX_ROWS}
-                onPress={() => resize("row", rows, true)}
-              />
-              <ControlButton
-                label="Add column at end"
-                disabled={saving || draft.columns >= MAX_COLUMNS}
-                onPress={() => resize("column", draft.columns, true)}
-              />
-              <ControlButton
-                label="Reset to default"
-                disabled={saving}
-                onPress={() =>
-                  Alert.alert(
-                    "Reset section?",
-                    "Save to restore this section’s original responsive arrangement.",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Reset",
-                        onPress: () => {
-                          if (savingRef.current || !mounted.current) return;
-                          cancelDrag();
-                          setDraft(defaultLayout);
-                          setReset(true);
-                          setDirty(true);
-                          setSelected(null);
-                          setMoving(false);
-                          setError(null);
-                          focus(() => heading.current);
+                ) : null}
+                <View
+                  ref={gridViewport}
+                  testID="layout-editor-grid-viewport"
+                  onLayout={(event) => {
+                    setWidth(event.nativeEvent.layout.width);
+                    cancelDrag();
+                    measure();
+                  }}
+                >
+                  <ScrollView
+                    ref={horizontal}
+                    horizontal
+                    testID="layout-editor-horizontal"
+                    keyboardShouldPersistTaps="handled"
+                    showsHorizontalScrollIndicator={overflows}
+                    onScroll={(event) => {
+                      offset.current.x = event.nativeEvent.contentOffset.x;
+                      measure();
+                    }}
+                    scrollEventThrottle={16}
+                    onContentSizeChange={(contentWidth) => {
+                      maxOffset.current.x = Math.max(0, contentWidth - width);
+                    }}
+                  >
+                    <View
+                      style={{ width: gridWidth, gap: spacing.sm }}
+                      onLayout={measure}
+                    >
+                      <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                        <View style={{ width: trackWidth }} />
+                        {Array.from({ length: draft.columns }, (_, index) => (
+                          <DragHandle
+                            key={index}
+                            selection={{ kind: "column", index }}
+                            enabled={!saving && selected === null}
+                            start={startDrag}
+                            update={updateDrag}
+                            end={endDrag}
+                            cancel={cancelDrag}
+                          >
+                            <View style={{ width: cellWidth }}>
+                              <ControlButton
+                                controlRef={nodeRefs[`column-${index}`]!}
+                                label={`${index + 1}`}
+                                accessibilityLabel={`Column ${index + 1}`}
+                                contentLayout="stacked"
+                                icon="drag-indicator"
+                                hint="Select for column actions, or hold to drag."
+                                selected={
+                                  selected?.kind === "column" &&
+                                  selected.index === index
+                                }
+                                disabled={saving}
+                                onPress={() =>
+                                  select({ kind: "column", index })
+                                }
+                              />
+                            </View>
+                          </DragHandle>
+                        ))}
+                      </View>
+                      {Array.from({ length: rows }, (_, row) => (
+                        <View
+                          key={row}
+                          style={{
+                            flexDirection: "row",
+                            gap: spacing.sm,
+                            borderTopWidth: 2,
+                            borderTopColor:
+                              dragging?.kind === "row" &&
+                              target?.boundary === row
+                                ? colors.brand
+                                : "transparent",
+                            borderBottomWidth: 2,
+                            borderBottomColor:
+                              dragging?.kind === "row" &&
+                              target?.boundary === rows &&
+                              row === rows - 1
+                                ? colors.brand
+                                : "transparent",
+                          }}
+                        >
+                          <DragHandle
+                            selection={{ kind: "row", index: row }}
+                            enabled={!saving && selected === null}
+                            start={startDrag}
+                            update={updateDrag}
+                            end={endDrag}
+                            cancel={cancelDrag}
+                          >
+                            <View style={{ width: trackWidth }}>
+                              <ControlButton
+                                controlRef={nodeRefs[`row-${row}`]!}
+                                label={`${row + 1}`}
+                                accessibilityLabel={`Row ${row + 1}`}
+                                contentLayout="stacked"
+                                icon="drag-indicator"
+                                hint="Select for row actions, or hold to drag."
+                                selected={
+                                  selected?.kind === "row" &&
+                                  selected.index === row
+                                }
+                                disabled={saving}
+                                onPress={() =>
+                                  select({ kind: "row", index: row })
+                                }
+                              />
+                            </View>
+                          </DragHandle>
+                          {draft.cells
+                            .slice(
+                              row * draft.columns,
+                              (row + 1) * draft.columns,
+                            )
+                            .map((id, column) => {
+                              const index = row * draft.columns + column;
+                              const control = controls.find(
+                                (item) => item.id === id,
+                              );
+                              return (
+                                <DragHandle
+                                  key={column}
+                                  selection={{ kind: "cell", index }}
+                                  enabled={!!id && !saving && selected === null}
+                                  start={startDrag}
+                                  update={updateDrag}
+                                  end={endDrag}
+                                  cancel={cancelDrag}
+                                >
+                                  <View
+                                    style={{
+                                      width: cellWidth,
+                                      opacity:
+                                        dragging &&
+                                        (dragging.kind === "cell"
+                                          ? dragging.index === index
+                                          : dragging.kind === "row"
+                                            ? dragging.index === row
+                                            : dragging.index === column)
+                                          ? 0.5
+                                          : 1,
+                                    }}
+                                  >
+                                    <ControlButton
+                                      controlRef={nodeRefs[`cell-${index}`]!}
+                                      label={control?.label ?? "Empty"}
+                                      contentLayout="stacked"
+                                      accessibilityLabel={`Row ${row + 1}, column ${column + 1}: ${control?.accessibilityLabel ?? control?.label ?? "Empty"}`}
+                                      selected={
+                                        selected?.kind === "cell" &&
+                                        selected.index === index
+                                      }
+                                      disabled={saving}
+                                      onPress={() =>
+                                        select({ kind: "cell", index })
+                                      }
+                                    />
+                                    <View
+                                      pointerEvents="none"
+                                      accessible={false}
+                                      style={{
+                                        position: "absolute",
+                                        top: 0,
+                                        bottom: 0,
+                                        left: 0,
+                                        right: 0,
+                                        borderWidth: 2,
+                                        borderColor:
+                                          dragging?.kind === "cell" &&
+                                          target?.index === index
+                                            ? colors.brand
+                                            : "transparent",
+                                        borderLeftColor:
+                                          dragging?.kind === "column" &&
+                                          target?.boundary === column
+                                            ? colors.brand
+                                            : undefined,
+                                        borderRightColor:
+                                          dragging?.kind === "column" &&
+                                          target?.boundary === draft.columns &&
+                                          column === draft.columns - 1
+                                            ? colors.brand
+                                            : undefined,
+                                      }}
+                                    />
+                                  </View>
+                                </DragHandle>
+                              );
+                            })}
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+                <ControlButton
+                  label="Add row at end"
+                  disabled={saving || rows >= MAX_ROWS}
+                  onPress={() => resize("row", rows, true)}
+                />
+                <ControlButton
+                  label="Add column at end"
+                  disabled={saving || draft.columns >= MAX_COLUMNS}
+                  onPress={() => resize("column", draft.columns, true)}
+                />
+                <ControlButton
+                  label="Reset to default"
+                  disabled={saving}
+                  onPress={() =>
+                    Alert.alert(
+                      "Reset section?",
+                      "Save to restore this section’s original responsive arrangement.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Reset",
+                          onPress: () => {
+                            if (savingRef.current || !mounted.current) return;
+                            cancelDrag();
+                            setDraft(defaultLayout);
+                            setReset(true);
+                            setDirty(true);
+                            setSelected(null);
+                            setMoving(false);
+                            setError(null);
+                            focus(() => heading.current);
+                          },
                         },
-                      },
-                    ],
-                  )
-                }
-              />
-            </ScrollView>
-          </View>
-          {dragging ? (
-            <Animated.View
-              pointerEvents="none"
-              accessible={false}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                width: 160,
-                minHeight: 48,
-                padding: spacing.sm,
-                backgroundColor: colors.surfaceRaised,
-                borderColor: colors.brand,
-                borderWidth: 2,
-                transform: dragPosition.getTranslateTransform(),
-              }}
-            >
-              <AppText>{dragLabel}</AppText>
-              <AppText>
-                {target
-                  ? dragging.kind === "cell"
-                    ? `Row ${Math.floor(target.index / draft.columns) + 1}, column ${(target.index % draft.columns) + 1}`
-                    : `Position ${target.index + 1}`
-                  : "Move to a destination"}
-              </AppText>
-            </Animated.View>
+                      ],
+                    )
+                  }
+                />
+              </ScrollView>
+            </View>
+            {dragging ? (
+              <Animated.View
+                pointerEvents="none"
+                accessible={false}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  width: 160,
+                  minHeight: 48,
+                  padding: spacing.sm,
+                  backgroundColor: colors.surfaceRaised,
+                  borderColor: colors.brand,
+                  borderWidth: 2,
+                  transform: dragPosition.getTranslateTransform(),
+                }}
+              >
+                <AppText>{dragLabel}</AppText>
+                <AppText>
+                  {target
+                    ? dragging.kind === "cell"
+                      ? `Row ${Math.floor(target.index / draft.columns) + 1}, column ${(target.index % draft.columns) + 1}`
+                      : `Position ${target.index + 1}`
+                    : "Move to a destination"}
+                </AppText>
+              </Animated.View>
+            ) : null}
+          </SafeAreaView>
+          {pickerCell !== null ? (
+            <ActionPicker
+              row={Math.floor(pickerCell / draft.columns) + 1}
+              column={(pickerCell % draft.columns) + 1}
+              options={pickerOptions}
+              onSelect={assignAction}
+              onClose={closePicker}
+            />
           ) : null}
-        </View>
-        {pickerCell !== null ? (
-          <ActionPicker
-            row={Math.floor(pickerCell / draft.columns) + 1}
-            column={(pickerCell % draft.columns) + 1}
-            options={pickerOptions}
-            onSelect={assignAction}
-            onClose={closePicker}
-          />
-        ) : null}
-      </GestureHandlerRootView>
+        </GestureHandlerRootView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

@@ -56,3 +56,11 @@ The development-preview PR remains draft until all four platform pairings are re
 ### Movement width regression
 
 On Android and iOS, check a saved three-column Movement grid at large text in portrait and landscape. When Mouse sections stack, Movement must use the available content width so its last column is visible when the grid fits. Narrow screens must still allow horizontal scrolling without changing saved rows, columns, or actions. At normal text size on wide screens, retain the two-pane arrangement.
+
+### Fit-to-width grids and icon editing toggle
+
+The edit toggle is icon-only: a pencil labeled Edit layout, then a checkmark labeled Done editing with selected state. It stays beside Surface on one toolbar row; selector text may wrap vertically. Section edit actions still appear only in edit mode.
+
+Saved grids and editor cells divide the available viewport width across the saved columns. Compact numbered row/column handles retain full accessible position labels and drag/tap hints. Labels scale and wrap into taller rows; icons and selected indicators stack above/below text. All targets remain at least 48 points. Horizontal scrolling is reserved for viewports too small for those targets, with an overflow indicator. No saved geometry changes.
+
+Verify three-column/four-row Movement layouts including Scroll up, Scroll down, and Enter on 320–430-point phone widths at 100%, 150%, and 200% text, portrait/landscape, and iOS maximum Dynamic Type. Check all columns, numbered handles, drag destinations, tap moves, and bottom editor actions; the right column must not clip when minimum targets fit. Test the genuine overflow fallback below that threshold. Cancel any drag on rotation/text/viewport changes.

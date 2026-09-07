@@ -38,16 +38,24 @@ it("keeps normal surfaces clean and reveals section editors only while edit mode
   expect(view.queryByLabelText("Edit Movement section")).toBeNull();
   expect(view.getByLabelText("Left click")).toBeTruthy();
   expect(
-    view.getByLabelText("Layout edit mode").props.accessibilityState.selected,
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }).props
+      .accessibilityState.selected,
   ).toBe(false);
-  await fireEvent.press(view.getByLabelText("Layout edit mode"));
+  await fireEvent.press(
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  );
   expect(
-    view.getByLabelText("Layout edit mode").props.accessibilityState.selected,
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }).props
+      .accessibilityState.selected,
   ).toBe(true);
-  expect(view.getByText("Done editing")).toBeTruthy();
+  expect(view.getByLabelText("Done editing")).toBeTruthy();
+  expect(view.queryByText("Done editing")).toBeNull();
+  expect(view.queryByText("Edit layout")).toBeNull();
   expect(view.getByLabelText("Edit Movement section")).toBeTruthy();
   expect(view.getByLabelText("Edit Clicks and scroll section")).toBeTruthy();
-  await fireEvent.press(view.getByLabelText("Layout edit mode"));
+  await fireEvent.press(
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  );
   expect(view.queryByLabelText("Edit Movement section")).toBeNull();
   expect(view.getByLabelText("Left click")).toBeTruthy();
   expect(save).not.toHaveBeenCalled();
@@ -66,13 +74,17 @@ it("shows editing restrictions only on demand and retains their disabled state",
     </LayoutEditModeProvider>,
   );
   expect(view.queryByText(/before editing/)).toBeNull();
-  await fireEvent.press(view.getByLabelText("Layout edit mode"));
+  await fireEvent.press(
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  );
   expect(view.getAllByText(/before editing/).length).toBeGreaterThan(0);
   expect(
     view.getByLabelText("Edit Movement section").props.accessibilityState
       .disabled,
   ).toBe(true);
-  await fireEvent.press(view.getByLabelText("Layout edit mode"));
+  await fireEvent.press(
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  );
   expect(view.queryByText(/before editing/)).toBeNull();
 });
 it("preserves live typing and sends no commands when toggling editing chrome", async () => {
@@ -91,9 +103,13 @@ it("preserves live typing and sends no commands when toggling editing chrome", a
     await Promise.resolve();
   });
   const count = send.mock.calls.length;
-  await fireEvent.press(view.getByLabelText("Layout edit mode"));
+  await fireEvent.press(
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  );
   expect(view.getByLabelText("Edit PC keys section")).toBeTruthy();
-  await fireEvent.press(view.getByLabelText("Layout edit mode"));
+  await fireEvent.press(
+    view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  );
   expect(view.getByLabelText("Live text").props.value).toBe("fixture text");
   expect(send).toHaveBeenCalledTimes(count);
 });
@@ -103,6 +119,8 @@ it("omits the layout toggle on Forwarding", async () => {
       <RemoteToolbar selected="forwarding" />
     </LayoutEditModeProvider>,
   );
-  expect(view.queryByLabelText("Layout edit mode")).toBeNull();
+  expect(
+    view.queryByRole("button", { name: /^(Edit layout|Done editing)$/ }),
+  ).toBeNull();
   expect(view.getByRole("button", { name: "Surface" })).toBeTruthy();
 });

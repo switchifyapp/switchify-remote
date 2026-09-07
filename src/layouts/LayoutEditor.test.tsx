@@ -283,7 +283,7 @@ it("confirms discarding edits and removing occupied rows", async () => {
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   const view = await setup();
   await fireEvent.press(view.getByText("Add row at end"));
-  await fireEvent.press(view.getByText("Row 1"));
+  await fireEvent.press(view.getByLabelText("Row 1"));
   await fireEvent.press(view.getByText("Remove row"));
   expect(alert).toHaveBeenLastCalledWith(
     "Remove row?",
@@ -323,11 +323,11 @@ it.each(["row", "column"] as const)(
     const view = await setup();
     await fireEvent.press(view.getByText("Add row at end"));
     await fireEvent.press(
-      view.getByText(axis === "row" ? "Row 1" : "Column 1"),
+      view.getByLabelText(axis === "row" ? "Row 1" : "Column 1"),
     );
     await fireEvent.press(view.getByText(`Move ${axis}`));
     await fireEvent.press(
-      view.getByText(axis === "row" ? "Row 2" : "Column 3"),
+      view.getByLabelText(axis === "row" ? "Row 2" : "Column 3"),
     );
     await fireEvent.press(view.getByText("Save layout"));
     expect(view.onSave).toHaveBeenCalledWith({
@@ -379,9 +379,9 @@ it.each(["row", "column"] as const)(
 it("inserts after a selected track and confirms occupied column removal", async () => {
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   const view = await setup();
-  await fireEvent.press(view.getByText("Column 1"));
+  await fireEvent.press(view.getByLabelText("Column 1"));
   await fireEvent.press(view.getByText("Insert column after"));
-  await fireEvent.press(view.getByText("Column 1"));
+  await fireEvent.press(view.getByLabelText("Column 1"));
   await fireEvent.press(view.getByText("Remove column"));
   expect(alert).toHaveBeenLastCalledWith(
     "Remove column?",
@@ -545,4 +545,19 @@ it("restores focus to the filled cell and announces its assignment after the pic
   expect(view.queryByText("Choose action")).toBeNull();
   frame.mockRestore();
   announce.mockRestore();
+});
+
+it("fits editor tracks at phone width with numbered, accessible handles", async () => {
+  const view = await setup();
+  await fireEvent(view.getByTestId("layout-editor-grid-viewport"), "layout", {
+    nativeEvent: { layout: { width: 296 } },
+  });
+  expect(
+    view.getByTestId("layout-editor-horizontal").props
+      .showsHorizontalScrollIndicator,
+  ).toBe(false);
+  expect(view.getByLabelText("Column 1")).toBeTruthy();
+  expect(view.getByLabelText("Row 1")).toBeTruthy();
+  expect(view.queryByText("Column 1")).toBeNull();
+  expect(view.queryByText("Row 1")).toBeNull();
 });

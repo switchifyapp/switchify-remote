@@ -135,12 +135,12 @@ it('starts outside edit mode again after disconnection', async () => {
   mockConnection = { kind: 'connected', desktop, profile, profileStatus: 'ready' };
   mockPreferences.surface = 'mouse';
   const view = await render(<RemoteScreen />);
-  await fireEvent.press(view.getByLabelText('Layout edit mode'));
-  expect(view.getByLabelText('Layout edit mode').props.accessibilityState.selected).toBe(true);
+  await fireEvent.press(view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }));
+  expect(view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }).props.accessibilityState.selected).toBe(true);
   mockConnection = { kind: 'idle', saved: [] };
   await view.rerender(<RemoteScreen />);
-  expect(view.queryByLabelText('Layout edit mode')).toBeNull();
+  expect(view.queryByRole("button", { name: /^(Edit layout|Done editing)$/ })).toBeNull();
   mockConnection = { kind: 'connected', desktop, profile, profileStatus: 'ready' };
   await view.rerender(<RemoteScreen />);
-  expect(view.getByLabelText('Layout edit mode').props.accessibilityState.selected).toBe(false);
+  expect(view.getByRole("button", { name: /^(Edit layout|Done editing)$/ }).props.accessibilityState.selected).toBe(false);
 });
