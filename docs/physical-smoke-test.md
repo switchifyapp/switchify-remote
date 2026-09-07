@@ -2,11 +2,27 @@
 
 Record the app commit, Switchify PC release, phone model/OS, and desktop platform for each run. Never paste pairing credentials or typed personal content into the record.
 
-## Button layout editor checks
+## Layout edit mode checks
 
-On Android and iOS, customize Mouse, Typing, and Window at 100%, 150%, and 200% text in both themes and orientations. Move into empty cells, swap occupied cells, drag near scroll edges, and rotate during a drag. Confirm cancelled drags do not change the grid. Insert and remove rows and columns, cancel an occupied deletion, restore a removed button, Save, restart, and verify positions. Confirm Reset returns to the original arrangement only after Save and Cancel preserves the saved layout.
+Start a connected remote in normal mode. Confirm section headings, cards, and remote controls are present while section edit buttons and editing-only restrictions are absent. Toggle Edit layout beside Surface, verify selected state/Done editing and section edit actions, then use Done editing to hide them. Scroll and confirm the toggle stays with the pinned selector. Repeat in portrait/landscape and large text on phone/tablet widths, checking wrapping and 48-point targets with TalkBack, VoiceOver and switch navigation. Forwarding and disconnected/recovering screens must omit the toggle. Reconnect or change PCs and confirm edit mode starts off.
 
-Repeat editing without gestures using TalkBack, VoiceOver, Switch Access, and Switch Control. Confirm modal containment, cell labels, row-major scanning, destination announcements, focus return, complete labels, and 48-point targets. Check the last row clears system navigation. Confirm editing sends no PC input, retains live typing text, and is unavailable during active repeat, drag, modifiers, or Enter delivery. Verify Stop movement and typing recovery actions remain available after customization. Reconnect to a PC with fewer capabilities and verify unavailable buttons stay disabled in their saved positions.
+Toggle without changing/sending live or draft typing content, executing PC input, or modifying saved layouts/preferences. Verify section editors retain their Save/Cancel/Reset behavior and focus return while the mode stays enabled. During repeat, drag, held modifiers or live Enter delivery, turn the mode on and confirm section edit actions remain disabled with explanations; Stop movement and recovery stay available.
+
+## Searchable action picker checks
+
+Enable Edit layout, open a section editor, then tap an empty cell and confirm Choose action identifies the destination. Search mixed-case names, categories, and keywords; distinguish pointer movement from arrow keys. Select an unsupported action, confirm its explanation, immediate assignment and focus return, then Save and verify the runtime button stays disabled. Confirm no commands execute during selection. Test no matches, all actions placed, Close, scrim, Android Back and accessibility escape. A move-mode destination must move the button without opening the picker.
+
+With the software keyboard open, both orientations, and 100%, 150%, and 200% text, scroll to all results and Close. Check TalkBack/VoiceOver focus containment and assignment announcements, Switch Access/Switch Control navigation, and focus restoration to the filled cell. Place monitor, movement/scroll, modifier, window and key actions on another surface; verify current capabilities/labels after reconnect, normal key commands outside live Typing, live Enter submission, and Stop movement on Typing and Window. Draft actions placed in PC keys must be disabled in live mode. Preserve active user typing/layout drafts by using an isolated simulator or a separate test installation.
+
+## Section layout editor checks
+
+On Android and iOS, edit each visible section of Mouse, Typing, and Window independently at 100%, 150%, and 200% text, in both themes and orientations. Verify fixed section boundaries: Movement, Clicks and scroll, Pointer speed, monitors; Draft actions and PC keys; Modifiers, Windows, Shortcuts, monitors. Opening and saving untouched defaults must not change their responsive grids.
+
+Drag buttons to empty and occupied cells. Drag whole rows and columns forwards and backwards using the handles, including tracks with empty cells. Check insertion indicators and both edge-scroll directions. Release outside, cancel, rotate, resize text, and background during a drag; none may commit the move. Insert rows and columns before/after and at the end, confirm occupied deletion, restore removed buttons, and verify already-placed actions are excluded while actions from other surfaces are offered. Draft actions must be absent on Mouse and Window.
+
+Save one section, restart, and verify its exact grid plus all neighboring sections, cards, headings, help text and dynamic status. Reset restores only that section after Save; Cancel preserves its saved layout. Test saved geometry and horizontal scrolling on narrow screens. Hide/show Draft actions by changing typing mode; reconnect with fewer capabilities and return to the original PC; hidden section layouts must survive.
+
+Repeat all editing without gestures using TalkBack, VoiceOver, Switch Access, and Switch Control. Confirm modal containment, descriptive cell/track labels, logical scanning, destination announcements, focus return, complete labels, and 48-point targets. Confirm editing sends no PC input, retains live typing text, and is unavailable during active repeat, drag, modifiers, or Enter delivery. Stop movement and typing recovery remain outside customization.
 
 Run the matrix on a physical Android phone and iPhone against current Switchify PC on both Windows and macOS:
 
@@ -36,3 +52,7 @@ Run the matrix on a physical Android phone and iPhone against current Switchify 
 10. Export diagnostics and verify that no typed content, token, authentication proof, nonce, or verification code appears.
 
 The development-preview PR remains draft until all four platform pairings are recorded successfully.
+
+### Movement width regression
+
+On Android and iOS, check a saved three-column Movement grid at large text in portrait and landscape. When Mouse sections stack, Movement must use the available content width so its last column is visible when the grid fits. Narrow screens must still allow horizontal scrolling without changing saved rows, columns, or actions. At normal text size on wide screens, retain the two-pane arrangement.

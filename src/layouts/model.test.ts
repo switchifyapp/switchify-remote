@@ -1,6 +1,7 @@
 import {
   initialLayout,
   moveCell,
+  moveTrack,
   resizeLayout,
   setCell,
   validLayout,
@@ -59,4 +60,51 @@ describe("button layout operations", () => {
   ])("rejects malformed data %p", (value) =>
     expect(validLayout(value)).toBe(false),
   );
+});
+
+it("reorders complete rows and columns, shifting tracks and preserving empty cells", () => {
+  const layout = {
+    columns: 3,
+    cells: ["a", null, "b", "c", "d", null, null, "e", "f"],
+  };
+  expect(moveTrack(layout, "row", 0, 2).cells).toEqual([
+    "c",
+    "d",
+    null,
+    null,
+    "e",
+    "f",
+    "a",
+    null,
+    "b",
+  ]);
+  expect(moveTrack(layout, "row", 2, 0).cells).toEqual([
+    null,
+    "e",
+    "f",
+    "a",
+    null,
+    "b",
+    "c",
+    "d",
+    null,
+  ]);
+  expect(moveTrack(layout, "column", 0, 2).cells).toEqual([
+    null,
+    "b",
+    "a",
+    "d",
+    null,
+    "c",
+    "e",
+    "f",
+    null,
+  ]);
+  expect(moveTrack(moveTrack(layout, "column", 0, 2), "column", 2, 0)).toEqual(
+    layout,
+  );
+  expect(moveTrack(layout, "row", -1, 0)).toBe(layout);
+  expect(moveTrack(layout, "column", 1, 3)).toBe(layout);
+  expect(moveTrack(layout, "row", 0.5, 1)).toBe(layout);
+  expect(resizeLayout(layout, "row", 0.5, true)).toBe(layout);
 });

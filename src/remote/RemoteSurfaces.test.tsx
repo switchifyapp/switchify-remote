@@ -1,5 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { RenderResult } from '@testing-library/react-native';
+import * as Theme from '@/theme/ThemeContext';
 import { Platform, StyleSheet } from 'react-native';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
@@ -25,6 +26,7 @@ describe('capability-driven remote surfaces', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
   });
 
@@ -36,6 +38,21 @@ describe('capability-driven remote surfaces', () => {
     expect(view.getByLabelText('Move up').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('Faster').props.accessibilityState.disabled).toBe(true);
     expect(StyleSheet.flatten(view.getByTestId('mouse-secondary').props.style).width).toBe('100%');
+  });
+
+  it.each([
+    [1143, 808, 1.5, undefined],
+    [808, 1143, 1.5, undefined],
+    [390, 844, 1, undefined],
+    [1143, 808, 1, 400],
+  ])('sizes Movement for %s × %s at text scale %s', async (width, height, fontScale, maxWidth) => {
+    jest.spyOn(Theme, 'useLayout').mockReturnValue(Theme.classifyLayout(width, height, fontScale));
+    const session = new RemoteSession(manager, profile(['mouse.click']));
+    const view = await render(<MouseSurface session={session} state={session.snapshot()} />);
+    const style = StyleSheet.flatten(view.getByTestId('mouse-movement').props.style);
+    expect(style.width).toBe('100%');
+    expect(style.maxWidth).toBe(maxWidth);
+    expect(style.flex).toBe(maxWidth === undefined ? undefined : 1);
   });
 
   it('falls back to draft typing when streams are unsupported', async () => {
@@ -211,7 +228,7 @@ describe('capability-driven remote surfaces', () => {
     expect(view.getByLabelText('Ctrl').props.accessibilityState.disabled).toBe(false);
     expect(view.getByLabelText('Next app').props.accessibilityState.disabled).toBe(true);
     expect(view.getByLabelText('A').props.accessibilityState.disabled).toBe(true);
-    expect(view.getByLabelText('Left').props.accessibilityState.disabled).toBe(true);
+    expect(view.getByLabelText('Move pointer to monitor left').props.accessibilityState.disabled).toBe(true);
   });
 
   it('disables every action category when no commands are advertised', async () => {
@@ -225,7 +242,7 @@ describe('capability-driven remote surfaces', () => {
       expect(typing.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
     }
     const window = await render(<WindowSurface session={session} state={session.snapshot()} platform="windows" />);
-    for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'A', 'C', 'V', 'X', 'Left', 'Up', 'Down', 'Right']) {
+    for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'A', 'C', 'V', 'X', 'Move pointer to monitor left', 'Move pointer to monitor up', 'Move pointer to monitor down', 'Move pointer to monitor right']) {
       expect(window.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
     }
   });
@@ -284,6 +301,7 @@ describe('capability-driven remote surfaces', () => {
     ['android', true],
     ['ios', false],
   ] as const)('shows Android-only physical-switch guidance on %s while preserving Stop movement', async (platform, showsGuidance) => {
+    jest.restoreAllMocks();
     Object.defineProperty(Platform, 'OS', { configurable: true, value: platform });
     const session = new RemoteSession(
       { send: jest.fn(async () => true) } as unknown as ConnectionManager,
@@ -306,7 +324,7 @@ describe('capability-driven remote surfaces', () => {
     const session = new RemoteSession(actionManager, profile(commands));
     const press = async (control: RenderResult, label: string) => { await act(async () => { fireEvent.press(control.getByLabelText(label)); await Promise.resolve(); }); };
     const mouse = await render(<MouseSurface session={session} state={session.snapshot()} />);
-    for (const label of ['Move up and left', 'Move up', 'Move up and right', 'Move left', 'Left click', 'Move right', 'Move down and left', 'Move down', 'Move down and right', 'Double click', 'Right click', 'Start drag', 'Scroll up', 'Scroll down', 'Slower', 'Faster', 'Left', 'Up', 'Down', 'Right']) await press(mouse, label);
+    for (const label of ['Move up and left', 'Move up', 'Move up and right', 'Move left', 'Left click', 'Move right', 'Move down and left', 'Move down', 'Move down and right', 'Double click', 'Right click', 'Start drag', 'Scroll up', 'Scroll down', 'Slower', 'Faster', 'Move pointer to monitor left', 'Move pointer to monitor up', 'Move pointer to monitor down', 'Move pointer to monitor right']) await press(mouse, label);
     await act(async () => { mouse.rerender(<MouseSurface session={session} state={session.snapshot()} />); });
     await press(mouse, 'End drag');
     const directSession = new RemoteSession(actionManager, profile(commands.filter((type) => !type.startsWith('mouse.repeat.'))));
@@ -324,7 +342,7 @@ describe('capability-driven remote surfaces', () => {
     await press(liveTyping, 'Write a draft');
 
     const window = await render(<WindowSurface session={session} state={session.snapshot()} platform="windows" />);
-    for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'A', 'C', 'V', 'X', 'Left', 'Up', 'Down', 'Right']) await press(window, label);
+    for (const label of ['Ctrl', 'Alt', 'Shift', 'Start', 'Next app', 'Previous app', 'Task view', 'Show desktop', 'Minimize', 'Maximize', 'Close', 'Ctrl+Alt+Shift+Start+A', 'C', 'V', 'X', 'Move pointer to monitor left', 'Move pointer to monitor up', 'Move pointer to monitor down', 'Move pointer to monitor right']) await press(window, label);
     await waitFor(() => expect(new Set(send.mock.calls.map(([type]) => type))).toEqual(new Set(commands)));
   });
 });

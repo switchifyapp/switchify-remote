@@ -1,13 +1,20 @@
-import { act, fireEvent, render } from "@testing-library/react-native";
-import { Text, StyleSheet } from "react-native";
-import { MouseSurface } from '@/remote/MouseSurface';
-import type { PointerProfile } from '@/domain/protocol/types';
+import {
+  act,
+  fireEvent,
+  render as renderNative,
+} from "@testing-library/react-native";
+import type { ReactElement } from "react";
+import { LayoutEditModeContext } from "./LayoutEditMode";
+import { Alert, StyleSheet } from "react-native";
+import { MouseSurface } from "@/remote/MouseSurface";
+import { WindowSurface } from "@/remote/WindowSurface";
+import type { PointerProfile } from "@/domain/protocol/types";
 import { SurfaceLayout } from "./SurfaceLayout";
 import { layoutStore } from "./LayoutStore";
+import { sectionDefinitions } from "./sections";
 import { TypingSurface } from "@/remote/TypingSurface";
 import { RemoteSession } from "@/remote/RemoteSession";
 import type { ConnectionManager } from "@/connection/ConnectionManager";
-
 jest.mock("react-native-gesture-handler", () => {
   const { View } = jest.requireActual("react-native");
   const gesture = () => {
@@ -30,85 +37,214 @@ jest.mock("react-native-gesture-handler", () => {
     Gesture: { Pan: gesture },
   };
 });
+
+const render = (element: ReactElement) =>
+  renderNative(element, {
+    wrapper: ({ children }) => (
+      <LayoutEditModeContext.Provider
+        value={{ enabled: true, toggle: jest.fn() }}
+      >
+        {children}
+      </LayoutEditModeContext.Provider>
+    ),
+  });
+
 beforeEach(async () => {
-  await layoutStore.save("mouse", null);
-  await layoutStore.save("typing", null);
+  for (const surface of ["mouse", "typing", "window"] as const)
+    for (const section of Object.keys(sectionDefinitions[surface]))
+      await layoutStore.save(surface, section, null);
 });
-it('preserves empty leading, middle and trailing rows without adding scan stops', async () => {
-  await layoutStore.save('mouse', { columns: 1, cells: [null, 'a', null, 'b', null] });
-  const view = await render(<SurfaceLayout surface="mouse" controls={[{ id: 'a', label: 'Click', onPress: jest.fn() }, { id: 'b', label: 'Enter', onPress: jest.fn() }]}><Text>Default</Text></SurfaceLayout>);
-  expect(view.getAllByTestId('surface-layout-row')).toHaveLength(5);
-  for (const row of view.getAllByTestId('surface-layout-row')) expect(StyleSheet.flatten(row.props.style).minHeight).toBeGreaterThanOrEqual(48);
-  expect(view.getAllByRole('button')).toHaveLength(3);
-});
-it('keeps current pointer speed visible after customization and updates it', async () => {
-  await layoutStore.save('mouse', { columns: 1, cells: ['speed.slower', 'speed.faster'] });
-  const profile: PointerProfile = { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands: ['pointer.speed.set'], mouseRepeat: { supported: false, enabled: false, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: false, displayCount: 1 } } };
-  const session = new RemoteSession({ send: jest.fn(async () => true) } as unknown as ConnectionManager, profile);
-  const view = await render(<MouseSurface session={session} state={session.snapshot()} />);
-  expect(view.getByText('Pointer speed · 100%')).toBeTruthy();
-  profile.capabilities.pointerSpeed.scalePercent = 50;
-  await view.rerender(<MouseSurface session={session} state={session.snapshot()} />);
-  expect(view.getByText('Pointer speed · 50%')).toBeTruthy();
-  profile.capabilities.pointerSpeed.supported = false;
-  await view.rerender(<MouseSurface session={session} state={session.snapshot()} />);
-  expect(view.queryByText('Pointer speed · 50%')).toBeNull();
-  expect(view.getByLabelText('Slower').props.accessibilityState.disabled).toBe(true);
-  await view.unmount(); session.dispose();
-});
-it("preserves custom positions, labels, availability and original action handlers", async () => {
-  await layoutStore.save("mouse", { columns: 3, cells: ["b", null, "a"] });
-  const a = jest.fn();
-  const b = jest.fn();
-  const controls = [
-    { id: "a", label: "Start drag", onPress: a },
-    { id: "b", label: "Click", onPress: b },
-  ];
+const command = jest.fn();
+const clicks = [
+  { id: "click.double", label: "Double click", onPress: command },
+  { id: "drag.toggle", label: "Start drag", onPress: command },
+];
+it("preserves empty leading, middle and trailing rows without extra scan stops", async () => {
+  await layoutStore.save("mouse", "clicks", {
+    columns: 1,
+    cells: [null, "click.double", null, "drag.toggle", null],
+  });
   const view = await render(
-    <SurfaceLayout surface="mouse" controls={controls}>
-      <Text>Default arrangement</Text>
-    </SurfaceLayout>,
+    <SurfaceLayout surface="mouse" section="clicks" controls={clicks} />,
   );
-  expect(view.queryByText("Default arrangement")).toBeNull();
-  expect(
-    view
-      .getAllByRole("button")
-      .map((button) => button.props.accessibilityLabel),
-  ).toEqual(["Edit layout", "Click", "Start drag"]);
-  await fireEvent.press(view.getByText("Click"));
-  expect(b).toHaveBeenCalledTimes(1);
+  expect(view.getAllByTestId("surface-layout-row")).toHaveLength(5);
+  for (const row of view.getAllByTestId("surface-layout-row"))
+    expect(
+      StyleSheet.flatten(row.props.style).minHeight,
+    ).toBeGreaterThanOrEqual(48);
+  expect(view.getAllByRole("button")).toHaveLength(3);
+  expect(view.getByRole("header", { name: "Clicks and scroll" })).toBeTruthy();
+});
+it("no-op Save leaves the default responsive presentation intact", async () => {
+  const view = await render(
+    <SurfaceLayout surface="mouse" section="clicks" controls={clicks} />,
+  );
+  await fireEvent.press(view.getByLabelText("Edit Clicks and scroll section"));
+  await fireEvent.press(view.getByText("Save layout"));
+  expect(layoutStore.snapshot().mouse?.clicks).toBeUndefined();
+  expect(view.getByTestId("default-mouse-clicks-0")).toBeTruthy();
+});
+it("keeps original actions and updates dynamic labels and availability", async () => {
+  await layoutStore.save("mouse", "clicks", {
+    columns: 2,
+    cells: ["drag.toggle", "click.double"],
+  });
+  const view = await render(
+    <SurfaceLayout surface="mouse" section="clicks" controls={clicks} />,
+  );
+  await fireEvent.press(view.getByText("Double click"));
+  expect(command).toHaveBeenCalled();
   await view.rerender(
     <SurfaceLayout
       surface="mouse"
+      section="clicks"
       controls={[
-        { ...controls[0]!, label: "End drag", selected: true },
-        { ...controls[1]!, disabled: true },
+        clicks[0]!,
+        { ...clicks[1]!, label: "End drag", selected: true, disabled: true },
       ]}
-    >
-      <Text>Default arrangement</Text>
-    </SurfaceLayout>,
+    />,
   );
   expect(
-    view.getByLabelText("End drag").props.accessibilityState.selected,
-  ).toBe(true);
-  expect(view.getByLabelText("Click").props.accessibilityState.disabled).toBe(
-    true,
-  );
-  expect(view.getAllByRole("button")).toHaveLength(3);
+    view.getByLabelText("End drag").props.accessibilityState,
+  ).toMatchObject({ selected: true, disabled: true });
 });
-it("uses defaults for unknown saved controls and blocks editing during active input", async () => {
-  await layoutStore.save("mouse", { columns: 1, cells: ["obsolete"] });
+it("Save preserves neighboring section cards, headings, help and default grids", async () => {
+  const session = new RemoteSession(
+    { send: jest.fn(async () => true) } as unknown as ConnectionManager,
+    null,
+  );
   const view = await render(
-    <SurfaceLayout surface="mouse" controls={[]} blocked="Stop movement first.">
-      <Text>Default arrangement</Text>
-    </SurfaceLayout>,
+    <WindowSurface
+      session={session}
+      state={session.snapshot()}
+      platform="macos"
+    />,
   );
-  expect(view.getByText("Default arrangement")).toBeTruthy();
+  await fireEvent.press(view.getByLabelText("Edit Windows section"));
+  await fireEvent.press(view.getByText("Add row at end"));
+  await fireEvent.press(view.getByText("Save layout"));
+  for (const name of ["Modifiers", "Windows", "Shortcuts"])
+    expect(view.getByRole("header", { name })).toBeTruthy();
+  expect(view.getByText(/Held modifiers stay active/)).toBeTruthy();
+  expect(view.getByTestId("default-window-modifiers-0")).toBeTruthy();
+  expect(view.getByTestId("default-window-shortcuts-0")).toBeTruthy();
+  expect(view.getByTestId("section-window-windows")).toBeTruthy();
+  expect(layoutStore.snapshot().window?.windows).toBeDefined();
+  expect(layoutStore.snapshot().window?.modifiers).toBeUndefined();
+  await view.unmount();
+  session.dispose();
+});
+it("keeps speed status and other Mouse sections after saving, hides unavailable sections without losing layouts", async () => {
+  const profile: PointerProfile = {
+    displayId: "display",
+    scaleFactor: 1,
+    bounds: { x: 0, y: 0, width: 100, height: 100 },
+    maxDelta: 128,
+    recommendedDeltas: { small: 32, medium: 64, large: 128 },
+    capabilities: {
+      noAckCommands: [],
+      noAckMouseMove: false,
+      supportedCommands: ["pointer.speed.set"],
+      mouseRepeat: {
+        supported: false,
+        enabled: false,
+        intervalMs: 250,
+        minIntervalMs: 100,
+        maxIntervalMs: 2000,
+      },
+      pointerSpeed: {
+        supported: true,
+        setSupported: true,
+        scalePercent: 100,
+        minScalePercent: 5,
+        maxScalePercent: 225,
+        stepPercent: 5,
+        baseMoveDelta: 64,
+        effectiveMoveDelta: 64,
+      },
+      displayNavigation: { supported: false, displayCount: 1 },
+    },
+  };
+  await layoutStore.save("mouse", "speed", {
+    columns: 1,
+    cells: ["speed.faster", null, "speed.slower"],
+  });
+  const session = new RemoteSession(
+    { send: jest.fn(async () => true) } as unknown as ConnectionManager,
+    profile,
+  );
+  const view = await render(
+    <MouseSurface session={session} state={session.snapshot()} />,
+  );
+  expect(view.getByText("Pointer speed · 100%")).toBeTruthy();
+  expect(view.getByText("Movement")).toBeTruthy();
+  expect(view.getByText("Clicks and scroll")).toBeTruthy();
+  profile.capabilities.pointerSpeed.scalePercent = 50;
+  await view.rerender(
+    <MouseSurface session={session} state={session.snapshot()} />,
+  );
+  expect(view.getByText("Pointer speed · 50%")).toBeTruthy();
+  profile.capabilities.pointerSpeed.supported = false;
+  await view.rerender(
+    <MouseSurface session={session} state={session.snapshot()} />,
+  );
+  expect(view.queryByTestId("section-mouse-speed")).toBeNull();
+  expect(layoutStore.snapshot().mouse?.speed?.cells).toEqual([
+    "speed.faster",
+    null,
+    "speed.slower",
+  ]);
+  profile.capabilities.pointerSpeed.supported = true;
+  await view.rerender(
+    <MouseSurface session={session} state={session.snapshot()} />,
+  );
+  expect(view.getAllByTestId("surface-layout-row")).toHaveLength(3);
+  await view.unmount();
+  session.dispose();
+});
+it("reset restores only the selected section defaults after Save", async () => {
+  await layoutStore.save("mouse", "clicks", {
+    columns: 1,
+    cells: ["click.double"],
+  });
+  await layoutStore.save("mouse", "speed", {
+    columns: 1,
+    cells: ["speed.slower"],
+  });
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  const view = await render(
+    <SurfaceLayout surface="mouse" section="clicks" controls={clicks} />,
+  );
+  await fireEvent.press(view.getByLabelText("Edit Clicks and scroll section"));
+  await fireEvent.press(view.getByText("Reset to default"));
+  await act(async () => {
+    alert.mock.calls
+      .at(-1)?.[2]
+      ?.find((button) => button.text === "Reset")
+      ?.onPress?.();
+  });
+  expect(layoutStore.snapshot().mouse?.clicks).toBeDefined();
+  await fireEvent.press(view.getByText("Save layout"));
+  expect(layoutStore.snapshot().mouse?.clicks).toBeUndefined();
+  expect(layoutStore.snapshot().mouse?.speed).toBeDefined();
+  expect(view.getByTestId("default-mouse-clicks-0")).toBeTruthy();
+  alert.mockRestore();
+});
+it("blocks editing during active input", async () => {
+  const view = await render(
+    <SurfaceLayout
+      surface="mouse"
+      section="clicks"
+      controls={clicks}
+      blocked="Stop movement first."
+    />,
+  );
   expect(
-    view.getByLabelText("Edit layout").props.accessibilityState.disabled,
+    view.getByLabelText("Edit Clicks and scroll section").props
+      .accessibilityState.disabled,
   ).toBe(true);
 });
-it("keeps live text mounted and unchanged while editing and saving its key layout", async () => {
+it("keeps live typing mounted and sends no commands while editing or saving keys", async () => {
   const send = jest.fn(async () => true);
   const session = new RemoteSession(
     { send } as unknown as ConnectionManager,
@@ -124,11 +260,83 @@ it("keeps live text mounted and unchanged while editing and saving its key layou
     await Promise.resolve();
   });
   const count = send.mock.calls.length;
-  await fireEvent.press(view.getByText("Edit layout"));
+  await fireEvent.press(view.getByLabelText("Edit PC keys section"));
   await fireEvent.press(view.getByText("Add row at end"));
+  await fireEvent.press(
+    view.getAllByLabelText(/Row \d+, column \d+: Empty/)[0]!,
+  );
+  await fireEvent.changeText(
+    view.getByLabelText("Search actions"),
+    "close window",
+  );
+  await fireEvent.press(view.getByLabelText("Close window"));
+  expect(send).toHaveBeenCalledTimes(count);
   await fireEvent.press(view.getByText("Save layout"));
   expect(view.getByLabelText("Live text").props.value).toBe("fixture text");
   expect(send).toHaveBeenCalledTimes(count);
+  expect(view.queryByTestId("section-typing-draft")).toBeNull();
+  await view.rerender(
+    <TypingSurface session={session} mode="draft" draft="fixture" />,
+  );
+  expect(view.getByTestId("section-typing-draft")).toBeTruthy();
   await view.unmount();
   session.dispose();
+});
+it.each(["typing", "window"] as const)(
+  "keeps repeat stop outside customized %s grids",
+  async (surface) => {
+    const send = jest.fn(async () => true);
+    const session = new RemoteSession(
+      { send } as unknown as ConnectionManager,
+      null,
+    );
+    const stop = jest.spyOn(session, "stopRepeat").mockResolvedValue();
+    jest.spyOn(session, "snapshot").mockReturnValue({
+      repeat: "mouse.scroll",
+      dragging: false,
+      modifiers: [],
+      streamOpen: false,
+    });
+    const view = await render(
+      surface === "typing" ? (
+        <TypingSurface session={session} mode="draft" draft="fixture" />
+      ) : (
+        <WindowSurface
+          session={session}
+          state={session.snapshot()}
+          platform="windows"
+        />
+      ),
+    );
+    expect(view.getByText(/Movement is repeating/)).toBeTruthy();
+    const edit = view
+      .getAllByRole("button")
+      .filter((button) =>
+        String(button.props.accessibilityLabel).startsWith("Edit "),
+      );
+    expect(edit.length).toBeGreaterThan(0);
+    expect(
+      edit.every((button) => button.props.accessibilityState.disabled),
+    ).toBe(true);
+    await fireEvent.press(view.getByLabelText("Stop movement"));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    await view.unmount();
+    session.dispose();
+  },
+);
+
+it("lets the first keyboard tap reach a customized Typing action", async () => {
+  await layoutStore.save("typing", "keys", { columns: 1, cells: ["key.Enter"] });
+  const enter = jest.fn();
+  const view = await render(
+    <SurfaceLayout surface="typing" section="keys" controls={[
+      { id: "key.Enter", label: "Enter", onPress: enter },
+    ]} />,
+  );
+  // The nested native responder must not consume the first tap to dismiss text input.
+  expect(view.getByTestId("section-grid-scroll").props.keyboardShouldPersistTaps).toBe("handled");
+  expect(enter).not.toHaveBeenCalled();
+  await fireEvent.press(view.getByLabelText("Enter"));
+  expect(enter).toHaveBeenCalledTimes(1);
 });

@@ -33,10 +33,13 @@ export function validLayout(value: unknown): value is ButtonLayout {
   });
 }
 
-export function initialLayout(ids: readonly string[]): ButtonLayout {
+export function initialLayout(
+  ids: readonly string[],
+  columns = 3,
+): ButtonLayout {
   const cells: (string | null)[] = [...ids];
-  while (!cells.length || cells.length % 3) cells.push(null);
-  return { columns: 3, cells };
+  while (!cells.length || cells.length % columns) cells.push(null);
+  return { columns, cells };
 }
 
 export function moveCell(
@@ -44,7 +47,14 @@ export function moveCell(
   from: number,
   to: number,
 ): ButtonLayout {
-  if (!layout.cells[from] || from === to || to < 0 || to >= layout.cells.length)
+  if (
+    !Number.isInteger(from) ||
+    !Number.isInteger(to) ||
+    !layout.cells[from] ||
+    from === to ||
+    to < 0 ||
+    to >= layout.cells.length
+  )
     return layout;
   const cells = [...layout.cells];
   [cells[from], cells[to]] = [cells[to]!, cells[from]!];
@@ -57,6 +67,7 @@ export function setCell(
   id: string | null,
 ): ButtonLayout {
   if (
+    !Number.isInteger(index) ||
     index < 0 ||
     index >= layout.cells.length ||
     (id !== null && layout.cells.includes(id))
@@ -78,6 +89,7 @@ export function resizeLayout(
   const count = axis === "row" ? rows : layout.columns;
   const limit = axis === "row" ? MAX_ROWS : MAX_COLUMNS;
   if (
+    !Number.isInteger(index) ||
     index < 0 ||
     index > count - (insert ? 0 : 1) ||
     (insert ? count >= limit : count <= 1)
@@ -99,5 +111,41 @@ export function resizeLayout(
   return {
     columns: layout.columns + (axis === "column" ? (insert ? 1 : -1) : 0),
     cells: matrix.flat(),
+  };
+}
+
+export type LayoutAxis = "row" | "column";
+
+/** Move to a final index, shifting intervening tracks instead of swapping. */
+export function moveTrack(
+  layout: ButtonLayout,
+  axis: LayoutAxis,
+  from: number,
+  to: number,
+): ButtonLayout {
+  const rows = layout.cells.length / layout.columns;
+  const count = axis === "row" ? rows : layout.columns;
+  if (
+    !Number.isInteger(from) ||
+    !Number.isInteger(to) ||
+    from < 0 ||
+    to < 0 ||
+    from >= count ||
+    to >= count ||
+    from === to
+  )
+    return layout;
+  const order = Array.from({ length: count }, (_, i) => i);
+  order.splice(to, 0, order.splice(from, 1)[0]!);
+  return {
+    columns: layout.columns,
+    cells: Array.from({ length: layout.cells.length }, (_, i) => {
+      const row = Math.floor(i / layout.columns);
+      const column = i % layout.columns;
+      return layout.cells[
+        (axis === "row" ? order[row]! : row) * layout.columns +
+          (axis === "column" ? order[column]! : column)
+      ]!;
+    }),
   };
 }

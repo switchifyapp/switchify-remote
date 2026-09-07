@@ -1,6 +1,6 @@
 import { BlurTargetView } from 'expo-blur';
 import { type PropsWithChildren, type ReactNode, useCallback, useRef, useState } from 'react';
-import { AccessibilityInfo, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AccessibilityInfo, ScrollView, View, type NativeScrollEvent, type ScrollViewProps, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from './AppText';
@@ -14,6 +14,7 @@ type ScreenProps = PropsWithChildren<{
   headerAccessory?: ReactNode;
   bottomAccessory?: ReactNode;
   nativeHeader?: boolean;
+  keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
   scrollToTop?: boolean;
   stickyAccessory?: ReactNode;
 }>;
@@ -34,6 +35,7 @@ type StickyScreenContentProps = PropsWithChildren<{
   headerAccessory: ReactNode;
   isExpanded: boolean;
   nativeHeader: boolean;
+  keyboardShouldPersistTaps: ScrollViewProps['keyboardShouldPersistTaps'];
   paddingBottom: number;
   paddingHorizontal: number;
   scrollToTop: boolean;
@@ -42,7 +44,7 @@ type StickyScreenContentProps = PropsWithChildren<{
   title: string;
 }>;
 
-function StickyScreenContent({ children, description, headerAccessory, isExpanded, nativeHeader, paddingBottom, paddingHorizontal, scrollToTop, stackHeader, stickyAccessory, title }: StickyScreenContentProps) {
+function StickyScreenContent({ children, description, headerAccessory, isExpanded, nativeHeader, keyboardShouldPersistTaps, paddingBottom, paddingHorizontal, scrollToTop, stackHeader, stickyAccessory, title }: StickyScreenContentProps) {
   const { reducedMotion, spacing } = useTheme();
   const [pinned, setPinned] = useState(false);
   const [scrollingToTop, setScrollingToTop] = useState(false);
@@ -88,6 +90,7 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
   const scrollView = <ScrollView
     ref={scrollRef}
     testID="screen-scroll"
+    keyboardShouldPersistTaps={keyboardShouldPersistTaps}
     contentContainerStyle={{ alignItems: 'center', flexGrow: 1, gap: spacing.md, paddingBottom: paddingBottom + (scrollToTop ? 48 + spacing.md : 0), paddingHorizontal }}
     onScroll={handleScroll}
     onScrollBeginDrag={scrollToTop ? cancelScrollToTop : undefined}
@@ -126,7 +129,7 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
   </View>;
 }
 
-export function Screen({ title, description, headerAccessory, bottomAccessory, nativeHeader = false, scrollToTop = false, stickyAccessory, children }: ScreenProps) {
+export function Screen({ title, description, headerAccessory, bottomAccessory, nativeHeader = false, scrollToTop = false, stickyAccessory, keyboardShouldPersistTaps, children }: ScreenProps) {
   const { colors, spacing } = useTheme();
   const { isCompact, isExpanded, isLargeText } = useLayout();
   const insets = useSafeAreaInsets();
@@ -135,7 +138,7 @@ export function Screen({ title, description, headerAccessory, bottomAccessory, n
   const paddingHorizontal = isExpanded ? spacing.xxl : spacing.xl;
   return (
     <SafeAreaView edges={nativeHeader ? [] : ['top']} style={{ backgroundColor: colors.background, flex: 1 }}>
-      {stickyAccessory === undefined ? <ScrollView testID="screen-scroll" contentContainerStyle={{ alignItems: 'center', flexGrow: 1, paddingBottom, paddingHorizontal }}>
+      {stickyAccessory === undefined ? <ScrollView testID="screen-scroll" keyboardShouldPersistTaps={keyboardShouldPersistTaps} contentContainerStyle={{ alignItems: 'center', flexGrow: 1, paddingBottom, paddingHorizontal }}>
         <View testID="screen-content" style={{ gap: spacing.xl, maxWidth: isExpanded ? 960 : 640, paddingTop: nativeHeader ? spacing.xl : 0, width: '100%' }}>
           {!nativeHeader ? <ScreenHeader description={description} headerAccessory={headerAccessory} stackHeader={stackHeader} title={title} /> : null}
           {children}
@@ -145,6 +148,7 @@ export function Screen({ title, description, headerAccessory, bottomAccessory, n
         headerAccessory={headerAccessory}
         isExpanded={isExpanded}
         nativeHeader={nativeHeader}
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         paddingBottom={paddingBottom}
         paddingHorizontal={paddingHorizontal}
         scrollToTop={scrollToTop}

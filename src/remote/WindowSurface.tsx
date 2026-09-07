@@ -1,29 +1,76 @@
-import { type ReactElement } from 'react';
-import { SurfaceLayout, type LayoutControl } from '@/layouts/SurfaceLayout';
-import { View } from 'react-native';
+import { View } from "react-native";
+import { SurfaceLayout } from "@/layouts/SurfaceLayout";
+import { AppText } from "@/components/AppText";
+import { Card } from "@/components/Card";
+import type { PcPlatform } from "@/domain/protocol/types";
+import { useTheme } from "@/theme/ThemeContext";
+import { useRemoteActions } from "./actions/useRemoteActions";
+import { RepeatStatus } from "./RepeatStatus";
+import type { RemoteSession, RemoteSessionState } from "./RemoteSession";
 
-import { AppText } from '@/components/AppText';
-import { Card } from '@/components/Card';
-import { ControlButton } from '@/components/ControlButton';
-import { ResponsiveGrid } from '@/components/ResponsiveGrid';
-import { commandPayloads } from '@/domain/protocol/commands';
-import type { PcPlatform } from '@/domain/protocol/types';
-import { useTheme } from '@/theme/ThemeContext';
-import type { RemoteSession, RemoteSessionState } from './RemoteSession';
-
-const actions = [['Next app', 'switchNext'], ['Previous app', 'switchPrevious'], ['Task view', 'taskView'], ['Show desktop', 'showDesktop'], ['Minimize', 'minimizeFocused'], ['Maximize', 'maximizeFocused'], ['Close', 'closeFocused']] as const;
-
-export function WindowSurface({ session, state, platform }: { session: RemoteSession; state: RemoteSessionState; platform: PcPlatform }) {
-  const labels: Record<string, string> = platform === 'macos' ? { Ctrl: 'Control', Alt: 'Option', Shift: 'Shift', Meta: 'Command' } : { Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift', Meta: 'Start' };
+export function WindowSurface({
+  session,
+  state,
+  platform,
+  physicalSwitchStopAvailable = true,
+}: {
+  session: RemoteSession;
+  state: RemoteSessionState;
+  platform: PcPlatform;
+  physicalSwitchStopAvailable?: boolean;
+}) {
   const { spacing } = useTheme();
-  const controls: LayoutControl[] = [];
-  const register = (id: string, element: ReactElement<LayoutControl>) => { controls.push({ ...element.props, id }); return element; };
-  const content = <View style={{ gap: spacing.md }}>
-    <Card><AppText accessibilityRole="header" variant="heading">Modifiers</AppText><ResponsiveGrid minItemWidth={120}>{Object.entries(labels).map(([key, label]) => register(`modifier.${key}`, <ControlButton key={key} label={label} disabled={!session.supports(state.modifiers.includes(key) ? 'keyboard.modifierUp' : 'keyboard.modifierDown')} selected={state.modifiers.includes(key)} onPress={() => void session.toggleModifier(key)} />))}</ResponsiveGrid><AppText muted variant="caption">Held modifiers stay active until selected again, used in a shortcut, or the remote disconnects.</AppText></Card>
-    <Card><AppText accessibilityRole="header" variant="heading">Windows</AppText><ResponsiveGrid minItemWidth={130}>{actions.map(([label, action]) => register(`window.${action}`, <ControlButton key={action} {...(action === 'closeFocused' ? { icon: 'warning' as const } : {})} label={label} danger={action === 'closeFocused'} disabled={!session.supports('window.control')} onPress={() => { const [type, payload] = commandPayloads.windowControl(action); void session.command(type, payload); }} />))}</ResponsiveGrid></Card>
-    <Card><AppText accessibilityRole="header" variant="heading">Shortcuts</AppText><ResponsiveGrid minItemWidth={96}>{['A', 'C', 'V', 'X'].map((key) => register(`shortcut.${key}`, <ControlButton key={key} label={`${state.modifiers.length ? state.modifiers.map((item) => labels[item]).join('+') + '+' : ''}${key}`} disabled={!session.supports('keyboard.shortcut')} onPress={() => void session.shortcut(key)} />))}</ResponsiveGrid></Card>
-    {session.profile?.capabilities.displayNavigation.supported && session.profile.capabilities.displayNavigation.displayCount > 1 ? <Card><AppText accessibilityRole="header" variant="heading">Move pointer to monitor</AppText><ResponsiveGrid maxColumns={4} minItemWidth={96}>{(['left', 'up', 'down', 'right'] as const).map((direction) => register(`monitor.${direction}`, <ControlButton key={direction} label={direction[0]!.toUpperCase() + direction.slice(1)} disabled={!session.supports('pointer.display.move')} onPress={() => { const [type, payload] = commandPayloads.displayMove(direction); void session.command(type, payload); }} />))}</ResponsiveGrid></Card> : null}
-  </View>;
-  for (const direction of ['left', 'up', 'down', 'right'] as const) if (!controls.some((item) => item.id === `monitor.${direction}`)) controls.push({ id: `monitor.${direction}`, label: direction[0]!.toUpperCase() + direction.slice(1), disabled: true, onPress: () => undefined });
-  return <SurfaceLayout surface="window" controls={controls} blocked={state.repeat || state.dragging || state.modifiers.length ? 'Stop movement, end dragging, and release modifiers before editing.' : null}>{content}</SurfaceLayout>;
+  const blocked =
+    state.repeat || state.dragging || state.modifiers.length
+      ? "Stop movement, end dragging, and release modifiers before editing."
+      : null;
+  const controls = useRemoteActions({ surface: "window", session, platform });
+  return (
+    <View style={{ gap: spacing.md }}>
+      <RepeatStatus
+        session={session}
+        state={state}
+        physicalSwitchStopAvailable={physicalSwitchStopAvailable}
+      />
+      <Card>
+        <SurfaceLayout
+          surface="window"
+          section="modifiers"
+          controls={controls}
+          blocked={blocked}
+        />
+        <AppText muted variant="caption">
+          Held modifiers stay active until selected again, used in a shortcut,
+          or the remote disconnects.
+        </AppText>
+      </Card>
+      <Card>
+        <SurfaceLayout
+          surface="window"
+          section="windows"
+          controls={controls}
+          blocked={blocked}
+        />
+      </Card>
+      <Card>
+        <SurfaceLayout
+          surface="window"
+          section="shortcuts"
+          controls={controls}
+          blocked={blocked}
+        />
+      </Card>
+      {session.profile?.capabilities.displayNavigation.supported &&
+      session.profile.capabilities.displayNavigation.displayCount > 1 ? (
+        <Card>
+          <SurfaceLayout
+            surface="window"
+            section="monitors"
+            controls={controls}
+            blocked={blocked}
+          />
+        </Card>
+      ) : null}
+    </View>
+  );
 }

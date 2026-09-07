@@ -1,50 +1,66 @@
 import {
   type ComponentProps,
-  type ReactNode,
   useEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import { Platform, View } from "react-native";
+import { Platform, ScrollView, View } from "react-native";
 import { ControlButton } from "@/components/ControlButton";
 import { AppText } from "@/components/AppText";
+import { ResponsiveGrid } from "@/components/ResponsiveGrid";
 import { focusAccessibilityTarget } from "@/components/accessibilityFocus";
-import { useTheme } from "@/theme/ThemeContext";
+import { useLayout, useTheme } from "@/theme/ThemeContext";
+import { useLayoutEditMode } from "./LayoutEditMode";
 import { layoutStore } from "./LayoutStore";
+import type { ActionOption } from "@/remote/actions/catalog";
 import { LayoutEditor } from "./LayoutEditor";
-import { initialLayout, type LayoutSurface } from "./model";
+import { type ButtonLayout, type LayoutSurface } from "./model";
+import { getSection, sectionDefault, validSectionLayout } from "./sections";
 
 export type LayoutControl = ComponentProps<typeof ControlButton> & {
   id: string;
+  option?: ActionOption;
 };
+
+/** Owns only one section; cards, surface structure and safety controls stay mounted. */
 export function SurfaceLayout({
   surface,
+  section,
   controls,
   blocked,
-  children,
-  customStatus,
+  title,
 }: {
   surface: LayoutSurface;
+  section: string;
   controls: LayoutControl[];
   blocked?: string | null;
-  children: ReactNode;
-  customStatus?: ReactNode;
+  title?: string;
 }) {
+  const { enabled: editing } = useLayoutEditMode();
   const layouts = useSyncExternalStore(
     layoutStore.subscribe,
     layoutStore.snapshot,
     layoutStore.snapshot,
   );
-  const [editing, setEditing] = useState(false);
+  const [editor, setEditor] = useState<{
+    initial: ButtonLayout;
+    defaults: ButtonLayout;
+    customized: boolean;
+  } | null>(null);
+  const [visible, setVisible] = useState(false);
   const [editorSession, setEditorSession] = useState(0);
+  const [width, setWidth] = useState(0);
   const trigger = useRef<View>(null);
   const frame = useRef<number | null>(null);
   const mounted = useRef(true);
   const opening = useRef(false);
-  const blockedRef = useRef(blocked);
-  useEffect(() => { blockedRef.current = blocked; }, [blocked]);
+  const editableRef = useRef(editing && !blocked);
+  useEffect(() => {
+    editableRef.current = editing && !blocked;
+  }, [blocked, editing]);
   const { spacing } = useTheme();
+  const { fontScale } = useLayout();
   useEffect(() => {
     mounted.current = true;
     void layoutStore.load();
@@ -53,83 +69,140 @@ export function SurfaceLayout({
       if (frame.current !== null) cancelAnimationFrame(frame.current);
     };
   }, []);
-  const stored = layouts[surface];
-  const layout = stored?.cells.every(
-    (id) => id === null || controls.some((control) => control.id === id),
-  )
+  const definition = getSection(surface, section);
+  if (!definition) return null;
+  const stored = layouts[surface]?.[section];
+  const layout = validSectionLayout(surface, section, stored)
     ? stored
     : undefined;
   const restore = () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => {
       frame.current = null;
-      focusAccessibilityTarget(trigger.current);
+      if (mounted.current) focusAccessibilityTarget(trigger.current);
     });
   };
+  const cellWidth = Math.max(
+    96 * Math.max(1, fontScale),
+    (width - spacing.sm * ((layout?.columns ?? 1) - 1)) /
+      (layout?.columns ?? 1),
+  );
   return (
-    <View style={{ gap: spacing.md }}>
-      <ControlButton
-        controlRef={trigger}
-        label="Edit layout"
-        icon="edit"
-        disabled={!!blocked}
-        onPress={() => {
-          if (opening.current || blockedRef.current) return;
-          opening.current = true;
-          void layoutStore.load().then(() => {
-            opening.current = false;
-            if (!mounted.current || blockedRef.current) return;
-            setEditorSession((value) => value + 1);
-            setEditing(true);
-          });
-        }}
-      />
-      {blocked ? <AppText muted>{blocked}</AppText> : null}
-      {layout ? customStatus : null}
+    <View
+      testID={`section-${surface}-${section}`}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={{ gap: spacing.sm }}
+    >
+      <AppText accessibilityRole="header" variant="heading">
+        {title ?? definition.title}
+      </AppText>
+      {editing ? (
+        <ControlButton
+          controlRef={trigger}
+          label="Edit section"
+          accessibilityLabel={`Edit ${definition.title} section`}
+          icon="edit"
+          compact
+          disabled={!!blocked}
+          onPress={() => {
+            if (opening.current || !editableRef.current) return;
+            opening.current = true;
+            void layoutStore.load().then(() => {
+              opening.current = false;
+              if (!mounted.current || !editableRef.current) return;
+              const defaults = sectionDefault(
+                definition,
+                width,
+                fontScale,
+                spacing.sm,
+              );
+              const current = layoutStore.snapshot()[surface]?.[section];
+              const customized = validSectionLayout(surface, section, current);
+              setEditor({
+                initial: customized ? current : defaults,
+                defaults,
+                customized,
+              });
+              setEditorSession((value) => value + 1);
+              setVisible(true);
+            });
+          }}
+        />
+      ) : null}
+      {editing && blocked ? <AppText muted>{blocked}</AppText> : null}
       {layout ? (
-        <View style={{ gap: spacing.sm }}>
-          {Array.from(
-            { length: layout.cells.length / layout.columns },
-            (_, row) => (
-              <View
-                key={row}
-                testID="surface-layout-row"
-                style={{
-                  flexDirection: "row",
-                  alignItems: "stretch",
-                  minHeight: 58,
-                  gap: spacing.sm,
-                }}
-              >
-                {layout.cells
-                  .slice(row * layout.columns, (row + 1) * layout.columns)
-                  .map((id, column) => {
-                    const control = controls.find((item) => item.id === id);
-                    return (
-                      <View key={column} style={{ flex: 1, minWidth: 48 }}>
-                        {control ? <ControlButton {...control} /> : null}
-                      </View>
-                    );
-                  })}
-              </View>
-            ),
-          )}
-        </View>
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          testID="section-grid-scroll"
+          contentContainerStyle={{ minWidth: "100%" }}
+        >
+          <View style={{ gap: spacing.sm }}>
+            {Array.from(
+              { length: layout.cells.length / layout.columns },
+              (_, row) => (
+                <View
+                  key={row}
+                  testID="surface-layout-row"
+                  style={{
+                    flexDirection: "row",
+                    minHeight: 58,
+                    gap: spacing.sm,
+                  }}
+                >
+                  {layout.cells
+                    .slice(row * layout.columns, (row + 1) * layout.columns)
+                    .map((id, column) => {
+                      const control = controls.find((item) => item.id === id);
+                      return (
+                        <View
+                          key={column}
+                          style={{ width: cellWidth, minWidth: 48 }}
+                        >
+                          {control ? <ControlButton {...control} /> : null}
+                        </View>
+                      );
+                    })}
+                </View>
+              ),
+            )}
+          </View>
+        </ScrollView>
       ) : (
-        children
+        definition.groups.map((group, index) => (
+          <ResponsiveGrid
+            key={index}
+            testID={`default-${surface}-${section}-${index}`}
+            minItemWidth={group.minItemWidth}
+            {...(group.gap === undefined ? {} : { gap: group.gap })}
+            {...(group.maxColumns === undefined
+              ? {}
+              : { maxColumns: group.maxColumns })}
+            {...(group.exactColumns === undefined
+              ? {}
+              : { exactColumns: group.exactColumns })}
+          >
+            {group.ids.map((id) => {
+              const control = controls.find((item) => item.id === id);
+              return control ? <ControlButton key={id} {...control} /> : null;
+            })}
+          </ResponsiveGrid>
+        ))
       )}
-      {editorSession > 0 ? (
+      {editor ? (
         <LayoutEditor
           key={editorSession}
-          visible={editing}
+          title={definition.title}
+          surface={surface}
+          visible={visible}
           controls={controls}
-          initial={
-            layout ?? initialLayout(controls.map((control) => control.id))
-          }
-          onSave={(next) => layoutStore.save(surface, next)}
+          initial={editor.initial}
+          defaultLayout={editor.defaults}
+          initiallyCustomized={editor.customized}
+          onSave={(next) => layoutStore.save(surface, section, next)}
           onDismiss={restore}
           onClose={() => {
-            setEditing(false);
+            setVisible(false);
             if (Platform.OS === "android") restore();
           }}
         />

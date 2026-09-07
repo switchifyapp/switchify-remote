@@ -10,7 +10,8 @@ import { MouseSurface } from '@/remote/MouseSurface';
 import { DisconnectedRemote } from '@/remote/DisconnectedRemote';
 import { RemoteDeviceSwitcher } from '@/remote/RemoteDeviceSwitcher';
 import { RemoteSession } from '@/remote/RemoteSession';
-import { SurfaceSelector } from '@/remote/SurfaceSelector';
+import { RemoteToolbar } from '@/remote/RemoteToolbar';
+import { LayoutEditModeProvider } from '@/layouts/LayoutEditMode';
 import { TypingSurface } from '@/remote/TypingSurface';
 import { WindowSurface } from '@/remote/WindowSurface';
 import { profilePresentation } from '@/remote/profilePresentation';
@@ -48,11 +49,13 @@ export default function RemoteScreen() {
     return <Screen title="Remote" bottomAccessory={deviceSwitcher}><EmptyState icon={unavailablePresentation.icon} title={unavailablePresentation.title} body={unavailablePresentation.body} /></Screen>;
   }
   return (
-    <Screen title="Remote" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />} bottomAccessory={deviceSwitcher} scrollToTop stickyAccessory={<SurfaceSelector selected={preferences.surface} />}>
-      {preferences.surface === 'mouse' ? <MouseSurface session={session} state={sessionState} physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} /> : null}
-      {preferences.surface === 'typing' ? <TypingSurface session={session} mode={preferences.typingMode} draft={preferences.draft} /> : null}
-      {preferences.surface === 'window' ? <WindowSurface session={session} state={sessionState} platform={connection.desktop.platform} /> : null}
+    <LayoutEditModeProvider key={desktopId}>
+    <Screen title="Remote" keyboardShouldPersistTaps="handled" headerAccessory={<StatusBadge icon="check-circle" label={`Connected · ${connection.desktop.displayName}`} tone="success" />} bottomAccessory={deviceSwitcher} scrollToTop stickyAccessory={<RemoteToolbar selected={preferences.surface} />}>
+      {preferences.surface === 'mouse' ? <MouseSurface platform={connection.desktop.platform} session={session} state={sessionState} physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} /> : null}
+      {preferences.surface === 'typing' ? <TypingSurface platform={connection.desktop.platform} physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} session={session} mode={preferences.typingMode} draft={preferences.draft} /> : null}
+      {preferences.surface === 'window' ? <WindowSurface physicalSwitchStopAvailable={bridgeSnapshot.captureAvailable && bridgeSnapshot.externalSwitches.length > 0} session={session} state={sessionState} platform={connection.desktop.platform} /> : null}
       {preferences.surface === 'forwarding' ? <ForwardingSurface manager={manager} bridge={bridge} profile={connection.profile} desktopId={connection.desktop.desktopId} preferences={preferences} restore={forwardingRestore} /> : null}
     </Screen>
+    </LayoutEditModeProvider>
   );
 }
