@@ -6,6 +6,13 @@ import type { JsonObject, PointerProfile } from '@/domain/protocol/types';
 
 export type RemoteSessionState = { repeat: string | null; dragging: boolean; modifiers: string[]; streamOpen: boolean };
 
+/**
+ * Keys this client is willing to repeat, independent of what a desktop
+ * advertises. Received data is untrusted, and repeating a submitting or
+ * text-producing key is destructive rather than merely surprising.
+ */
+const REPEATABLE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'];
+
 export class RemoteSession {
   #state: RemoteSessionState = { repeat: null, dragging: false, modifiers: [], streamOpen: false };
   #listeners = new Set<() => void>();
@@ -17,6 +24,8 @@ export class RemoteSession {
   #repeatArmAttempt = 0;
   #repeatBridgeArmed = false;
   #repeatStopGeneration = 0;
+  /** Which key the active repeat is repeating, so only it acts as a toggle. */
+  #repeatingKey: string | null = null;
   #bridgeUnsubscribe: () => void;
 
   constructor(
@@ -59,6 +68,7 @@ export class RemoteSession {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
       if (ok) {
+        this.#repeatingKey = null;
         this.#set({ repeat: type });
         await this.#armRepeatBridge();
       }
@@ -80,18 +90,20 @@ export class RemoteSession {
     if (!this.supports('keyboard.key')) return false;
     const repeatable = this.#repeatableKey(key);
     if (this.#state.repeat) {
+      // Only this key's own repeat is a toggle it should switch off. Any other
+      // repeat is simply stopped and the press still delivered, because
+      // dropping it would cost the user a second activation.
+      const ownRepeat = this.#state.repeat === 'keyboard.key' && this.#repeatingKey === key;
       const generation = this.#reserveRepeatStop();
       if (generation !== null) await this.#completeRepeatStop(generation);
-      // A repeatable key is the toggle that ends its own repeat, so it stops
-      // there. A key that cannot repeat must still be delivered: dropping it
-      // would cost the user a second activation for no reason.
-      if (repeatable) return true;
+      if (ownRepeat) return true;
       return this.#sendKey(key);
     }
     if (repeatable) {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: 'keyboard.key', key });
       const ok = await this.manager.send(repeatType, repeatPayload);
       if (ok) {
+        this.#repeatingKey = key;
         this.#set({ repeat: 'keyboard.key' });
         await this.#armRepeatBridge();
       }
@@ -108,6 +120,10 @@ export class RemoteSession {
   /**
    * A desktop without the capability reports it unsupported, which is what
    * makes an older desktop fall back to a single key press.
+   *
+   * The advertised list is intersected with `REPEATABLE_KEYS` rather than
+   * trusted outright: a desktop that advertised Enter would otherwise make the
+   * Enter control re-submit on every tick.
    */
   #repeatableKey(key: string): boolean {
     const keyRepeat = this.profile?.capabilities.keyRepeat;
@@ -116,7 +132,8 @@ export class RemoteSession {
       && this.supports('mouse.repeat.stop')
       && keyRepeat?.supported
       && keyRepeat.enabled
-      && keyRepeat.repeatableKeys.includes(key),
+      && keyRepeat.repeatableKeys.includes(key)
+      && REPEATABLE_KEYS.includes(key),
     );
   }
 
@@ -128,6 +145,7 @@ export class RemoteSession {
 
   #reserveRepeatStop(): number | null {
     if (!this.#state.repeat) return null;
+    this.#repeatingKey = null;
     const generation = this.#repeatGeneration;
     this.#repeatArmAttempt += 1;
     this.#repeatGeneration = 0;

@@ -110,6 +110,28 @@ describe('RemoteSession', () => {
     ]);
   });
 
+  it('refuses to repeat a key the desktop advertises but this client will not repeat', async () => {
+    const base = profile();
+    const hostile: PointerProfile = { ...base, capabilities: { ...base.capabilities, keyRepeat: { ...base.capabilities.keyRepeat, repeatableKeys: ['Enter', 'a', 'Escape', 'ArrowDown'] } } };
+    const calls: [string, unknown][] = [];
+    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, hostile);
+    // Repeating Enter would re-submit on every tick, so the advertised list is
+    // intersected with what this client is willing to repeat.
+    for (const key of ['Enter', 'a', 'Escape']) {
+      await session.key(key);
+      expect([key, session.snapshot().repeat]).toEqual([key, null]);
+    }
+    expect(calls).toEqual([
+      ['keyboard.key', { key: 'Enter' }],
+      ['keyboard.key', { key: 'a' }],
+      ['keyboard.key', { key: 'Escape' }],
+    ]);
+    // A key on both lists still repeats.
+    await session.key('ArrowDown');
+    expect(session.snapshot().repeat).toBe('keyboard.key');
+  });
+
   it('falls back to a single key press when the desktop lacks the repeat commands', async () => {
     const calls: [string, unknown][] = [];
     const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
@@ -144,17 +166,37 @@ describe('RemoteSession', () => {
     expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'mouse.repeat.start', 'mouse.repeat.stop']);
   });
 
-  it('lets a pointer repeat be stopped by a key press and the reverse', async () => {
+  it('stops a pointer repeat with a key press and still delivers that key', async () => {
     const calls: string[] = [];
     const manager = { send: async (type: string) => { calls.push(type); return true; } } as unknown as ConnectionManager;
     const session = new RemoteSession(manager, profile());
     await session.mouse('mouse.move', { dx: 10, dy: 0 }, true);
+    // The pointer repeat is not this key's own repeat, so the key is delivered
+    // rather than swallowed as a toggle.
     await session.key('ArrowDown');
     expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'keyboard.key']);
+
+    // A key repeat is stopped by any following control, as before.
     await session.key('ArrowDown');
     await session.mouse('mouse.click');
     expect(session.snapshot().repeat).toBeNull();
-    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'mouse.repeat.start', 'mouse.repeat.stop']);
+    expect(calls).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'keyboard.key', 'mouse.repeat.start', 'mouse.repeat.stop']);
+  });
+
+  it('treats only the repeating key itself as the toggle that stops it', async () => {
+    const calls: [string, unknown][] = [];
+    const manager = { send: async (type: string, payload: unknown) => { calls.push([type, payload]); return true; } } as unknown as ConnectionManager;
+    const session = new RemoteSession(manager, profile());
+    await session.key('ArrowDown');
+    // A different repeatable key stops the repeat and is still delivered.
+    await session.key('ArrowUp');
+    expect(session.snapshot().repeat).toBeNull();
+    expect(calls).toEqual([
+      ['mouse.repeat.start', { command: { type: 'keyboard.key', payload: { key: 'ArrowDown' } } }],
+      ['mouse.repeat.stop', {}],
+      ['keyboard.key', { key: 'ArrowUp' }],
+    ]);
   });
 
   it('publishes acknowledged repeat state and stops for the matching Switchify request', async () => {
