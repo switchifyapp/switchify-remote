@@ -3,7 +3,7 @@ import { SurfaceLayout } from "@/layouts/SurfaceLayout";
 import { useLayout, useTheme } from "@/theme/ThemeContext";
 import type { PcPlatform } from "@/domain/protocol/types";
 import { useRemoteActions } from "./actions/useRemoteActions";
-import { RepeatStatus } from "./RepeatStatus";
+import { RepeatStatus, repeatStopLabel } from "./RepeatStatus";
 import type { RemoteSession, RemoteSessionState } from "./RemoteSession";
 
 export function MouseSurface({
@@ -25,7 +25,7 @@ export function MouseSurface({
   const twoPane = (isExpanded || (isMedium && isLandscape)) && !isLargeText;
   const blocked =
     state.repeat || state.dragging || state.modifiers.length
-      ? "Stop movement, end dragging, and release modifiers before editing."
+      ? `${repeatStopLabel(state.repeat)}, end dragging, and release modifiers before editing.`
       : null;
   const controls = useRemoteActions({ surface: "mouse", session, platform });
   return (

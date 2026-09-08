@@ -15,6 +15,7 @@ export type PointerProfile = {
     noAckCommands: string[];
     supportedCommands: string[];
     mouseRepeat: { supported: boolean; enabled: boolean; intervalMs: number; minIntervalMs: number; maxIntervalMs: number };
+    keyRepeat: { supported: boolean; enabled: boolean; intervalMs: number; initialDelayMs: number; minIntervalMs: number; maxIntervalMs: number; repeatableKeys: string[] };
     pointerSpeed: { supported: boolean; setSupported: boolean; scalePercent: number; minScalePercent: number; maxScalePercent: number; stepPercent: number; baseMoveDelta: number; effectiveMoveDelta: number };
     displayNavigation: { supported: boolean; displayCount: number };
   };

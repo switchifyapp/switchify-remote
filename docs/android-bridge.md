@@ -14,8 +14,9 @@ apksigner verify --print-certs switchify-remote.apk
 ```
 
 The `Signer #1 certificate SHA-256 digest` values must match. A mismatch fails
-closed: Android denies the bind and Remote continues touchscreen mouse repeat
-with an accessible warning that a physical switch cannot stop it.
+closed: Android denies the bind and Remote continues touchscreen repeat, for
+both pointer and key repeats, with an accessible warning that a physical switch
+cannot stop it.
 
 The bridge is foreground-only. Backgrounding Remote unbinds it; unbinding,
 binder death, Accessibility-service cleanup, screen shutdown, and process exit

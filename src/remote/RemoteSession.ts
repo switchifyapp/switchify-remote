@@ -6,6 +6,13 @@ import type { JsonObject, PointerProfile } from '@/domain/protocol/types';
 
 export type RemoteSessionState = { repeat: string | null; dragging: boolean; modifiers: string[]; streamOpen: boolean };
 
+/**
+ * Keys this client is willing to repeat, independent of what a desktop
+ * advertises. Received data is untrusted, and repeating a submitting or
+ * text-producing key is destructive rather than merely surprising.
+ */
+const REPEATABLE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'];
+
 export class RemoteSession {
   #state: RemoteSessionState = { repeat: null, dragging: false, modifiers: [], streamOpen: false };
   #listeners = new Set<() => void>();
@@ -17,6 +24,8 @@ export class RemoteSession {
   #repeatArmAttempt = 0;
   #repeatBridgeArmed = false;
   #repeatStopGeneration = 0;
+  /** Which key the active repeat is repeating, so only it acts as a toggle. */
+  #repeatingKey: string | null = null;
   #bridgeUnsubscribe: () => void;
 
   constructor(
@@ -59,12 +68,73 @@ export class RemoteSession {
       const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: type as 'mouse.move' | 'mouse.scroll', dx: Number(payload.dx), dy: Number(payload.dy) });
       const ok = await this.manager.send(repeatType, repeatPayload);
       if (ok) {
+        this.#repeatingKey = null;
         this.#set({ repeat: type });
         await this.#armRepeatBridge();
       }
       return ok;
     }
     return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
+  }
+
+  /**
+   * Sends a key press, repeating it when the desktop supports repeating that
+   * key. Shares the repeat queue with pointer repeats so tapping any control
+   * stops whatever is currently repeating.
+   */
+  key(key: string): Promise<boolean> {
+    return this.#enqueueRepeat(() => this.#key(key));
+  }
+
+  async #key(key: string): Promise<boolean> {
+    if (!this.supports('keyboard.key')) return false;
+    const repeatable = this.#repeatableKey(key);
+    if (this.#state.repeat) {
+      // Only this key's own repeat is a toggle it should switch off. Any other
+      // repeat is simply stopped and the press still delivered, because
+      // dropping it would cost the user a second activation.
+      const ownRepeat = this.#state.repeat === 'keyboard.key' && this.#repeatingKey === key;
+      const generation = this.#reserveRepeatStop();
+      if (generation !== null) await this.#completeRepeatStop(generation);
+      if (ownRepeat) return true;
+      return this.#sendKey(key);
+    }
+    if (repeatable) {
+      const [repeatType, repeatPayload] = commandPayloads.repeatStart({ type: 'keyboard.key', key });
+      const ok = await this.manager.send(repeatType, repeatPayload);
+      if (ok) {
+        this.#repeatingKey = key;
+        this.#set({ repeat: 'keyboard.key' });
+        await this.#armRepeatBridge();
+      }
+      return ok;
+    }
+    return this.#sendKey(key);
+  }
+
+  #sendKey(key: string): Promise<boolean> {
+    const [type, payload] = commandPayloads.key(key);
+    return this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
+  }
+
+  /**
+   * A desktop without the capability reports it unsupported, which is what
+   * makes an older desktop fall back to a single key press.
+   *
+   * The advertised list is intersected with `REPEATABLE_KEYS` rather than
+   * trusted outright: a desktop that advertised Enter would otherwise make the
+   * Enter control re-submit on every tick.
+   */
+  #repeatableKey(key: string): boolean {
+    const keyRepeat = this.profile?.capabilities.keyRepeat;
+    return Boolean(
+      this.supports('mouse.repeat.start')
+      && this.supports('mouse.repeat.stop')
+      && keyRepeat?.supported
+      && keyRepeat.enabled
+      && keyRepeat.repeatableKeys.includes(key)
+      && REPEATABLE_KEYS.includes(key),
+    );
   }
 
   stopRepeat(): Promise<void> {
@@ -75,6 +145,7 @@ export class RemoteSession {
 
   #reserveRepeatStop(): number | null {
     if (!this.#state.repeat) return null;
+    this.#repeatingKey = null;
     const generation = this.#repeatGeneration;
     this.#repeatArmAttempt += 1;
     this.#repeatGeneration = 0;
@@ -117,10 +188,18 @@ export class RemoteSession {
     return ok;
   }
 
-  async toggleModifier(key: string): Promise<boolean> {
+  toggleModifier(key: string): Promise<boolean> {
+    return this.#enqueueRepeat(() => this.#toggleModifier(key));
+  }
+
+  async #toggleModifier(key: string): Promise<boolean> {
     const active = this.#state.modifiers.includes(key);
     const [type, payload] = active ? commandPayloads.modifierUp(key) : commandPayloads.modifierDown(key);
     if (!this.supports(type)) return false;
+    // Desktop modifier commands stop repeats. Keep local state and switch
+    // capture synchronized, including when a repeat start is still pending.
+    const generation = this.#reserveRepeatStop();
+    if (generation !== null) await this.#completeRepeatStop(generation);
     const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
     if (ok) this.#set({ modifiers: active ? this.#state.modifiers.filter((item) => item !== key) : [...this.#state.modifiers, key] });
     return ok;
@@ -143,7 +222,7 @@ export class RemoteSession {
     return this.#enqueueStream(async () => {
       if (!this.supports('keyboard.textStream.chunk') || !await this.#openStream()) return false;
       const [type, payload] = commandPayloads.streamChunk(this.#streamId!, this.#sequence, text);
-      const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
+      const ok = await this.#sendStreamCommand(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
       if (ok) this.#sequence += 1;
       return ok;
     });
@@ -153,7 +232,7 @@ export class RemoteSession {
     return this.#enqueueStream(async () => {
       if (!this.supports('keyboard.textStream.key') || !await this.#openStream()) return false;
       const [type, payload] = commandPayloads.streamKey(this.#streamId!, this.#sequence, key);
-      const ok = await this.manager.send(type, payload);
+      const ok = await this.#sendStreamCommand(type, payload);
       if (ok) this.#sequence += 1;
       return ok;
     });
@@ -165,7 +244,17 @@ export class RemoteSession {
       const [type, payload] = commandPayloads.streamClose(this.#streamId, this.#sequence);
       this.#set({ streamOpen: false });
       this.#streamId = null;
-      await this.manager.send(type, payload, 'none');
+      await this.#sendStreamCommand(type, payload, 'none');
+    });
+  }
+
+  #sendStreamCommand(type: string, payload: JsonObject, responseMode: 'ack' | 'none' = 'ack'): Promise<boolean> {
+    return this.#enqueueRepeat(async () => {
+      // Every stream command stops desktop repeats, including commands on an
+      // already-open stream. Wait for pending starts before clearing capture.
+      const generation = this.#reserveRepeatStop();
+      if (generation !== null) await this.#completeRepeatStop(generation);
+      return this.manager.send(type, payload, responseMode);
     });
   }
 

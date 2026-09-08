@@ -279,8 +279,9 @@ export async function executeAction(
         if (behavior.key === "Enter") await typing.submitLive();
         else await session.streamKey(behavior.key);
       } else {
-        const [type, payload] = commandPayloads.key(behavior.key);
-        await session.command(type, payload);
+        // Live typing keeps the stream path so chunk sequencing is preserved;
+        // everywhere else the session decides between repeating and one press.
+        await session.key(behavior.key);
       }
       return;
     case "draft":

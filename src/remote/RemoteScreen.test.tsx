@@ -65,7 +65,7 @@ const profile: PointerProfile = {
   recommendedDeltas: { small: 16, medium: 32, large: 64 },
   capabilities: {
     noAckMouseMove: false, noAckCommands: [], supportedCommands: [],
-    mouseRepeat: { supported: false, enabled: false, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2_000 },
+    mouseRepeat: { supported: false, enabled: false, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2_000 }, keyRepeat: { supported: true, enabled: true, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] },
     pointerSpeed: { supported: false, setSupported: false, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 32, effectiveMoveDelta: 32 },
     displayNavigation: { supported: false, displayCount: 1 },
   },

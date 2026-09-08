@@ -4,6 +4,7 @@ import * as Theme from '@/theme/ThemeContext';
 import { Platform, StyleSheet } from 'react-native';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
 import type { PointerProfile } from '@/domain/protocol/types';
+import { LayoutEditModeContext } from '@/layouts/LayoutEditMode';
 import { MouseSurface } from './MouseSurface';
 import { RemoteSession } from './RemoteSession';
 import { TypingSurface } from './TypingSurface';
@@ -12,12 +13,23 @@ import { scheduleLiveTextInputFocus } from './focusLiveTextInput';
 
 jest.mock('./focusLiveTextInput', () => ({ scheduleLiveTextInputFocus: jest.fn(() => jest.fn()) }));
 
-function profile(supportedCommands: string[]): PointerProfile {
+/** Key repeat is opt-in so existing cases keep exercising plain key presses. */
+function profile(supportedCommands: string[], keyRepeat = false): PointerProfile {
   const repeat = supportedCommands.includes('mouse.repeat.start') && supportedCommands.includes('mouse.repeat.stop');
-  return { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: repeat, enabled: repeat, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } };
+  return { displayId: 'display', scaleFactor: 1, bounds: { x: 0, y: 0, width: 100, height: 100 }, maxDelta: 128, recommendedDeltas: { small: 32, medium: 64, large: 128 }, capabilities: { noAckCommands: [], noAckMouseMove: false, supportedCommands, mouseRepeat: { supported: repeat, enabled: repeat, intervalMs: 250, minIntervalMs: 100, maxIntervalMs: 2000 }, keyRepeat: { supported: repeat && keyRepeat, enabled: repeat && keyRepeat, intervalMs: 250, initialDelayMs: 500, minIntervalMs: 100, maxIntervalMs: 1000, repeatableKeys: repeat && keyRepeat ? ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Delete', 'PageUp', 'PageDown'] : [] }, pointerSpeed: { supported: true, setSupported: true, scalePercent: 100, minScalePercent: 5, maxScalePercent: 225, stepPercent: 5, baseMoveDelta: 64, effectiveMoveDelta: 64 }, displayNavigation: { supported: true, displayCount: 2 } } };
 }
 
 const manager = { send: jest.fn(async () => true) } as unknown as ConnectionManager;
+
+/** Blocked-editing explanations only render while layout edit mode is on. */
+const renderEditing = (element: React.ReactElement) =>
+  render(element, {
+    wrapper: ({ children }) => (
+      <LayoutEditModeContext.Provider value={{ enabled: true, toggle: jest.fn() }}>
+        {children}
+      </LayoutEditModeContext.Provider>
+    ),
+  });
 const originalPlatform = Platform.OS;
 
 describe('capability-driven remote surfaces', () => {
@@ -309,12 +321,57 @@ describe('capability-driven remote surfaces', () => {
     );
     const mouse = await render(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />);
 
-    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop movement repeat.'))).toBe(showsGuidance);
+    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop a repeat.'))).toBe(showsGuidance);
     await act(async () => { fireEvent.press(mouse.getByLabelText('Move up')); await Promise.resolve(); });
     await act(async () => { mouse.rerender(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />); });
 
     expect(mouse.getByRole('button', { name: 'Stop movement' })).toBeTruthy();
-    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop movement repeat.'))).toBe(showsGuidance);
+    expect(Boolean(mouse.queryByText('Switchify is unavailable. Use a Remote control to stop a repeat.'))).toBe(showsGuidance);
+  });
+
+  it('announces a repeating key with key wording rather than pointer wording', async () => {
+    jest.restoreAllMocks();
+    const session = new RemoteSession(
+      { send: jest.fn(async () => true) } as unknown as ConnectionManager,
+      profile(['keyboard.key', 'mouse.repeat.start', 'mouse.repeat.stop'], true),
+    );
+    await act(async () => { await session.key('ArrowDown'); });
+    const view = await render(<MouseSurface session={session} state={session.snapshot()} />);
+    expect(view.getByRole('button', { name: 'Stop repeating' })).toBeTruthy();
+    expect(view.queryByRole('button', { name: 'Stop movement' })).toBeNull();
+    expect(view.getByText(/A key is repeating/)).toBeTruthy();
+  });
+
+  it('names the on-screen stop control in the blocked-editing explanation', async () => {
+    jest.restoreAllMocks();
+    const commands = ['keyboard.key', 'mouse.move', 'mouse.repeat.start', 'mouse.repeat.stop'];
+
+    // During a key repeat the only stop control is "Stop repeating", so the
+    // explanation must not send the user looking for "Stop movement".
+    const keySession = new RemoteSession({ send: jest.fn(async () => true) } as unknown as ConnectionManager, profile(commands, true));
+    await act(async () => { await keySession.key('ArrowDown'); });
+    const keyView = await renderEditing(<WindowSurface session={keySession} state={keySession.snapshot()} platform="windows" />);
+    expect(keyView.getAllByText('Stop repeating, end dragging, and release modifiers before editing.').length).toBeGreaterThan(0);
+    expect(keyView.queryAllByText(/^Stop movement, end dragging/)).toEqual([]);
+
+    // Pointer repeats keep the original wording exactly.
+    const pointerSession = new RemoteSession({ send: jest.fn(async () => true) } as unknown as ConnectionManager, profile(commands));
+    await act(async () => { await pointerSession.mouse('mouse.move', { dx: 0, dy: 8 }, true); });
+    const pointerView = await renderEditing(<WindowSurface session={pointerSession} state={pointerSession.snapshot()} platform="windows" />);
+    expect(pointerView.getAllByText('Stop movement, end dragging, and release modifiers before editing.').length).toBeGreaterThan(0);
+  });
+
+  it('withholds the physical-switch warning when no repeat could start', async () => {
+    jest.restoreAllMocks();
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    // Capability flags say key repeat is available, but the commands that carry
+    // a repeat are absent, so nothing can ever repeat and the warning would be
+    // telling the user to stop something that cannot start.
+    const base = profile(['keyboard.key']);
+    const withoutCommands: PointerProfile = { ...base, capabilities: { ...base.capabilities, keyRepeat: { ...base.capabilities.keyRepeat, supported: true, enabled: true, repeatableKeys: ['ArrowDown'] } } };
+    const session = new RemoteSession({ send: jest.fn(async () => true) } as unknown as ConnectionManager, withoutCommands);
+    const view = await render(<MouseSurface session={session} state={session.snapshot()} physicalSwitchStopAvailable={false} />);
+    expect(view.queryByText(/Switchify is unavailable/)).toBeNull();
   });
 
   it('routes every displayed remote action through the capability-approved session', async () => {
