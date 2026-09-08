@@ -106,6 +106,51 @@ describe('RemoteSession', () => {
     session.dispose();
   });
 
+  it.each(['chunk', 'key', 'close'] as const)('clears repeat when an existing stream sends %s', async (operation) => {
+    const send = jest.fn(async (_type: string, _payload: unknown, _mode?: string) => true);
+    const host = fakeBridge();
+    const session = new RemoteSession({ send } as unknown as ConnectionManager, profile(), () => 'stream-1', null, host.bridge);
+    await session.streamChunk('a');
+    await session.key('ArrowDown');
+    send.mockClear();
+
+    if (operation === 'chunk') await session.streamChunk('b');
+    else if (operation === 'key') await session.streamKey('Enter');
+    else await session.closeStream();
+
+    expect(session.snapshot().repeat).toBeNull();
+    expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(101, false);
+    expect(send.mock.calls[0]).toEqual(['mouse.repeat.stop', {}, 'ack']);
+    expect(send.mock.calls[1]?.[0]).toBe(`keyboard.textStream.${operation}`);
+    expect(send.mock.calls[1]?.[1]).toMatchObject({ streamId: 'stream-1', [operation === 'close' ? 'expectedCount' : 'seq']: 1 });
+    await session.key('ArrowDown');
+    expect(send).toHaveBeenLastCalledWith('mouse.repeat.start', { command: { type: 'keyboard.key', payload: { key: 'ArrowDown' } } });
+    await session.cleanup();
+    session.dispose();
+  });
+
+  it('stops a pending repeat before resuming an existing stream', async () => {
+    const send = jest.fn(async (_type: string, _payload: unknown, _mode?: string) => true);
+    const host = fakeBridge();
+    const session = new RemoteSession({ send } as unknown as ConnectionManager, profile(), undefined, null, host.bridge);
+    await session.streamChunk('a');
+    let acknowledgeStart!: (ok: boolean) => void;
+    send.mockImplementationOnce(() => new Promise<boolean>((resolve) => { acknowledgeStart = resolve; }));
+    send.mockClear();
+    const starting = session.key('ArrowDown');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const typing = session.streamChunk('b');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(send).toHaveBeenCalledTimes(1);
+    acknowledgeStart(true);
+    await Promise.all([starting, typing]);
+    expect(send.mock.calls.map(([type]) => type)).toEqual(['mouse.repeat.start', 'mouse.repeat.stop', 'keyboard.textStream.chunk']);
+    expect(session.snapshot().repeat).toBeNull();
+    expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(101, false);
+    await session.cleanup();
+    session.dispose();
+  });
+
   it('falls back to a single key press when the desktop cannot repeat that key', async () => {
     const base = profile();
     const cases: [string, PointerProfile, string][] = [

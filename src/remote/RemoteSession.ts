@@ -222,7 +222,7 @@ export class RemoteSession {
     return this.#enqueueStream(async () => {
       if (!this.supports('keyboard.textStream.chunk') || !await this.#openStream()) return false;
       const [type, payload] = commandPayloads.streamChunk(this.#streamId!, this.#sequence, text);
-      const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
+      const ok = await this.#sendStreamCommand(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
       if (ok) this.#sequence += 1;
       return ok;
     });
@@ -232,7 +232,7 @@ export class RemoteSession {
     return this.#enqueueStream(async () => {
       if (!this.supports('keyboard.textStream.key') || !await this.#openStream()) return false;
       const [type, payload] = commandPayloads.streamKey(this.#streamId!, this.#sequence, key);
-      const ok = await this.manager.send(type, payload);
+      const ok = await this.#sendStreamCommand(type, payload);
       if (ok) this.#sequence += 1;
       return ok;
     });
@@ -244,7 +244,17 @@ export class RemoteSession {
       const [type, payload] = commandPayloads.streamClose(this.#streamId, this.#sequence);
       this.#set({ streamOpen: false });
       this.#streamId = null;
-      await this.manager.send(type, payload, 'none');
+      await this.#sendStreamCommand(type, payload, 'none');
+    });
+  }
+
+  #sendStreamCommand(type: string, payload: JsonObject, responseMode: 'ack' | 'none' = 'ack'): Promise<boolean> {
+    return this.#enqueueRepeat(async () => {
+      // Every stream command stops desktop repeats, including commands on an
+      // already-open stream. Wait for pending starts before clearing capture.
+      const generation = this.#reserveRepeatStop();
+      if (generation !== null) await this.#completeRepeatStop(generation);
+      return this.manager.send(type, payload, responseMode);
     });
   }
 
