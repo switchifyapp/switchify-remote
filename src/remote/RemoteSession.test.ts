@@ -60,6 +60,52 @@ describe('RemoteSession', () => {
     ]);
   });
 
+  it.each([false, true])('clears key repeat before changing a modifier, initially held: %s', async (held) => {
+    const send = jest.fn(async () => true);
+    const host = fakeBridge();
+    const session = new RemoteSession({ send } as unknown as ConnectionManager, profile(), undefined, null, host.bridge);
+    if (held) await session.toggleModifier('Shift');
+    await session.key('ArrowDown');
+    send.mockClear();
+
+    await session.toggleModifier('Shift');
+    expect(session.snapshot().repeat).toBeNull();
+    expect(session.snapshot().modifiers).toEqual(held ? [] : ['Shift']);
+    expect(host.bridge.setRepeatActive).toHaveBeenLastCalledWith(101, false);
+    await session.key('ArrowDown');
+    expect(send.mock.calls).toEqual([
+      ['mouse.repeat.stop', {}, 'ack'],
+      [held ? 'keyboard.modifierUp' : 'keyboard.modifierDown', { key: 'Shift' }, 'ack'],
+      ['mouse.repeat.start', { command: { type: 'keyboard.key', payload: { key: 'ArrowDown' } } }],
+    ]);
+    await session.cleanup();
+    session.dispose();
+  });
+
+  it('orders a modifier change between a pending repeat start and the next key', async () => {
+    let acknowledgeStart!: (ok: boolean) => void;
+    const pendingStart = new Promise<boolean>((resolve) => { acknowledgeStart = resolve; });
+    const send = jest.fn(async (_type: string, _payload: unknown, _mode?: string) => true)
+      .mockImplementationOnce(() => pendingStart);
+    const host = fakeBridge();
+    const session = new RemoteSession({ send } as unknown as ConnectionManager, profile(), undefined, null, host.bridge);
+    const starting = session.key('ArrowDown');
+    const modifier = session.toggleModifier('Shift');
+    const next = session.key('ArrowDown');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(send).toHaveBeenCalledTimes(1);
+
+    acknowledgeStart(true);
+    await Promise.all([starting, modifier, next]);
+    expect(send.mock.calls.map(([type]) => type)).toEqual([
+      'mouse.repeat.start', 'mouse.repeat.stop', 'keyboard.modifierDown', 'mouse.repeat.start',
+    ]);
+    expect(session.snapshot().modifiers).toEqual(['Shift']);
+    expect((host.bridge.setRepeatActive as jest.Mock).mock.calls).toEqual([[101, true], [101, false], [102, true]]);
+    await session.cleanup();
+    session.dispose();
+  });
+
   it('falls back to a single key press when the desktop cannot repeat that key', async () => {
     const base = profile();
     const cases: [string, PointerProfile, string][] = [

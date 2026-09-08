@@ -188,10 +188,18 @@ export class RemoteSession {
     return ok;
   }
 
-  async toggleModifier(key: string): Promise<boolean> {
+  toggleModifier(key: string): Promise<boolean> {
+    return this.#enqueueRepeat(() => this.#toggleModifier(key));
+  }
+
+  async #toggleModifier(key: string): Promise<boolean> {
     const active = this.#state.modifiers.includes(key);
     const [type, payload] = active ? commandPayloads.modifierUp(key) : commandPayloads.modifierDown(key);
     if (!this.supports(type)) return false;
+    // Desktop modifier commands stop repeats. Keep local state and switch
+    // capture synchronized, including when a repeat start is still pending.
+    const generation = this.#reserveRepeatStop();
+    if (generation !== null) await this.#completeRepeatStop(generation);
     const ok = await this.manager.send(type, payload, this.#supportsNoAck(type) ? 'none' : 'ack');
     if (ok) this.#set({ modifiers: active ? this.#state.modifiers.filter((item) => item !== key) : [...this.#state.modifiers, key] });
     return ok;
