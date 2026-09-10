@@ -4,6 +4,7 @@ import { toByteArray } from 'base64-js';
 
 import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
+import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
 import { bluetoothDeviceDisplayName, desktopDisplayName } from './desktopDisplayName';
 
@@ -27,6 +28,7 @@ export class ReactNativeBleTransport implements BleTransport {
     private readonly platform = Platform.OS,
     private readonly nativeTimeoutMs = 10_000,
     private readonly managerFactory = () => new BleManager(),
+    private readonly diagnostics?: Pick<DiagnosticLog, 'addConnectionStage'>,
   ) { this.#manager = manager; }
 
   async availability(): Promise<BleAvailability> {
@@ -148,11 +150,11 @@ export class ReactNativeBleTransport implements BleTransport {
             connected = await this.#requestHighPriority(connected);
             if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
             this.#device = connected;
-            connected = await this.#bounded(connected.requestMTU(517));
+            connected = await this.#stage('mtu', () => this.#bounded(connected!.requestMTU(517)), operation);
             if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
             this.#device = connected;
           }
-          connected = await this.#bounded(connected.discoverAllServicesAndCharacteristics());
+          connected = await this.#stage('services', () => this.#bounded(connected!.discoverAllServicesAndCharacteristics()), operation);
           if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
           this.#device = connected;
           this.#writePoisoned = false;
@@ -184,22 +186,24 @@ export class ReactNativeBleTransport implements BleTransport {
     this.#connectingPeripheralId = peripheralId;
     try {
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
-      const nativeConnect = this.#managerOrCreate().connectToDevice(peripheralId);
-      void nativeConnect.then((device) => {
-        if (connectCancelled || operation !== this.#operation) void device.cancelConnection().catch(() => undefined);
-      }, () => undefined);
-      connected = await this.#bounded(nativeConnect);
+      connected = await this.#stage('connect', () => {
+        const nativeConnect = this.#managerOrCreate().connectToDevice(peripheralId);
+        void nativeConnect.then((device) => {
+          if (connectCancelled || operation !== this.#operation) void device.cancelConnection().catch(() => undefined);
+        }, () => undefined);
+        return this.#bounded(nativeConnect);
+      }, operation);
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
       this.#device = connected;
       if (this.platform === 'android') {
         connected = await this.#requestHighPriority(connected);
         if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
         this.#device = connected;
-        connected = await this.#bounded(connected.requestMTU(517));
+        connected = await this.#stage('mtu', () => this.#bounded(connected!.requestMTU(517)), operation);
         if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
         this.#device = connected;
       }
-      connected = await this.#bounded(connected.discoverAllServicesAndCharacteristics());
+      connected = await this.#stage('services', () => this.#bounded(connected!.discoverAllServicesAndCharacteristics()), operation);
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
       this.#device = connected;
       this.#writePoisoned = false;
@@ -286,21 +290,37 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe {
-    const subscription: Subscription = this.#requireDevice().monitorCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.transmit, (error, characteristic) => {
-      if (error) onError(error);
-      else if (characteristic?.value) onFrame(characteristic.value);
-    });
-    return () => subscription.remove();
+    const operation = this.#operation;
+    let active = true;
+    let failed = false;
+    const recordFailure = () => {
+      if (active && !failed) this.#recordStage('notifications', 'failed', operation);
+      failed = true;
+    };
+    this.#recordStage('notifications', 'started', operation);
+    try {
+      const subscription: Subscription = this.#requireDevice().monitorCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.transmit, (error, characteristic) => {
+        if (error) { recordFailure(); onError(error); }
+        else if (characteristic?.value) onFrame(characteristic.value);
+      });
+      if (!failed) this.#recordStage('notifications', 'succeeded', operation);
+      return () => { active = false; subscription.remove(); };
+    } catch (error) {
+      recordFailure();
+      throw error;
+    }
   }
 
   async notificationsReady(): Promise<void> {
     if (this.platform !== 'android') return;
-    const descriptor = await this.#bounded(this.#requireDevice().readDescriptorForService(
-      BLE_UUIDS.service,
-      BLE_UUIDS.transmit,
-      BLE_DESCRIPTORS.clientCharacteristicConfiguration,
-    ));
-    if (descriptor.value !== 'AQA=') throw new Error('Bluetooth notifications could not be enabled.');
+    await this.#stage('notification_ready', async () => {
+      const descriptor = await this.#bounded(this.#requireDevice().readDescriptorForService(
+        BLE_UUIDS.service,
+        BLE_UUIDS.transmit,
+        BLE_DESCRIPTORS.clientCharacteristicConfiguration,
+      ));
+      if (descriptor.value !== 'AQA=') throw new Error('Bluetooth notifications could not be enabled.');
+    });
   }
 
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe {
@@ -310,20 +330,23 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   async #readStatus(device: Device, retain = (_desktop: DiscoveredDesktop) => false): Promise<DiscoveredDesktop | null> {
+    const operation = this.#operation;
     let connectedHere = false;
     let target = device;
     let probeFinished = false;
     try {
       connectedHere = !(await this.#bounded(device.isConnected()));
       if (connectedHere) {
-        const nativeConnect = device.connect();
-        void nativeConnect.then((connected) => {
-          if (probeFinished) void connected.cancelConnection().catch(() => undefined);
-        }, () => undefined);
-        target = await this.#bounded(nativeConnect);
+        target = await this.#stage('probe_connect', () => {
+          const nativeConnect = device.connect();
+          void nativeConnect.then((connected) => {
+            if (probeFinished || operation !== this.#operation) void connected.cancelConnection().catch(() => undefined);
+          }, () => undefined);
+          return this.#bounded(nativeConnect);
+        }, operation);
       }
-      await this.#bounded(target.discoverAllServicesAndCharacteristics());
-      const characteristic = await this.#bounded(target.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status));
+      await this.#stage('probe_services', () => this.#bounded(target.discoverAllServicesAndCharacteristics()), operation);
+      const characteristic = await this.#stage('status_read', () => this.#bounded(target.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status)), operation);
       if (!characteristic.value) return null;
       const raw = new TextDecoder().decode(toByteArray(characteristic.value));
       const status = parseStatus(raw);
@@ -352,6 +375,24 @@ export class ReactNativeBleTransport implements BleTransport {
   #managerOrCreate(): BleManager {
     this.#manager ??= this.managerFactory();
     return this.#manager;
+  }
+
+  #recordStage(stage: ConnectionStage, outcome: ConnectionStageOutcome, operation: number): void {
+    if (operation !== this.#operation) return;
+    // Diagnostics must never change Bluetooth control flow, even if a UI listener throws.
+    try { this.diagnostics?.addConnectionStage(stage, outcome); } catch { /* best effort */ }
+  }
+
+  async #stage<T>(stage: ConnectionStage, action: () => Promise<T>, operation = this.#operation): Promise<T> {
+    this.#recordStage(stage, 'started', operation);
+    try {
+      const result = await action();
+      this.#recordStage(stage, 'succeeded', operation);
+      return result;
+    } catch (error) {
+      this.#recordStage(stage, 'failed', operation);
+      throw error;
+    }
   }
 
   #settledManagerState(manager: BleManager, initial: State): Promise<State> {
@@ -383,7 +424,7 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async #requestHighPriority(device: Device): Promise<Device> {
     try {
-      return await this.#bounded(device.requestConnectionPriority(ConnectionPriority.High));
+      return await this.#stage('priority', () => this.#bounded(device.requestConnectionPriority(ConnectionPriority.High)));
     } catch {
       return device;
     }

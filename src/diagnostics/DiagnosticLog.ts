@@ -1,6 +1,20 @@
 export type DiagnosticLevel = 'info' | 'warning' | 'error';
 export type DiagnosticEntry = { id: number; timestamp: number; level: DiagnosticLevel; code: string; message: string };
 
+const connectionStages = {
+  connect: 'Connect to the selected PC',
+  priority: 'Request Android connection priority (optional)',
+  mtu: 'Negotiate Bluetooth MTU',
+  services: 'Discover connection services',
+  probe_connect: 'Connect for discovery status',
+  probe_services: 'Discover status services',
+  status_read: 'Read discovery status',
+  notifications: 'Register notification listener',
+  notification_ready: 'Verify Android notification descriptor',
+} as const;
+export type ConnectionStage = keyof typeof connectionStages;
+export type ConnectionStageOutcome = 'started' | 'succeeded' | 'failed';
+
 const messages = {
   scan_started: 'Looking for nearby PCs.',
   scan_failed: 'Bluetooth discovery could not start.',
@@ -28,7 +42,14 @@ export class DiagnosticLog {
   subscribe = (listener: () => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
   snapshot = () => this.#entries;
   add(code: keyof typeof messages, level: DiagnosticLevel = 'info'): void {
-    this.#entries = [{ id: this.#nextId++, timestamp: Date.now(), level, code, message: messages[code]! }, ...this.#entries].slice(0, 200);
+    this.#append(code, messages[code], level);
+  }
+  addConnectionStage(stage: ConnectionStage, outcome: ConnectionStageOutcome): void {
+    // Only fixed vocabulary crosses this boundary: no native error, address or payload.
+    this.#append(`ble_${stage}_${outcome}`, `${connectionStages[stage]}: ${outcome}.`, outcome === 'failed' ? 'warning' : 'info');
+  }
+  #append(code: string, message: string, level: DiagnosticLevel): void {
+    this.#entries = [{ id: this.#nextId++, timestamp: Date.now(), level, code, message }, ...this.#entries].slice(0, 200);
     this.#listeners.forEach((listener) => listener());
   }
   clear(): void { this.#entries = []; this.#listeners.forEach((listener) => listener()); }
