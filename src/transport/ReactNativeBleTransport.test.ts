@@ -1,6 +1,7 @@
 import { fromByteArray } from 'base64-js';
 import { ConnectionPriority, type BleManager, type Characteristic, type Descriptor, type Device } from 'react-native-ble-plx';
 import { ReactNativeBleTransport } from './ReactNativeBleTransport';
+import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 
 const descriptor = (value: string): Descriptor => ({ value } as Descriptor);
 
@@ -29,6 +30,149 @@ function manager(overrides: Record<string, unknown> = {}): BleManager {
 }
 
 describe('ReactNativeBleTransport', () => {
+  it('records discovery status separately from the selected-PC connection', async () => {
+    const log = new DiagnosticLog();
+    let scanCallback!: (error: Error | null, value: Device | null) => void;
+    const found = jest.fn();
+    const candidate = device({ isConnected: jest.fn(async () => false) });
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) }), 'android', 100, undefined, log);
+    const stop = transport.scan(found, jest.fn());
+    scanCallback(null, candidate);
+    await waitFor(() => found.mock.calls.length === 1);
+    expect(log.snapshot().map((entry) => entry.code).reverse()).toEqual([
+      'ble_probe_connect_started', 'ble_probe_connect_succeeded',
+      'ble_probe_services_started', 'ble_probe_services_succeeded',
+      'ble_status_read_started', 'ble_status_read_succeeded',
+    ]);
+    stop();
+  });
+
+  it('records synchronous listener registration failure', async () => {
+    const log = new DiagnosticLog();
+    const connected = device({ monitorCharacteristicForService: jest.fn(() => { throw new Error('private'); }) });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios', 100, undefined, log);
+    await transport.connect('ble-1');
+    expect(() => transport.subscribe(jest.fn(), jest.fn())).toThrow();
+    expect(log.snapshot()[0]?.code).toBe('ble_notifications_failed');
+    expect(log.export()).not.toContain('private');
+    await transport.disconnect();
+  });
+
+  it('records the Android connection stages in order through descriptor readiness', async () => {
+    const log = new DiagnosticLog();
+    const connected = device();
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'android', 100, undefined, log);
+    await transport.connect('private-address');
+    const remove = transport.subscribe(jest.fn(), jest.fn());
+    await transport.notificationsReady();
+    expect(log.snapshot().map((entry) => entry.code).reverse()).toEqual([
+      'ble_connect_started', 'ble_connect_succeeded',
+      'ble_priority_started', 'ble_priority_succeeded',
+      'ble_mtu_started', 'ble_mtu_succeeded',
+      'ble_services_started', 'ble_services_succeeded',
+      'ble_notifications_started', 'ble_notifications_succeeded',
+      'ble_notification_ready_started', 'ble_notification_ready_succeeded',
+    ]);
+    expect(log.export()).not.toContain('private-address');
+    remove();
+    await transport.disconnect();
+  });
+
+  it.each([
+    ['connect', 'connectToDevice'], ['mtu', 'requestMTU'], ['services', 'discoverAllServicesAndCharacteristics'],
+  ] as const)('identifies a %s failure without exporting native error details', async (stage, method) => {
+    const log = new DiagnosticLog();
+    const failure = jest.fn(async () => { throw new Error('private native payload and address'); });
+    const connected = device(stage === 'connect' ? {} : { [method]: failure });
+    const native = manager({ connectToDevice: stage === 'connect' ? failure : jest.fn(async () => connected) });
+    const transport = new ReactNativeBleTransport(native, 'android', 100, undefined, log);
+    await expect(transport.connect('private-address')).rejects.toThrow();
+    expect(log.snapshot()[0]).toMatchObject({ code: `ble_${stage}_failed`, level: 'warning' });
+    expect(log.export()).not.toContain('private');
+    await transport.disconnect();
+  });
+
+  it('records a bounded MTU timeout as an MTU failure', async () => {
+    const log = new DiagnosticLog();
+    const connected = device({ requestMTU: jest.fn(() => new Promise<Device>(() => undefined)) });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'android', 1, undefined, log);
+    await expect(transport.connect('ble-1')).rejects.toThrow('timed out');
+    expect(log.snapshot()[0]?.code).toBe('ble_mtu_failed');
+    await transport.disconnect();
+  });
+
+  it('does not report a cancelled or late connection as a failure or success', async () => {
+    const log = new DiagnosticLog();
+    let resolve!: (value: Device) => void;
+    const connected = device();
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(() => new Promise<Device>((done) => { resolve = done; })) }), 'android', 100, undefined, log);
+    const result = transport.connect('ble-1');
+    const rejected = expect(result).rejects.toThrow();
+    while (!resolve) await Promise.resolve();
+    await transport.disconnect();
+    resolve(connected);
+    await rejected;
+    expect(log.snapshot().map((entry) => entry.code)).toEqual(['ble_connect_started']);
+  });
+
+  it('records optional priority failure but continues, and skips Android-only stages on iOS', async () => {
+    for (const platform of ['android', 'ios'] as const) {
+      const log = new DiagnosticLog();
+      const connected = device({ requestConnectionPriority: jest.fn(async () => { throw new Error('private'); }) });
+      const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), platform, 100, undefined, log);
+      await transport.connect('ble-1');
+      await transport.notificationsReady();
+      const codes = log.snapshot().map((entry) => entry.code);
+      expect(codes).toContain('ble_services_succeeded');
+      if (platform === 'android') expect(codes).toContain('ble_priority_failed');
+      else expect(codes.some((code) => /priority|mtu|notification_ready/.test(code))).toBe(false);
+      await transport.disconnect();
+    }
+  });
+
+  it.each(['rejected read', 'disabled descriptor'] as const)('records notification readiness failure for %s', async (reason) => {
+    const log = new DiagnosticLog();
+    const connected = device({ readDescriptorForService: jest.fn(async () => {
+      if (reason === 'rejected read') throw new Error('private descriptor error');
+      return descriptor('AAA=');
+    }) });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'android', 100, undefined, log);
+    await transport.connect('ble-1');
+    await expect(transport.notificationsReady()).rejects.toThrow();
+    expect(log.snapshot()[0]?.code).toBe('ble_notification_ready_failed');
+    expect(log.export()).not.toContain('private');
+    await transport.disconnect();
+  });
+
+  it('ignores stale notification diagnostic callbacks after unsubscribe', async () => {
+    const log = new DiagnosticLog();
+    let fail!: () => void;
+    const connected = device({ monitorCharacteristicForService: jest.fn((_service, _characteristic, listener) => {
+      fail = () => listener(Object.assign(new Error('private'), {
+        errorCode: 0 as const, attErrorCode: null, iosErrorCode: null, androidErrorCode: null, reason: 'private',
+      }), null);
+      return { remove: jest.fn() };
+    }) });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios', 100, undefined, log);
+    await transport.connect('ble-1');
+    const remove = transport.subscribe(jest.fn(), jest.fn());
+    fail();
+    expect(log.snapshot()[0]?.code).toBe('ble_notifications_failed');
+    const count = log.snapshot().length;
+    remove();
+    fail();
+    expect(log.snapshot()).toHaveLength(count);
+    expect(log.export()).not.toContain('private');
+    await transport.disconnect();
+  });
+
+  it('does not let diagnostic observer failures affect connection', async () => {
+    const connected = device();
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios', 100, undefined, { addConnectionStage: () => { throw new Error('observer'); } });
+    await expect(transport.connect('ble-1')).resolves.toBeUndefined();
+    await transport.disconnect();
+  });
+
   it('does not construct the native manager during launch or pre-initialization cleanup', async () => {
     const factory = jest.fn(() => manager());
     const transport = new ReactNativeBleTransport(null, 'ios', 10_000, factory);

@@ -12,19 +12,22 @@ import { requestBluetoothPermission } from './permissions';
 const Context = createContext<ConnectionManager | null>(null);
 
 export function ConnectionProvider({ children }: PropsWithChildren) {
-  const manager = useMemo(() => new ConnectionManager(
-    new ReactNativeBleTransport(),
-    new PairingStore(),
-    new DiagnosticLog(),
-    requestBluetoothPermission,
-    Date.now,
-    undefined,
-    undefined,
-    async () => {
-      await preferencesStore.load();
-      return resolveRemoteName(preferencesStore.snapshot().remoteName);
-    },
-  ), []);
+  const manager = useMemo(() => {
+    const diagnostics = new DiagnosticLog();
+    return new ConnectionManager(
+      new ReactNativeBleTransport(null, undefined, undefined, undefined, diagnostics),
+      new PairingStore(),
+      diagnostics,
+      requestBluetoothPermission,
+      Date.now,
+      undefined,
+      undefined,
+      async () => {
+        await preferencesStore.load();
+        return resolveRemoteName(preferencesStore.snapshot().remoteName);
+      },
+    );
+  }, []);
   useEffect(() => {
     void manager.load();
     const subscription = AppState.addEventListener('change', (state) => { if (state !== 'active') void manager.disconnect(); });
