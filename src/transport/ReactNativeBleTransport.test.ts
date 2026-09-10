@@ -30,6 +30,65 @@ function manager(overrides: Record<string, unknown> = {}): BleManager {
 }
 
 describe('ReactNativeBleTransport', () => {
+  it.each(['', 'private malformed', '{"protocolVersion":2}', '{"protocolVersion":1,"desktopId":"other-private"}'])('diagnoses rejected or nonmatching status (%s)', async (raw) => {
+    const log = new DiagnosticLog();
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), 'ios', 100, undefined, log);
+    const result = transport.resolveAndConnect('pc-1');
+    const rejected = expect(result).rejects.toThrow('timed out');
+    await waitFor(() => !!callback);
+    callback(null, device({ readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode(raw)) } as Characteristic)) }));
+    await rejected;
+    const codes = log.snapshot().map((entry) => entry.code);
+    expect(codes).toContain(raw.includes('other-private') ? 'ble_selected_match_not_matched' : 'ble_status_parse_failed');
+    expect(codes.filter((code) => code === 'ble_resolution_timed_out')).toHaveLength(1);
+    expect(codes).not.toContain('ble_resolution_succeeded');
+    expect(log.export()).not.toMatch(/private|pc-1/);
+    const before = log.export();
+    callback(null, device());
+    await Promise.resolve();
+    expect(log.export()).toBe(before);
+    await transport.disconnect();
+  });
+
+  it('records a matching handoff even with throwing diagnostic observers', async () => {
+    const log = new DiagnosticLog();
+    log.subscribe(() => { throw new Error('observer'); });
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), 'android', 1000, undefined, log);
+    const result = transport.resolveAndConnect('pc-1');
+    await waitFor(() => !!callback);
+    callback(null, device());
+    await result;
+    const codes = log.snapshot().map((entry) => entry.code);
+    expect(codes).toContain('ble_status_parse_succeeded');
+    expect(codes).toContain('ble_selected_match_succeeded');
+    expect(codes[0]).toBe('ble_resolution_succeeded');
+    await transport.disconnect();
+  });
+
+  it('does not report cancelled resolution as a timeout or failure', async () => {
+    const log = new DiagnosticLog();
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), 'ios', 1000, undefined, log);
+    const result = transport.resolveAndConnect('pc-1');
+    const rejected = expect(result).rejects.toThrow('cancelled');
+    await waitFor(() => !!callback);
+    await transport.disconnect();
+    await rejected;
+    callback(null, device());
+    await Promise.resolve();
+    expect(log.snapshot().map((entry) => entry.code)).toEqual(['ble_resolution_started']);
+  });
+
+  it('records scan startup failure without native error details', async () => {
+    const log = new DiagnosticLog();
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn(() => { throw new Error('private'); }) }), 'ios', 100, undefined, log);
+    await expect(transport.resolveAndConnect('pc-1')).rejects.toThrow('discovery failed');
+    expect(log.snapshot().map((entry) => entry.code)).toEqual(['ble_resolution_failed', 'ble_resolution_started']);
+    expect(log.export()).not.toContain('private');
+    await transport.disconnect();
+  });
   it('records discovery status separately from the selected-PC connection', async () => {
     const log = new DiagnosticLog();
     let scanCallback!: (error: Error | null, value: Device | null) => void;
@@ -43,6 +102,7 @@ describe('ReactNativeBleTransport', () => {
       'ble_probe_connect_started', 'ble_probe_connect_succeeded',
       'ble_probe_services_started', 'ble_probe_services_succeeded',
       'ble_status_read_started', 'ble_status_read_succeeded',
+      'ble_status_parse_started', 'ble_status_parse_succeeded',
     ]);
     stop();
   });

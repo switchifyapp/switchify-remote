@@ -9,11 +9,14 @@ const connectionStages = {
   probe_connect: 'Connect for discovery status',
   probe_services: 'Discover status services',
   status_read: 'Read discovery status',
+  status_parse: 'Parse discovery status',
+  selected_match: 'Match discovery status to the selected PC',
+  resolution: 'Resolve and prepare the selected PC connection',
   notifications: 'Register notification listener',
   notification_ready: 'Verify Android notification descriptor',
 } as const;
 export type ConnectionStage = keyof typeof connectionStages;
-export type ConnectionStageOutcome = 'started' | 'succeeded' | 'failed';
+export type ConnectionStageOutcome = 'started' | 'succeeded' | 'failed' | 'not_matched' | 'timed_out';
 
 const messages = {
   scan_started: 'Looking for nearby PCs.',
@@ -46,7 +49,7 @@ export class DiagnosticLog {
   }
   addConnectionStage(stage: ConnectionStage, outcome: ConnectionStageOutcome): void {
     // Only fixed vocabulary crosses this boundary: no native error, address or payload.
-    this.#append(`ble_${stage}_${outcome}`, `${connectionStages[stage]}: ${outcome}.`, outcome === 'failed' ? 'warning' : 'info');
+    this.#append(`ble_${stage}_${outcome}`, `${connectionStages[stage]}: ${outcome}.`, outcome === 'failed' || outcome === 'timed_out' ? 'warning' : 'info');
   }
   #append(code: string, message: string, level: DiagnosticLevel): void {
     this.#entries = [{ id: this.#nextId++, timestamp: Date.now(), level, code, message }, ...this.#entries].slice(0, 200);

@@ -92,12 +92,14 @@ export class ReactNativeBleTransport implements BleTransport {
   async resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop> {
     await this.disconnect();
     const operation = ++this.#operation;
+    this.#recordStage('resolution', 'started', operation);
     return new Promise<DiscoveredDesktop>((resolve, reject) => {
       let active = true;
       let claimedDeviceId: string | null = null;
       let cancellation: Promise<void> | null = null;
       const succeed = (desktop: DiscoveredDesktop) => {
         if (!active) return;
+        this.#recordStage('resolution', 'succeeded', operation);
         active = false;
         clearTimeout(timer);
         this.#managerOrCreate().stopDeviceScan();
@@ -105,8 +107,9 @@ export class ReactNativeBleTransport implements BleTransport {
         if (this.#resolutionCancel === cancel) this.#resolutionCancel = null;
         resolve(desktop);
       };
-      const cancel = (error: Error): Promise<void> => {
+      const cancel = (error: Error, outcome: 'failed' | 'timed_out' = 'failed'): Promise<void> => {
         if (!active) return cancellation ?? Promise.resolve();
+        this.#recordStage('resolution', outcome, operation);
         active = false;
         clearTimeout(timer);
         this.#managerOrCreate().stopDeviceScan();
@@ -127,7 +130,7 @@ export class ReactNativeBleTransport implements BleTransport {
         return cancellation;
       };
       this.#resolutionCancel = cancel;
-      const timer = setTimeout(() => { void cancel(new Error('Saved PC discovery timed out.')); }, this.nativeTimeoutMs);
+      const timer = setTimeout(() => { void cancel(new Error('Saved PC discovery timed out.'), 'timed_out'); }, this.nativeTimeoutMs);
       const onAdvertisement = (error: Error | null, device: Device | null) => {
         if (!active || operation !== this.#operation) return;
         if (error) { void cancel(new Error('Saved PC discovery failed.')); return; }
@@ -135,6 +138,8 @@ export class ReactNativeBleTransport implements BleTransport {
         this.#scanDevices.set(device.id, device);
         this.#scanKeys.add(this.#scanKey(device));
         const task = this.#readStatus(device, (desktop) => {
+          if (!active || operation !== this.#operation) return false;
+          this.#recordStage('selected_match', desktop.desktopId === desktopId ? 'succeeded' : 'not_matched', operation);
           if (desktop.desktopId !== desktopId || claimedDeviceId !== null) return false;
           claimedDeviceId = device.id;
           return true;
@@ -347,9 +352,15 @@ export class ReactNativeBleTransport implements BleTransport {
       }
       await this.#stage('probe_services', () => this.#bounded(target.discoverAllServicesAndCharacteristics()), operation);
       const characteristic = await this.#stage('status_read', () => this.#bounded(target.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status)), operation);
-      if (!characteristic.value) return null;
-      const raw = new TextDecoder().decode(toByteArray(characteristic.value));
-      const status = parseStatus(raw);
+      this.#recordStage('status_parse', 'started', operation);
+      let status;
+      try {
+        status = characteristic.value ? parseStatus(new TextDecoder().decode(toByteArray(characteristic.value))) : null;
+      } catch (error) {
+        this.#recordStage('status_parse', 'failed', operation);
+        throw error;
+      }
+      this.#recordStage('status_parse', status ? 'succeeded' : 'failed', operation);
       const desktop = status ? {
         ...status,
         displayName: desktopDisplayName(status, { name: device.name, localName: device.localName }, this.platform),
