@@ -9,6 +9,9 @@ An updated native/development app build from this branch is needed; the installe
 | `ble_probe_connect` | Temporary GATT connection used during discovery |
 | `ble_probe_services` | Service discovery for a status probe |
 | `ble_status_read` | Discovery status-characteristic read |
+| `ble_status_parse` | Decode and parse the status; empty or invalid status fails |
+| `ble_selected_match` | Compare parsed status with the selected PC; `succeeded` or `not_matched` |
+| `ble_resolution` | Find and prepare the selected connection; `started`, `succeeded`, `failed`, or `timed_out` |
 | `ble_connect` | Connection to the selected device |
 | `ble_priority` | Optional Android priority request; failure is nonfatal |
 | `ble_mtu` | Android MTU negotiation |
@@ -16,7 +19,11 @@ An updated native/development app build from this branch is needed; the installe
 | `ble_notifications` | Local notification listener registration, or a listener error |
 | `ble_notification_ready` | Android CCCD read and enabled-value check |
 
-Each stage has `_started`, `_succeeded` and `_failed` outcomes. Listener registration success does not prove that the peripheral enabled notifications; Android checks its descriptor separately. Status-read success records a completed GATT read, not successful parsing. Scan probes can interleave; no device identifiers are included. Stop discovery and make one selected-device attempt for diagnosis.
+Unless noted above, stages have `_started`, `_succeeded` and `_failed` outcomes. Listener registration success does not prove that the peripheral enabled notifications; Android checks its descriptor separately. Status-read success records a completed GATT read, not successful parsing. Scan probes can interleave; no device identifiers are included. Stop discovery and make one selected-device attempt for diagnosis.
+
+Resolution spans both discovery and connection preparation, including priority, MTU and service setup. Its timeout is the overall deadline, not necessarily a missing device. A successful selected match means identity equality, not authentication or completed handoff. Nonmatching candidates are informational and normal when other PCs are nearby. A parse failure after a successful read distinguishes invalid/empty status from a native read failure, but does not expose the rejected value or parsing reason. Cancellation may leave only `ble_resolution_started`; stale operations do not report terminal outcomes into newer attempts.
+
+The S26 beta.22 test showed successful reads but no priority/MTU/notification stages for the selected probe, while the Linux probe recorded no writes or notification channel. Its log had no explicit resolution outcome, so timeout and matching/parsing causes were not distinguishable. These new events require an updated app build; the test does not establish a root cause or completed Linux support.
 
 Cancelled operations cannot later append success/failure into a newer operation. Unsubscribed notification callbacks cannot append stage diagnostics. Cancellation may leave a started entry without an outcome; that is not proof of Bluetooth failure. Native rejection and timeout both count as failure of the relevant stage. Raw errors/codes, addresses, PC names, descriptor values, payloads and credentials are never added to stage diagnostics.
 
