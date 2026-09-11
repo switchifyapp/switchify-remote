@@ -30,6 +30,33 @@ function manager(overrides: Record<string, unknown> = {}): BleManager {
 }
 
 describe('ReactNativeBleTransport', () => {
+  it('uses peer-specific reads for negotiated Linux replies, never notifications', async () => {
+    const connected = device({ readCharacteristicForService: jest.fn(async (_service, characteristic) => ({
+      value: characteristic.endsWith('7eb-1d6d-4d92-9ef0-1f89d3db21f4')
+        ? fromByteArray(new TextEncoder().encode(JSON.stringify({ protocolVersion: 1, desktopId: 'pc-1', responseTransport: 'read-v1' })))
+        : '',
+    } as Characteristic)) });
+    const native = manager({ connectToDevice: jest.fn(async () => connected) });
+    const transport = new ReactNativeBleTransport(native, 'ios');
+    await transport.connect('ble-1');
+    const stop = transport.subscribe(jest.fn(), jest.fn());
+    await transport.notificationsReady();
+    expect(connected.monitorCharacteristicForService).not.toHaveBeenCalled();
+    expect(connected.readDescriptorForService).not.toHaveBeenCalled();
+    expect(connected.readCharacteristicForService).toHaveBeenCalledWith(expect.any(String), '7a78f7ec-1d6d-4d92-9ef0-1f89d3db21f4', expect.any(String));
+    stop();
+    expect(() => transport.subscribe(jest.fn(), jest.fn())).toThrow('Reconnect');
+    await transport.disconnect();
+    expect(native.cancelTransaction).toHaveBeenCalled();
+  });
+
+  it('rejects unknown response transports without notification fallback', async () => {
+    const connected = device({ readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc","responseTransport":"future"}')) } as Characteristic)) });
+    const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
+    await expect(transport.connect('ble-1')).rejects.toThrow('status is invalid');
+    expect(connected.monitorCharacteristicForService).not.toHaveBeenCalled();
+    expect(connected.cancelConnection).toHaveBeenCalled();
+  });
   it.each(['', 'private malformed', '{"protocolVersion":2}', '{"protocolVersion":1,"desktopId":"other-private"}'])('diagnoses rejected or nonmatching status (%s)', async (raw) => {
     const log = new DiagnosticLog();
     let callback!: (error: Error | null, value: Device | null) => void;
@@ -372,6 +399,7 @@ describe('ReactNativeBleTransport', () => {
     const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
     await transport.connect('ble-1');
     (connected.discoverAllServicesAndCharacteristics as jest.Mock).mockClear();
+    (connected.readCharacteristicForService as jest.Mock).mockClear();
 
     await expect(transport.verifyConnection('pc-1')).resolves.toBe(true);
 
@@ -388,19 +416,20 @@ describe('ReactNativeBleTransport', () => {
     ['malformed status', { readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('not json')) })) }],
     ['wrong desktop', { readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"other","displayName":"Desk","platform":"windows"}')) })) }],
   ] as const)('reports a failed health check for %s', async (_label, overrides) => {
-    const connected = device(overrides as Partial<Device>);
+    const connected = device();
     const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
     await transport.connect('ble-1');
-
+    Object.assign(connected, overrides);
     await expect(transport.verifyConnection('pc-1')).resolves.toBe(false);
   });
 
   it('bounds a connection health check to four seconds', async () => {
     jest.useFakeTimers();
     try {
-      const connected = device({ readCharacteristicForService: jest.fn(() => new Promise<Characteristic>(() => undefined)) });
+      const connected = device();
       const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
       await transport.connect('ble-1');
+      (connected.readCharacteristicForService as jest.Mock).mockImplementation(() => new Promise<Characteristic>(() => undefined));
       let settled = false;
       const result = transport.verifyConnection('pc-1').then((value) => { settled = true; return value; });
       await Promise.resolve();
@@ -422,6 +451,7 @@ describe('ReactNativeBleTransport', () => {
       const transport = new ReactNativeBleTransport(manager({ connectToDevice: jest.fn(async () => connected) }), 'ios');
       await transport.connect('ble-1');
       const result = transport.verifyConnection('pc-1');
+      (connected.readCharacteristicForService as jest.Mock).mockClear();
 
       await jest.advanceTimersByTimeAsync(4_000);
       await expect(result).resolves.toBe(false);

@@ -7,6 +7,7 @@ import { parseStatus } from '@/domain/protocol/responses';
 import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
 import { bluetoothDeviceDisplayName, desktopDisplayName } from './desktopDisplayName';
+import { ReadResponsePoller } from './ReadResponsePoller';
 
 export class ReactNativeBleTransport implements BleTransport {
   #manager: BleManager | null;
@@ -22,6 +23,8 @@ export class ReactNativeBleTransport implements BleTransport {
   #resolutionCancel: ((error: Error) => Promise<void>) | null = null;
   #writeSequence = 0;
   #writePoisoned = false;
+  #readReplies = false;
+  #responsePoller: ReadResponsePoller | null = null;
 
   constructor(
     manager: BleManager | null = null,
@@ -162,6 +165,7 @@ export class ReactNativeBleTransport implements BleTransport {
           connected = await this.#stage('services', () => this.#bounded(connected!.discoverAllServicesAndCharacteristics()), operation);
           if (!active || operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
           this.#device = connected;
+          this.#readReplies = desktop.responseTransport === 'read-v1';
           this.#writePoisoned = false;
           succeed(desktop);
         }).catch((probeError: unknown) => {
@@ -211,6 +215,11 @@ export class ReactNativeBleTransport implements BleTransport {
       connected = await this.#stage('services', () => this.#bounded(connected!.discoverAllServicesAndCharacteristics()), operation);
       if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
       this.#device = connected;
+      const statusValue = await this.#bounded(connected.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.status));
+      if (operation !== this.#operation) throw new Error('Bluetooth connection was cancelled.');
+      const status = statusValue.value ? parseStatus(new TextDecoder().decode(toByteArray(statusValue.value))) : null;
+      if (!status) throw new Error('Bluetooth discovery status is invalid.');
+      this.#readReplies = status.responseTransport === 'read-v1';
       this.#writePoisoned = false;
     } catch (error) {
       connectCancelled = true;
@@ -225,6 +234,9 @@ export class ReactNativeBleTransport implements BleTransport {
 
   async disconnect(): Promise<void> {
     this.#operation += 1;
+    this.#responsePoller?.stop();
+    this.#responsePoller = null;
+    this.#readReplies = false;
     const cancelResolution = this.#resolutionCancel;
     if (cancelResolution) await cancelResolution(new Error('Bluetooth operation was cancelled.'));
     this.#cancelNativeOperations();
@@ -295,6 +307,21 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   subscribe(onFrame: (frameBase64: string) => void, onError: (error: Error) => void): Unsubscribe {
+    if (this.#readReplies) {
+      if (this.#responsePoller || this.#writePoisoned) throw new Error('Reconnect before starting response reads again.');
+      const device = this.#requireDevice();
+      const operation = this.#operation;
+      const transaction = `switchify-read-${operation}`;
+      const poller = new ReadResponsePoller(
+        async () => (await device.readCharacteristicForService(BLE_UUIDS.service, BLE_UUIDS.response, transaction)).value,
+        async () => { await this.#managerOrCreate().cancelTransaction(transaction); },
+        (frame) => { if (operation === this.#operation) onFrame(frame); },
+        (error) => { if (operation === this.#operation) { this.#writePoisoned = true; onError(error); } },
+        this.nativeTimeoutMs,
+      );
+      this.#responsePoller = poller;
+      return () => { poller.stop(); if (this.#responsePoller === poller) this.#writePoisoned = true; };
+    }
     const operation = this.#operation;
     let active = true;
     let failed = false;
@@ -317,6 +344,11 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   async notificationsReady(): Promise<void> {
+    if (this.#readReplies) {
+      if (!this.#responsePoller) throw new Error('Bluetooth response reader has not started.');
+      await this.#responsePoller.ready;
+      return;
+    }
     if (this.platform !== 'android') return;
     await this.#stage('notification_ready', async () => {
       const descriptor = await this.#bounded(this.#requireDevice().readDescriptorForService(

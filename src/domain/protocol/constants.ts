@@ -9,6 +9,7 @@ export const BLE_UUIDS = {
   receive: '7a78f7e9-1d6d-4d92-9ef0-1f89d3db21f4',
   transmit: '7a78f7ea-1d6d-4d92-9ef0-1f89d3db21f4',
   status: '7a78f7eb-1d6d-4d92-9ef0-1f89d3db21f4',
+  response: '7a78f7ec-1d6d-4d92-9ef0-1f89d3db21f4',
 } as const;
 
 export const BLE_DESCRIPTORS = {

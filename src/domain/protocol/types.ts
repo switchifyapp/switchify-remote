@@ -33,4 +33,4 @@ export type ProtocolResponse =
   | { kind: 'error'; id?: string; code: string; message: string }
   | { kind: 'invalid' };
 
-export type PcStatus = { desktopId: string; displayName: string; platform: PcPlatform };
+export type PcStatus = { desktopId: string; displayName: string; platform: PcPlatform; responseTransport?: 'read-v1' };
