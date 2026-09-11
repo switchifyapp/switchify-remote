@@ -18,8 +18,11 @@ export function parseStatus(raw: string): PcStatus | null {
     if (value.protocolVersion !== 1) return null;
     const desktopId = string(value.desktopId);
     if (!desktopId) return null;
+    if (value.responseTransport !== undefined && value.responseTransport !== 'read-v1') return null;
     const platform = value.platform === 'windows' || value.platform === 'macos' ? value.platform : null;
-    return { desktopId, displayName: string(value.displayName)?.trim() || 'Switchify PC', platform };
+    return { desktopId, displayName: string(value.displayName)?.trim() || 'Switchify PC', platform,
+      ...(value.responseTransport === 'read-v1' ? { responseTransport: 'read-v1' as const } : {}),
+    };
   } catch {
     return null;
   }

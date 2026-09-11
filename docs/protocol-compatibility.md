@@ -27,3 +27,10 @@ Authenticated `connection.ping` commands may include an optional `deviceName`. C
 ## Shared remote actions
 
 The catalog contains only stable IDs, descriptive searchable metadata, placement rules, and declarative action definitions. The runtime resolver attaches current platform labels, selected/disabled states, explanations, and callbacks from the active RemoteSession. Both original and customized grids use it. Monitor behavior is defined once; keys in live Typing use its stream and Enter controller, while keys elsewhere use normal PC key commands. Draft actions require draft mode and applicable text/capabilities. Picker selection handles IDs only. Layout storage contains no handlers, search text, typing content, or command payloads. Reconnection refreshes runtime state without rewriting layouts.
+# Linux read-response transport
+
+An optional discovery field `responseTransport: "read-v1"` selects the read-only response characteristic `7a78f7ec-1d6d-4d92-9ef0-1f89d3db21f4` under the existing service. Absent fields retain the existing notification path; unknown values reject discovery/connection. Existing UUIDs, protocol-v1 frames, authentication and stored pairing schemas are unchanged. A Linux server using this mode never sends sensitive responses through notifications; older Remotes must update to pair with it.
+
+One serial ATT read consumes one JSON/base64 frame (maximum 180 bytes), or returns an empty value when idle. ATT long reads must preserve a server snapshot for nonzero offsets. Poll immediately after data, or after 100 ms when idle. Existing protocol parsing/reassembly and request deadlines remain authoritative. Read failures terminate the receive path with a fixed error and poison writes until reconnect: consumed frames are never retried. Unsubscribe/disconnect cancels the native transaction, timers and late deliveries. Initial successful read replaces notification-descriptor readiness; no notification listener is registered in this mode.
+
+Fake tests cover negotiation, backward compatibility, response bounds, serial polling, timeout and cancellation. Physical Android interoperability is not yet qualified.
