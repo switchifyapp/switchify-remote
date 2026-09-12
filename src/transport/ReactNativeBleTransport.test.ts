@@ -702,6 +702,49 @@ describe('ReactNativeBleTransport', () => {
     expect(secondConnected.cancelConnection).not.toHaveBeenCalled();
   });
 
+  it.each(['android', 'ios'] as const)('queues a target behind four active probes on %s', async (platform) => {
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const releases: (() => void)[] = [];
+    const blockers = Array.from({ length: 4 }, (_, index) => device({
+      id: `other-${index}`, name: 'Switchify PC',
+      discoverAllServicesAndCharacteristics: jest.fn(() => new Promise<Device>((resolve) => {
+        releases.push(() => resolve(device()));
+      })),
+    }));
+    const target = device({ id: 'target', name: 'Switchify PC', readCharacteristicForService: jest.fn(async () => ({
+      value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"wanted"}')),
+    } as Characteristic)) });
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), platform);
+    const resolving = transport.resolveAndConnect('wanted');
+    await waitFor(() => !!callback);
+    blockers.forEach((peer) => callback(null, peer));
+    await waitFor(() => releases.length === 4);
+    callback(null, target);
+    expect(target.isConnected).not.toHaveBeenCalled();
+    releases.forEach((release) => release());
+    await expect(resolving).resolves.toMatchObject({ desktopId: 'wanted' });
+    expect(target.isConnected).toHaveBeenCalledTimes(1);
+    await transport.disconnect();
+  });
+
+  it('retains the newest Windows address by evicting the oldest at capacity', async () => {
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const found = jest.fn();
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), 'android');
+    const stop = transport.scan(found, jest.fn());
+    const peers = Array.from({ length: 257 }, (_, index) => device({ id: `windows-${index}` }));
+    for (const [index, peer] of peers.entries()) {
+      callback(null, peer);
+      await waitFor(() => found.mock.calls.length === index + 1);
+    }
+    callback(null, peers[256]!);
+    expect(peers[256]!.isConnected).toHaveBeenCalledTimes(1);
+    callback(null, peers[0]!);
+    expect(peers[0]!.isConnected).toHaveBeenCalledTimes(2);
+    stop();
+    await transport.disconnect();
+  });
+
   it('waits for cancelled discovery probe cleanup before a real connection', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let releaseDiscovery!: (value: Device) => void;
