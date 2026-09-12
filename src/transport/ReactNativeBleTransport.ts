@@ -6,7 +6,7 @@ import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
 import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
-import { bluetoothDeviceDisplayName, desktopDisplayName } from './desktopDisplayName';
+import { desktopDisplayName } from './desktopDisplayName';
 import { ReadResponsePoller } from './ReadResponsePoller';
 
 export class ReactNativeBleTransport implements BleTransport {
@@ -46,34 +46,46 @@ export class ReactNativeBleTransport implements BleTransport {
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe {
     const operation = ++this.#operation;
     let active = true;
-    this.#managerOrCreate().startDeviceScan([BLE_UUIDS.service], null, (error, device) => {
+    const waiting = new Map<string, Device>();
+    const onAdvertisement = (error: Error | null, device: Device | null) => {
       if (!active || operation !== this.#operation) return;
       if (error) { onError(error); return; }
-      if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device)) || this.#scanDevices.size >= 4) return;
+      if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device))) return;
+      if (this.#scanDevices.size >= 4) {
+        if (waiting.size < 32) waiting.set(device.id, device);
+        return;
+      }
+      waiting.delete(device.id);
       const scanKey = this.#scanKey(device);
       let retainCompletedKey = false;
       this.#scanDevices.set(device.id, device);
       this.#scanKeys.add(scanKey);
       const task = this.#readStatus(device).then((desktop) => {
-        // Windows commonly rotates its private BLE address while retaining the
-        // computer name. Keep that name claimed for this scan after a
-        // successful probe so one PC cannot repeatedly open GATT connections.
-        // macOS uses the shared name "Switchify PC", so its key must be
-        // released after each probe to allow multiple Macs to be discovered.
-        retainCompletedKey = desktop?.platform === 'windows' && scanKey.startsWith('name:');
+        // Suppress repeats only for this peripheral. A rotated address must be
+        // probed again: neither a shared nor a cached name establishes identity.
+        // Cap retained keys so long scans cannot accumulate unbounded state.
+        retainCompletedKey = desktop?.platform === 'windows';
+        if (active && operation === this.#operation && retainCompletedKey && this.#scanKeys.size > 256) {
+          const oldest = [...this.#scanKeys].find((key) => ![...this.#scanDevices.values()].some((peer) => this.#scanKey(peer) === key));
+          if (oldest) this.#scanKeys.delete(oldest);
+        }
         if (active && operation === this.#operation && desktop) onDesktop(desktop);
       }).catch(() => undefined).finally(() => {
         if (operation === this.#operation) {
           this.#scanDevices.delete(device.id);
           if (!retainCompletedKey) this.#scanKeys.delete(scanKey);
+          const next = waiting.values().next().value;
+          if (next) onAdvertisement(null, next);
         }
       });
       this.#scanTasks.add(task);
       void task.finally(() => this.#scanTasks.delete(task));
-    });
+    };
+    this.#managerOrCreate().startDeviceScan([BLE_UUIDS.service], null, onAdvertisement);
     return () => {
       if (!active) return;
       active = false;
+      waiting.clear();
       if (operation === this.#operation) this.#operation += 1;
       this.#managerOrCreate().stopDeviceScan();
       this.#cancelNativeOperations();
@@ -100,10 +112,12 @@ export class ReactNativeBleTransport implements BleTransport {
       let active = true;
       let claimedDeviceId: string | null = null;
       let cancellation: Promise<void> | null = null;
+      const waiting = new Map<string, Device>();
       const succeed = (desktop: DiscoveredDesktop) => {
         if (!active) return;
         this.#recordStage('resolution', 'succeeded', operation);
         active = false;
+        waiting.clear();
         clearTimeout(timer);
         this.#managerOrCreate().stopDeviceScan();
         this.#scanKeys.clear();
@@ -114,6 +128,7 @@ export class ReactNativeBleTransport implements BleTransport {
         if (!active) return cancellation ?? Promise.resolve();
         this.#recordStage('resolution', outcome, operation);
         active = false;
+        waiting.clear();
         clearTimeout(timer);
         this.#managerOrCreate().stopDeviceScan();
         const probes = [...this.#scanDevices.values()];
@@ -135,9 +150,14 @@ export class ReactNativeBleTransport implements BleTransport {
       this.#resolutionCancel = cancel;
       const timer = setTimeout(() => { void cancel(new Error('Saved PC discovery timed out.'), 'timed_out'); }, this.nativeTimeoutMs);
       const onAdvertisement = (error: Error | null, device: Device | null) => {
-        if (!active || operation !== this.#operation) return;
+        if (!active || operation !== this.#operation || claimedDeviceId !== null) return;
         if (error) { void cancel(new Error('Saved PC discovery failed.')); return; }
-        if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device)) || this.#scanDevices.size >= 4) return;
+        if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device))) return;
+        if (this.#scanDevices.size >= 4) {
+          if (waiting.size < 32) waiting.set(device.id, device);
+          return;
+        }
+        waiting.delete(device.id);
         this.#scanDevices.set(device.id, device);
         this.#scanKeys.add(this.#scanKey(device));
         const task = this.#readStatus(device, (desktop) => {
@@ -145,6 +165,7 @@ export class ReactNativeBleTransport implements BleTransport {
           this.#recordStage('selected_match', desktop.desktopId === desktopId ? 'succeeded' : 'not_matched', operation);
           if (desktop.desktopId !== desktopId || claimedDeviceId !== null) return false;
           claimedDeviceId = device.id;
+          waiting.clear();
           return true;
         }).then(async (desktop) => {
           if (!active || operation !== this.#operation || desktop?.desktopId !== desktopId || claimedDeviceId !== device.id) return;
@@ -176,6 +197,8 @@ export class ReactNativeBleTransport implements BleTransport {
           if (operation === this.#operation) {
             this.#scanDevices.delete(device.id);
             this.#scanKeys.delete(this.#scanKey(device));
+            const next = waiting.values().next().value;
+            if (next) onAdvertisement(null, next);
           }
         });
         this.#scanTasks.add(task);
@@ -474,8 +497,7 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   #scanKey(device: Device): string {
-    const name = bluetoothDeviceDisplayName({ name: device.name, localName: device.localName }, this.platform);
-    return name ? `name:${name}` : `id:${device.id}`;
+    return `id:${device.id}`;
   }
 
   #bounded<T>(operation: Promise<T>, timeoutMs = this.nativeTimeoutMs): Promise<T> {
