@@ -588,7 +588,7 @@ describe('ReactNativeBleTransport', () => {
     expect(found).not.toHaveBeenCalled();
   });
 
-  it('deduplicates rotating addresses for the same named PC while a probe is in flight', async () => {
+  it('probes a distinct same-name address while another probe is in flight', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let releaseConnect!: (value: Device) => void;
     const connected = device();
@@ -602,7 +602,7 @@ describe('ReactNativeBleTransport', () => {
     scanCallback(null, first);
     await waitFor(() => (first.connect as jest.Mock).mock.calls.length === 1);
     scanCallback(null, rotated);
-    expect(rotated.isConnected).not.toHaveBeenCalled();
+    expect(rotated.isConnected).toHaveBeenCalledTimes(1);
 
     stop();
     releaseConnect(connected);
@@ -610,7 +610,7 @@ describe('ReactNativeBleTransport', () => {
     expect(found).not.toHaveBeenCalled();
   });
 
-  it('deduplicates a rotated Windows address after the first probe completes', async () => {
+  it('deduplicates a known Windows address but probes a new same-name address', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     const firstConnected = device({
       readCharacteristicForService: jest.fn(async () => ({ value: fromByteArray(new TextEncoder().encode('{"protocolVersion":1,"desktopId":"pc-1","displayName":"A9_MAX","platform":"windows"}')) } as Characteristic)),
@@ -624,14 +624,16 @@ describe('ReactNativeBleTransport', () => {
 
     scanCallback(null, first);
     await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
+    scanCallback(null, first);
     scanCallback(null, rotated);
     await Promise.resolve();
 
-    expect(rotated.isConnected).not.toHaveBeenCalled();
+    expect(first.connect).toHaveBeenCalledTimes(1);
+    expect(rotated.isConnected).toHaveBeenCalledTimes(1);
     stop();
   });
 
-  it('discovers multiple Macs that share the Switchify PC Bluetooth name', async () => {
+  it.each(['android', 'ios'] as const)('discovers overlapping same-name PCs on %s', async (platform) => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     const makeMac = (id: string, desktopId: string, displayName: string) => {
       const connected = device({
@@ -642,13 +644,13 @@ describe('ReactNativeBleTransport', () => {
     const first = makeMac('mac-1', 'pc-1', 'First Mac');
     const second = makeMac('mac-2', 'pc-2', 'Second Mac');
     const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
-    const transport = new ReactNativeBleTransport(native, 'ios');
+    const transport = new ReactNativeBleTransport(native, platform);
     const found = jest.fn();
     const stop = transport.scan(found, jest.fn());
 
     scanCallback(null, first);
-    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
     scanCallback(null, second);
+    await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-1'));
     await waitFor(() => found.mock.calls.some(([desktop]) => desktop.desktopId === 'pc-2'));
 
     expect(first.connect).toHaveBeenCalledTimes(1);
@@ -656,7 +658,24 @@ describe('ReactNativeBleTransport', () => {
     stop();
   });
 
-  it('can resolve the second of two same-name PCs', async () => {
+  it('limits concurrent same-name probes to four and cancels them on stop', async () => {
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const native = manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) });
+    const transport = new ReactNativeBleTransport(native, 'android');
+    const peers = Array.from({ length: 5 }, (_, index) => device({
+      id: `peer-${index}`, name: 'Switchify PC',
+      isConnected: jest.fn(() => new Promise<boolean>(() => undefined)),
+    }));
+    const stop = transport.scan(jest.fn(), jest.fn());
+    peers.forEach((peer) => callback(null, peer));
+    peers.slice(0, 4).forEach((peer) => expect(peer.isConnected).toHaveBeenCalledTimes(1));
+    expect(peers[4]!.isConnected).not.toHaveBeenCalled();
+    stop();
+    peers.slice(0, 4).forEach((peer) => expect(peer.cancelConnection).toHaveBeenCalled());
+    await transport.disconnect();
+  });
+
+  it.each(['android', 'ios'] as const)('resolves overlapping same-name PCs on %s without starving the target', async (platform) => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     const firstConnected = device();
     const first = device({ id: 'mac-1', name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => firstConnected) });
@@ -668,12 +687,13 @@ describe('ReactNativeBleTransport', () => {
     });
     const second = device({ id: 'mac-2', name: 'Switchify PC', isConnected: jest.fn(async () => false), connect: jest.fn(async () => secondConnected) });
     const native = manager({ startDeviceScan: jest.fn((_uuids, _options, callback) => { scanCallback = callback; }) });
-    const transport = new ReactNativeBleTransport(native, 'ios');
+    const transport = new ReactNativeBleTransport(native, platform);
 
     const resolving = transport.resolveAndConnect('pc-2');
     await waitFor(() => typeof scanCallback === 'function');
     scanCallback(null, first);
-    await waitFor(() => (firstConnected.cancelConnection as jest.Mock).mock.calls.length === 1);
+    scanCallback(null, second);
+    scanCallback(null, first);
     scanCallback(null, second);
     await expect(resolving).resolves.toMatchObject({ desktopId: 'pc-2', peripheralId: 'mac-2' });
 

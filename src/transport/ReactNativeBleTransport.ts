@@ -6,7 +6,7 @@ import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
 import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
-import { bluetoothDeviceDisplayName, desktopDisplayName } from './desktopDisplayName';
+import { desktopDisplayName } from './desktopDisplayName';
 import { ReadResponsePoller } from './ReadResponsePoller';
 
 export class ReactNativeBleTransport implements BleTransport {
@@ -55,12 +55,10 @@ export class ReactNativeBleTransport implements BleTransport {
       this.#scanDevices.set(device.id, device);
       this.#scanKeys.add(scanKey);
       const task = this.#readStatus(device).then((desktop) => {
-        // Windows commonly rotates its private BLE address while retaining the
-        // computer name. Keep that name claimed for this scan after a
-        // successful probe so one PC cannot repeatedly open GATT connections.
-        // macOS uses the shared name "Switchify PC", so its key must be
-        // released after each probe to allow multiple Macs to be discovered.
-        retainCompletedKey = desktop?.platform === 'windows' && scanKey.startsWith('name:');
+        // Suppress repeats only for this peripheral. A rotated address must be
+        // probed again: neither a shared nor a cached name establishes identity.
+        // Cap retained keys so long scans cannot accumulate unbounded state.
+        retainCompletedKey = desktop?.platform === 'windows' && this.#scanKeys.size <= 256;
         if (active && operation === this.#operation && desktop) onDesktop(desktop);
       }).catch(() => undefined).finally(() => {
         if (operation === this.#operation) {
@@ -474,8 +472,7 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   #scanKey(device: Device): string {
-    const name = bluetoothDeviceDisplayName({ name: device.name, localName: device.localName }, this.platform);
-    return name ? `name:${name}` : `id:${device.id}`;
+    return `id:${device.id}`;
   }
 
   #bounded<T>(operation: Promise<T>, timeoutMs = this.nativeTimeoutMs): Promise<T> {
