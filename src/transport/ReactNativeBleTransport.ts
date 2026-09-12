@@ -150,7 +150,7 @@ export class ReactNativeBleTransport implements BleTransport {
       this.#resolutionCancel = cancel;
       const timer = setTimeout(() => { void cancel(new Error('Saved PC discovery timed out.'), 'timed_out'); }, this.nativeTimeoutMs);
       const onAdvertisement = (error: Error | null, device: Device | null) => {
-        if (!active || operation !== this.#operation) return;
+        if (!active || operation !== this.#operation || claimedDeviceId !== null) return;
         if (error) { void cancel(new Error('Saved PC discovery failed.')); return; }
         if (!device || this.#scanDevices.has(device.id) || this.#scanKeys.has(this.#scanKey(device))) return;
         if (this.#scanDevices.size >= 4) {
@@ -165,6 +165,7 @@ export class ReactNativeBleTransport implements BleTransport {
           this.#recordStage('selected_match', desktop.desktopId === desktopId ? 'succeeded' : 'not_matched', operation);
           if (desktop.desktopId !== desktopId || claimedDeviceId !== null) return false;
           claimedDeviceId = device.id;
+          waiting.clear();
           return true;
         }).then(async (desktop) => {
           if (!active || operation !== this.#operation || desktop?.desktopId !== desktopId || claimedDeviceId !== device.id) return;

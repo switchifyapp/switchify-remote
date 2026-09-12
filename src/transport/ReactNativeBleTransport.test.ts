@@ -745,6 +745,36 @@ describe('ReactNativeBleTransport', () => {
     await transport.disconnect();
   });
 
+  it('does not drain waiting probes while preparing a claimed target', async () => {
+    let callback!: (error: Error | null, value: Device | null) => void;
+    let releaseMtu!: () => void;
+    const releases: (() => void)[] = [];
+    const target = device({ id: 'target', requestMTU: jest.fn(() => new Promise<Device>((resolve) => {
+      releaseMtu = () => resolve(target);
+    })) });
+    const others = Array.from({ length: 3 }, (_, index) => device({
+      id: `other-${index}`, discoverAllServicesAndCharacteristics: jest.fn(() => new Promise<Device>((resolve) => {
+        releases.push(() => resolve(device()));
+      })),
+    }));
+    const queued = device({ id: 'queued' });
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), 'android');
+    const result = transport.resolveAndConnect('pc-1');
+    await waitFor(() => !!callback);
+    others.forEach((peer) => callback(null, peer));
+    callback(null, target);
+    callback(null, queued);
+    await waitFor(() => !!releaseMtu && releases.length === 3);
+    releases.forEach((release) => release());
+    await waitFor(() => others.every((peer) => (peer.readCharacteristicForService as jest.Mock).mock.calls.length === 1));
+    callback(null, queued);
+    expect(queued.isConnected).not.toHaveBeenCalled();
+    releaseMtu();
+    await result;
+    expect(queued.isConnected).not.toHaveBeenCalled();
+    await transport.disconnect();
+  });
+
   it('waits for cancelled discovery probe cleanup before a real connection', async () => {
     let scanCallback!: (error: Error | null, value: Device | null) => void;
     let releaseDiscovery!: (value: Device) => void;
