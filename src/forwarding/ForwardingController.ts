@@ -33,6 +33,9 @@ export class ForwardingController {
   #legacy = false;
   #attempt = 0;
   #disposed = false;
+  #stopping: Promise<void> | null = null;
+  #starting: Promise<boolean> | null = null;
+  #pending = 0;
   #expectedSwitches: { keyCode: number; name: string }[] = [];
   #sync: ReturnType<typeof setInterval> | null = null;
   #idle: ReturnType<typeof setTimeout> | null = null;
@@ -54,7 +57,7 @@ export class ForwardingController {
   async loadProfiles(remembered?: string): Promise<void> {
     const supported = this.pointerProfile.capabilities.supportedCommands;
     if (genericCommands.every((command) => supported.includes(command))) {
-      const response = await this.connection.request('switch.profile.list', {});
+      const response = await this.connection.request('switch.profile.list', this.pointerProfile.capabilities.switchScanning ? { includeScanning: true } : {});
       if (response?.kind === 'switchProfileCatalog') {
         const selected = response.catalog.profiles.find((profile) => profile.id === remembered) ?? response.catalog.profiles[0] ?? null;
         this.#set({ profiles: response.catalog.profiles, selectedProfileId: selected?.id ?? null, message: selected ? null : 'This PC has no forwarding profiles.' });
@@ -75,6 +78,19 @@ export class ForwardingController {
   report(message: string): void { this.#set({ message }); }
 
   async start(): Promise<boolean> {
+    if (this.#stopping) await this.#stopping;
+    if (this.#starting) {
+      if (this.#state.phase === 'starting' || this.#state.phase === 'active') return false;
+      await this.#starting;
+    }
+    if (this.#state.phase === 'starting' || this.#state.phase === 'active') return false;
+    const starting = this.#start();
+    this.#starting = starting;
+    try { return await starting; } finally { if (this.#starting === starting) this.#starting = null; }
+  }
+
+  async #start(): Promise<boolean> {
+    if (this.#state.phase === 'starting' || this.#state.phase === 'active') return false;
     if (this.#disposed) return false;
     const attempt = ++this.#attempt;
     const snapshot = this.bridge.snapshot();
@@ -95,22 +111,27 @@ export class ForwardingController {
     if (!await this.bridge.setForwardingActive(this.#generation, true)) { await this.#stopPc(); if (attempt === this.#attempt && !this.#disposed) this.#set({ phase: 'failed', message: 'Switchify is not available for forwarding.' }); return false; }
     if (attempt !== this.#attempt || this.#disposed) { await this.bridge.setForwardingActive(this.#generation, false); await this.#stopPc(); return false; }
     this.#set({ phase: 'active', mappings, overflow: external.slice(8).map((item) => item.name), message: null });
-    await this.#syncNow();
+    await this.#syncNow(this.#heldIds(), attempt);
     if (attempt !== this.#attempt || this.#disposed) return false;
-    this.#sync = this.timers.interval(() => { void this.#enqueue(() => this.#syncNow()); }, 1_000);
+    this.#sync = this.timers.interval(() => { if (this.#pending >= 64) { void this.stop('Remote input queue is full. Start forwarding again.', true); return; } const held = this.#heldIds(); void this.#enqueue(() => this.#syncNow(held, attempt)); }, 1_000);
     this.#resetIdle();
     return true;
   }
 
   async stop(message: string | null = null, safety = false): Promise<void> {
+    if (this.#stopping) return this.#stopping;
     this.#attempt += 1;
     if (this.#state.phase !== 'active' && this.#state.phase !== 'starting') return;
     if (safety) this.onSafetyStop();
     const generation = this.#generation;
     this.#clearTimers();
     this.#set({ phase: 'idle', mappings: this.#state.mappings.map((mapping) => ({ ...mapping, pressed: false, downTimeMs: null })), message });
-    await this.bridge.setForwardingActive(generation, false);
-    await this.#enqueue(() => this.#stopPc());
+    const stopping = (async () => {
+      await this.bridge.setForwardingActive(generation, false);
+      await this.#enqueue(() => this.#stopPc());
+    })();
+    this.#stopping = stopping;
+    try { await stopping; } finally { if (this.#stopping === stopping) this.#stopping = null; }
   }
 
   async cleanup(): Promise<void> { this.#disposed = true; await this.stop(); this.#unsubscribe(); }
@@ -125,16 +146,25 @@ export class ForwardingController {
       }
     }
     if (event.type !== 'switchEdge' || event.generation !== this.#generation || this.#state.phase !== 'active') return;
+    if (this.#pending >= 64) { void this.stop('Remote input queue is full. Start forwarding again.', true); return; }
     if (event.sequence !== this.#bridgeSequence + 1) { void this.stop('A switch event was missed. Forwarding stopped safely.', true); return; }
     this.#bridgeSequence = event.sequence;
     const mapping = this.#state.mappings.find((item) => item.keyCode === event.keyCode);
     if (!mapping) return;
     this.#resetIdle();
     const duration = Math.max(0, event.eventTimeMs - event.downTimeMs);
+    if (this.selectedProfile()?.kind === 'scanning' && (event.cancelled || (!event.down && duration >= this.holdToStopMs))) {
+      void this.stop(event.cancelled ? 'Switch input cancelled. Start forwarding again.' : 'Forwarding stopped after the switch was held.', true);
+      return;
+    }
     const replacement = event.down && mapping.pressed && mapping.downTimeMs !== event.downTimeMs;
+    if (replacement && this.selectedProfile()?.kind === 'scanning') { void this.stop('A switch press was replaced. Start forwarding again.', true); return; }
     this.#set({ mappings: this.#state.mappings.map((item) => item.keyCode === event.keyCode ? { ...item, pressed: event.down, downTimeMs: event.down ? event.downTimeMs : null } : item) });
+    const attempt = this.#attempt;
     void this.#enqueue(async () => {
+      if (attempt !== this.#attempt || this.#state.phase !== 'active') return;
       if (replacement) await this.#edge(mapping.switchId, false);
+      if (attempt !== this.#attempt || this.#state.phase !== 'active') return;
       await this.#edge(mapping.switchId, event.down);
       if (!event.down && !event.cancelled && duration >= this.holdToStopMs) void this.stop('Forwarding stopped after the switch was held.', true);
     });
@@ -142,14 +172,18 @@ export class ForwardingController {
 
   #edge(switchId: number, down: boolean): Promise<boolean> {
     this.#sequence += 1;
-    return this.connection.send(this.#legacy ? 'grid.switch.set' : 'switch.edge', { switchId, state: down ? 'down' : 'up', ...(!this.#legacy || this.pointerProfile.capabilities.supportedCommands.includes('grid.switch.sync') ? { sessionId: this.#sessionId, sequence: this.#sequence } : {}) }, this.pointerProfile.capabilities.noAckCommands.includes(this.#legacy ? 'grid.switch.set' : 'switch.edge') ? 'none' : 'ack');
+    return this.connection.send(this.#legacy ? 'grid.switch.set' : 'switch.edge', { switchId, state: down ? 'down' : 'up', ...(!this.#legacy || this.pointerProfile.capabilities.supportedCommands.includes('grid.switch.sync') ? { sessionId: this.#sessionId, sequence: this.#sequence } : {}) }, this.selectedProfile()?.kind !== 'scanning' && this.pointerProfile.capabilities.noAckCommands.includes(this.#legacy ? 'grid.switch.set' : 'switch.edge') ? 'none' : 'ack').then((ok) => { if (!ok && this.selectedProfile()?.kind === 'scanning') void this.stop('PC scanning stopped. Start forwarding again.', true); return ok; });
   }
 
-  async #syncNow(): Promise<void> {
+  #heldIds(): number[] { return this.#state.mappings.filter((item) => item.pressed).map((item) => item.switchId); }
+
+  async #syncNow(held: number[], attempt: number): Promise<void> {
+    if (attempt !== this.#attempt) return;
     if (this.#state.phase !== 'active') return;
     if (this.#legacy && !this.pointerProfile.capabilities.supportedCommands.includes('grid.switch.sync')) return;
     this.#sequence += 1;
-    await this.connection.send(this.#legacy ? 'grid.switch.sync' : 'switch.sync', { sessionId: this.#sessionId, sequence: this.#sequence, pressedSwitchIds: this.#state.mappings.filter((item) => item.pressed).map((item) => item.switchId) });
+    const ok = await this.connection.send(this.#legacy ? 'grid.switch.sync' : 'switch.sync', { sessionId: this.#sessionId, sequence: this.#sequence, pressedSwitchIds: held });
+    if (attempt === this.#attempt && !ok && this.selectedProfile()?.kind === 'scanning') void this.stop('PC scanning stopped. Start forwarding again.', true);
   }
 
   async #stopPc(): Promise<void> {
@@ -162,6 +196,6 @@ export class ForwardingController {
 
   #resetIdle(): void { if (this.#idle) this.timers.clear(this.#idle); this.#idle = this.timers.timeout(() => { void this.stop('Forwarding stopped after 60 seconds without switch activity.', true); }, 60_000); }
   #clearTimers(): void { if (this.#sync) this.timers.clear(this.#sync); if (this.#idle) this.timers.clear(this.#idle); this.#sync = null; this.#idle = null; }
-  #enqueue<T>(operation: () => Promise<T>): Promise<T> { const next = this.#queue.then(operation, operation); this.#queue = next.then(() => undefined, () => undefined); return next; }
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> { this.#pending++; const next = this.#queue.then(operation, operation).finally(() => { this.#pending--; }); this.#queue = next.then(() => undefined, () => undefined); return next; }
   #set(patch: Partial<ForwardingState>): void { this.#state = { ...this.#state, ...patch }; this.#listeners.forEach((listener) => listener()); }
 }

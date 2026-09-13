@@ -17,6 +17,51 @@ const catalog: ProtocolResponse = { kind: 'switchProfileCatalog', id: 'catalog',
 describe('ForwardingController', () => {
   const generic = ['switch.profile.list', 'switch.session.start', 'switch.edge', 'switch.sync', 'switch.session.stop'];
   const fakeTimers = () => ({ interval: jest.fn(() => 1 as never), timeout: jest.fn(() => 2 as never), clear: jest.fn() });
+  it.each(['cancelled', 'held', 'replaced'])('stops scanning without sending a selecting release when %s', async (reason) => {
+    const bridge = new FakeBridge();
+    const scanCatalog: ProtocolResponse = { kind: 'switchProfileCatalog', id: 'catalog', catalog: { catalogRevision: 1, profiles: [{ id: 'builtin.switchify-scanning', version: 1, name: 'Switchify scanning', kind: 'scanning', bindings: [{ switchId: 1, label: 'Select', behavior: 'stateful' }] }] } };
+    const connection = { request: jest.fn(async () => scanCatalog), send: jest.fn(async () => true) };
+    const pc = profile(generic, ['switch.edge']); pc.capabilities.switchScanning = true;
+    const controller = new ForwardingController(connection, bridge, pc, 5000, fakeTimers(), () => 'session');
+    await controller.loadProfiles();
+    expect(connection.request).toHaveBeenCalledWith('switch.profile.list', { includeScanning: true });
+    await controller.start();
+    bridge.emit({ type: 'switchEdge', generation: 41, sequence: 1, keyCode: 20, down: true, downTimeMs: 0, eventTimeMs: 0, cancelled: false });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    bridge.emit({ type: 'switchEdge', generation: 41, sequence: 2, keyCode: 20, down: reason === 'replaced', downTimeMs: reason === 'replaced' ? 1 : 0, eventTimeMs: reason === 'held' ? 5000 : 20, cancelled: reason === 'cancelled' });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(controller.snapshot().phase).toBe('idle');
+    expect(connection.send).toHaveBeenCalledWith('switch.edge', expect.objectContaining({ state: 'down' }), 'ack');
+    expect(connection.send).not.toHaveBeenCalledWith('switch.edge', expect.objectContaining({ state: 'up' }), expect.anything());
+    expect(connection.send).toHaveBeenCalledWith('switch.session.stop', expect.anything());
+    await controller.cleanup();
+  });
+  it.each(['stop', 'sync'])('preserves queued edge semantics across delayed acknowledgement and %s', async (scenario) => {
+    const bridge = new FakeBridge(); let resolveDown: (ok: boolean) => void = () => undefined;
+    const down = new Promise<boolean>((resolve) => { resolveDown = resolve; });
+    const scanCatalog: ProtocolResponse = { kind: 'switchProfileCatalog', id: 'catalog', catalog: { catalogRevision: 1, profiles: [{ id: 'builtin.switchify-scanning', version: 1, name: 'Switchify scanning', kind: 'scanning', bindings: [{ switchId: 1, label: 'Select', behavior: 'stateful' }] }] } };
+    const send = jest.fn((command: string, payload?: import('@/domain/protocol/types').JsonObject) => command === 'switch.edge' && payload?.state === 'down' ? down : Promise.resolve(true));
+    const connection = { request: jest.fn(async () => scanCatalog), send };
+    const timers = { ...fakeTimers(), interval: jest.fn((callback: () => void, _ms: number) => { void callback; return 1 as never; }) }; let interval: () => void = () => undefined;
+    timers.interval.mockImplementation((callback) => { interval = callback; return 1 as never; });
+    const controller = new ForwardingController(connection, bridge, profile(generic), 5000, timers, () => 'session');
+    await controller.loadProfiles(); await controller.start();
+    bridge.emit({ type: 'switchEdge', generation: 41, sequence: 1, keyCode: 20, down: true, downTimeMs: 0, eventTimeMs: 0, cancelled: false });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    if (scenario === 'sync') interval();
+    bridge.emit({ type: 'switchEdge', generation: 41, sequence: 2, keyCode: 20, down: false, downTimeMs: 0, eventTimeMs: 50, cancelled: false });
+    const stopped = scenario === 'stop' ? controller.stop() : null;
+    resolveDown(true); for (let i = 0; i < 30; i++) await Promise.resolve();
+    if (scenario === 'stop') {
+      await stopped;
+      expect(send.mock.calls.filter(([command, payload]) => command === 'switch.edge' && payload?.state === 'up')).toHaveLength(0);
+    } else {
+      const syncs = send.mock.calls.filter(([command]) => command === 'switch.sync');
+      expect(syncs[1]?.[1]?.pressedSwitchIds).toEqual([1]);
+      expect(send.mock.calls.filter(([command, payload]) => command === 'switch.edge' && payload?.state === 'up')).toHaveLength(1);
+    }
+    await controller.cleanup();
+  });
   it('maps eight switches, sends ordered edges, and cleans up', async () => {
     const bridge = new FakeBridge(); const connection = { request: jest.fn(async () => catalog), send: jest.fn(async () => true) } as ForwardingConnection;
     const controller = new ForwardingController(connection, bridge, profile(generic, ['switch.edge']), 5_000, fakeTimers(), () => 'session');
@@ -44,7 +89,7 @@ describe('ForwardingController', () => {
     await controller.loadProfiles(); await controller.start();
     bridge.emit({ type: 'switchEdge', generation: 41, sequence: 1, keyCode: 20, down: true, downTimeMs: 10, eventTimeMs: 10, cancelled: false });
     bridge.emit({ type: 'switchEdge', generation: 41, sequence: 2, keyCode: 20, down: true, downTimeMs: 20, eventTimeMs: 20, cancelled: false });
-    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    for (let index = 0; index < 30; index += 1) await Promise.resolve();
     const edges = (connection.send as jest.Mock).mock.calls.filter(([command]) => command === 'switch.edge').map(([, payload]) => payload.state);
     expect(edges).toEqual(['down', 'up', 'down']);
   });

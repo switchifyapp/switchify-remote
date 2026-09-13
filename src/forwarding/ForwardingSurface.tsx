@@ -56,6 +56,7 @@ export function ForwardingSurface({ manager, bridge, profile, desktopId, prefere
         controller.report('The previously active forwarding profile changed. Start forwarding again to confirm it.');
         return;
       }
+      if (selected.kind === 'scanning') { restore.clear(); return; }
       await controller.start();
     });
     const unregister = manager.registerCleanup(async () => { restore.clear(); await controller.cleanup(); });
@@ -72,11 +73,12 @@ export function ForwardingSurface({ manager, bridge, profile, desktopId, prefere
   return <View style={{ gap: spacing.md }}>
     <AppText accessibilityRole="header" variant="title">PC Switch Forwarding</AppText>
     <AppText muted>Forward configured external switches from Switchify to this PC.</AppText>
+    {controller.selectedProfile()?.kind === 'scanning' ? <AppText muted>Uses scanning settings and remote switch assignments from the PC. Press Select to begin. PC Escape, forwarding safety limits, or disconnect stop scanning. Start again after a stop.</AppText> : null}
     <ForwardingBody state={state} onSelect={(profileId) => { void select(profileId); }} onToggle={() => {
       if (state.phase === 'active') { restore.clear(); void controller.stop(); }
       else void controller.start().then((started) => {
         const selected = controller.selectedProfile();
-        if (started && selected) restore.set({ desktopId, profileId: selected.id, profileVersion: selected.version });
+        if (started && selected && selected.kind !== 'scanning') restore.set({ desktopId, profileId: selected.id, profileVersion: selected.version });
       });
     }} />
   </View>;

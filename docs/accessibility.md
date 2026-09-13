@@ -51,3 +51,7 @@ The edit toggle is icon-only: a pencil labeled Edit layout, then a checkmark lab
 Saved grids and editor cells divide the available viewport width across the saved columns. Compact numbered row/column handles retain full accessible position labels and drag/tap hints. Labels scale and wrap into taller rows; icons and selected indicators stack above/below text. All targets remain at least 48 points. Horizontal scrolling is reserved for viewports too small for those targets, with an overflow indicator. No saved geometry changes.
 
 Verify three-column/four-row Movement layouts including Scroll up, Scroll down, and Enter on 320–430-point phone widths at 100%, 150%, and 200% text, portrait/landscape, and iOS maximum Dynamic Type. Check all columns, numbered handles, drag destinations, tap moves, and bottom editor actions; the right column must not clip when minimum targets fit. Test the genuine overflow fallback below that threshold. Cancel any drag on rotation/text/viewport changes.
+
+### PC scanning acceptance
+
+On an Android device with the Switchify bridge, select Switchify scanning in Forwarding. Verify the profile, Start/Stop controls, PC-assigned press/hold labels, pressed state and stop messages are announced and remain usable at large text in light/dark phone and tablet layouts. No new layout editing controls appear. After disconnect or safety stop, verify no automatic restart and that Start remains reachable. iOS switch capture remains unavailable, as with existing Forwarding.
