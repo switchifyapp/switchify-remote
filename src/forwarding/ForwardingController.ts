@@ -54,7 +54,7 @@ export class ForwardingController {
   async loadProfiles(remembered?: string): Promise<void> {
     const supported = this.pointerProfile.capabilities.supportedCommands;
     if (genericCommands.every((command) => supported.includes(command))) {
-      const response = await this.connection.request('switch.profile.list', {});
+      const response = await this.connection.request('switch.profile.list', this.pointerProfile.capabilities.switchScanning ? { includeScanning: true } : {});
       if (response?.kind === 'switchProfileCatalog') {
         const selected = response.catalog.profiles.find((profile) => profile.id === remembered) ?? response.catalog.profiles[0] ?? null;
         this.#set({ profiles: response.catalog.profiles, selectedProfileId: selected?.id ?? null, message: selected ? null : 'This PC has no forwarding profiles.' });
@@ -131,7 +131,12 @@ export class ForwardingController {
     if (!mapping) return;
     this.#resetIdle();
     const duration = Math.max(0, event.eventTimeMs - event.downTimeMs);
+    if (this.selectedProfile()?.kind === 'scanning' && (event.cancelled || (!event.down && duration >= this.holdToStopMs))) {
+      void this.stop(event.cancelled ? 'Switch input cancelled. Start forwarding again.' : 'Forwarding stopped after the switch was held.', true);
+      return;
+    }
     const replacement = event.down && mapping.pressed && mapping.downTimeMs !== event.downTimeMs;
+    if (replacement && this.selectedProfile()?.kind === 'scanning') { void this.stop('A switch press was replaced. Start forwarding again.', true); return; }
     this.#set({ mappings: this.#state.mappings.map((item) => item.keyCode === event.keyCode ? { ...item, pressed: event.down, downTimeMs: event.down ? event.downTimeMs : null } : item) });
     void this.#enqueue(async () => {
       if (replacement) await this.#edge(mapping.switchId, false);
@@ -142,14 +147,15 @@ export class ForwardingController {
 
   #edge(switchId: number, down: boolean): Promise<boolean> {
     this.#sequence += 1;
-    return this.connection.send(this.#legacy ? 'grid.switch.set' : 'switch.edge', { switchId, state: down ? 'down' : 'up', ...(!this.#legacy || this.pointerProfile.capabilities.supportedCommands.includes('grid.switch.sync') ? { sessionId: this.#sessionId, sequence: this.#sequence } : {}) }, this.pointerProfile.capabilities.noAckCommands.includes(this.#legacy ? 'grid.switch.set' : 'switch.edge') ? 'none' : 'ack');
+    return this.connection.send(this.#legacy ? 'grid.switch.set' : 'switch.edge', { switchId, state: down ? 'down' : 'up', ...(!this.#legacy || this.pointerProfile.capabilities.supportedCommands.includes('grid.switch.sync') ? { sessionId: this.#sessionId, sequence: this.#sequence } : {}) }, this.selectedProfile()?.kind !== 'scanning' && this.pointerProfile.capabilities.noAckCommands.includes(this.#legacy ? 'grid.switch.set' : 'switch.edge') ? 'none' : 'ack').then((ok) => { if (!ok && this.selectedProfile()?.kind === 'scanning') void this.stop('PC scanning stopped. Start forwarding again.', true); return ok; });
   }
 
   async #syncNow(): Promise<void> {
     if (this.#state.phase !== 'active') return;
     if (this.#legacy && !this.pointerProfile.capabilities.supportedCommands.includes('grid.switch.sync')) return;
     this.#sequence += 1;
-    await this.connection.send(this.#legacy ? 'grid.switch.sync' : 'switch.sync', { sessionId: this.#sessionId, sequence: this.#sequence, pressedSwitchIds: this.#state.mappings.filter((item) => item.pressed).map((item) => item.switchId) });
+    const ok = await this.connection.send(this.#legacy ? 'grid.switch.sync' : 'switch.sync', { sessionId: this.#sessionId, sequence: this.#sequence, pressedSwitchIds: this.#state.mappings.filter((item) => item.pressed).map((item) => item.switchId) });
+    if (!ok && this.selectedProfile()?.kind === 'scanning') void this.stop('PC scanning stopped. Start forwarding again.', true);
   }
 
   async #stopPc(): Promise<void> {

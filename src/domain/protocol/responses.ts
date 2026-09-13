@@ -68,7 +68,7 @@ function parseSwitchProfileCatalog(payload: JsonObject): SwitchProfileCatalog | 
     const profile = object(entry);
     if (!profile) return null;
     const id = string(profile.id), version = number(profile.version), name = string(profile.name);
-    if (!id || !name || !version || !Number.isInteger(version) || (profile.kind !== 'grid3' && profile.kind !== 'mapped') || !Array.isArray(profile.bindings) || profile.bindings.length > 8) return null;
+    if (!id || !name || !version || !Number.isInteger(version) || (profile.kind !== 'grid3' && profile.kind !== 'mapped' && profile.kind !== 'scanning') || !Array.isArray(profile.bindings) || profile.bindings.length > 8) return null;
     const bindings = profile.bindings.map((entry) => {
       const binding = object(entry);
       if (!binding) return null;
@@ -77,7 +77,7 @@ function parseSwitchProfileCatalog(payload: JsonObject): SwitchProfileCatalog | 
       return { switchId, label, behavior: binding.behavior as 'stateful' | 'pulse' | 'unassigned' };
     });
     if (bindings.some((binding) => binding === null)) return null;
-    return { id, version, name, kind: profile.kind as 'grid3' | 'mapped', bindings: bindings as NonNullable<(typeof bindings)[number]>[] };
+    return { id, version, name, kind: profile.kind as 'grid3' | 'mapped' | 'scanning', bindings: bindings as NonNullable<(typeof bindings)[number]>[] };
   });
   return profiles.some((profile) => profile === null) ? null : { catalogRevision: revision, profiles: profiles as NonNullable<(typeof profiles)[number]>[] };
 }
@@ -108,6 +108,7 @@ function parsePointerProfile(payload: JsonObject): PointerProfile | null {
     recommendedDeltas: { small: small!, medium: medium!, large: large! },
     capabilities: {
       noAckMouseMove: bool(capabilities.noAckMouseMove),
+      switchScanning: bool(capabilities.switchScanning),
       noAckCommands: strings(capabilities.noAckCommands),
       supportedCommands: strings(capabilities.supportedCommands),
       mouseRepeat: { supported: bool(repeat.supported), enabled: bool(repeat.enabled), intervalMs: numeric(repeat.intervalMs, 250), minIntervalMs: numeric(repeat.minIntervalMs, 100), maxIntervalMs: numeric(repeat.maxIntervalMs, 2000) },

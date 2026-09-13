@@ -34,3 +34,9 @@ An optional discovery field `responseTransport: "read-v1"` selects the read-only
 One serial ATT read consumes one JSON/base64 frame (maximum 180 bytes), or returns an empty value when idle. ATT long reads must preserve a server snapshot for nonzero offsets. Poll immediately after data, or after 100 ms when idle. Existing protocol parsing/reassembly and request deadlines remain authoritative. Read failures terminate the receive path with a fixed error and poison writes until reconnect: consumed frames are never retried. Unsubscribe/disconnect cancels the native transaction, timers and late deliveries. Initial successful read replaces notification-descriptor readiness; no notification listener is registered in this mode.
 
 Fake tests cover negotiation, backward compatibility, response bounds, serial polling, timeout and cancellation. Physical Android interoperability is not yet qualified.
+
+## PC scanning forwarding profile
+
+PCs may advertise `capabilities.switchScanning: true`. Only then request `switch.profile.list` with `{ "includeScanning": true }`; older PCs retain the empty-object request. The opt-in catalog adds kind `scanning`, ID `builtin.switchify-scanning`, a revision and up to eight stateful/unassigned switch labels. Older clients receive the unchanged catalog. Protocol v1, authentication and existing forwarding command payloads are unchanged.
+
+Scanning edges request acknowledgements. Cancelled events, replacement presses and hold-to-stop send session stop without an actionable release. A PC refusal stops forwarding and clears restoration intent. Scanning profiles are never automatically restored after reconnect. A fresh start receives a new session ID; PC profile revisions reject stale assignments.

@@ -12,6 +12,7 @@ export type PointerProfile = {
   recommendedDeltas: { small: number; medium: number; large: number };
   capabilities: {
     noAckMouseMove: boolean;
+    switchScanning?: boolean;
     noAckCommands: string[];
     supportedCommands: string[];
     mouseRepeat: { supported: boolean; enabled: boolean; intervalMs: number; minIntervalMs: number; maxIntervalMs: number };
@@ -22,7 +23,7 @@ export type PointerProfile = {
 };
 
 export type SwitchBinding = { switchId: number; label: string; behavior: 'stateful' | 'pulse' | 'unassigned' };
-export type SwitchProfile = { id: string; version: number; name: string; kind: 'grid3' | 'mapped'; bindings: SwitchBinding[] };
+export type SwitchProfile = { id: string; version: number; name: string; kind: 'grid3' | 'mapped' | 'scanning'; bindings: SwitchBinding[] };
 export type SwitchProfileCatalog = { catalogRevision: number; profiles: SwitchProfile[] };
 
 export type ProtocolResponse =
