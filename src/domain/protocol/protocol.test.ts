@@ -131,6 +131,6 @@ describe('Switchify PC protocol v1', () => {
  it('accepts the opt-in scanning catalog and rejects unknown profile kinds', () => {
    const response = { type: 'switch.profile.list', id: 'scan', ok: true, error: null, payload: { catalogRevision: 1, profiles: [{ id: 'builtin.switchify-scanning', version: 2, name: 'Switchify scanning', kind: 'scanning', bindings: [{ switchId: 1, label: 'Select; hold: Next', behavior: 'stateful' }] }] } };
    expect(parseResponse(JSON.stringify(response)).kind).toBe('switchProfileCatalog');
-   response.payload.profiles[0].kind = 'unknown';
+   response.payload.profiles = response.payload.profiles.map((p) => ({ ...p, kind: 'unknown' }));
    expect(parseResponse(JSON.stringify(response)).kind).toBe('invalid');
  });
