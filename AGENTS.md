@@ -10,7 +10,7 @@ The application uses TypeScript, React 19, React Native 0.86, Expo Router, and n
 
 Follow this workflow for every change:
 
-1. Create a GitHub issue that defines the change and acceptance criteria.
+1. Create a GitHub issue that defines the change and acceptance criteria. Never create a GitHub issue without a milestone. Select or create the appropriate milestone first and include it in the issue creation request; assigning it afterward is not allowed. This applies to every issue, including bugs, chores, release preparation, and follow-up work. Verify the milestone on the created issue before continuing.
 2. Fetch the intended base branch and create a focused `codex/<description>-<issue>` branch from it. Use `main` unless the issue or user identifies another base.
 3. Inspect neighboring code, tests, documentation, and configuration before editing.
 4. Make the smallest coherent change that satisfies the issue.
