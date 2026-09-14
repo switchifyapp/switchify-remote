@@ -165,11 +165,15 @@ export class ForwardingController {
       return;
     }
     const replacement = event.down && mapping.pressed && mapping.downTimeMs !== event.downTimeMs;
+    // For scanning, a replacement's missing release must never reach the PC as
+    // an up edge, which would select. Withdraw it with a sync first.
+    const withdrawn = replacement && scanning ? this.#heldIds().filter((id) => id !== mapping.switchId) : null;
     this.#set({ mappings: this.#state.mappings.map((item) => item.keyCode === event.keyCode ? { ...item, pressed: event.down, downTimeMs: event.down ? event.downTimeMs : null } : item) });
     const attempt = this.#attempt;
     void this.#enqueue(async () => {
       if (attempt !== this.#attempt || this.#state.phase !== 'active') return;
-      if (replacement) await this.#edge(mapping.switchId, false);
+      if (withdrawn) await this.#syncNow(withdrawn, attempt);
+      else if (replacement) await this.#edge(mapping.switchId, false);
       if (attempt !== this.#attempt || this.#state.phase !== 'active') return;
       await this.#edge(mapping.switchId, event.down);
       if (!scanning && !event.down && !event.cancelled && duration >= this.holdToStopMs) void this.stop('Forwarding stopped after the switch was held.', true);

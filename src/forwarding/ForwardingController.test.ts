@@ -43,7 +43,14 @@ describe('ForwardingController', () => {
       // The PC owns hold timing, so a long hold still delivers its release.
       expect(edges).toEqual(['down', 'up']);
     } else {
-      expect(edges).toEqual(['down', 'up', 'down']);
+      // A replacement withdraws the old press with a sync, then presses again;
+      // the PC never receives a release it could act on.
+      expect(edges).toEqual(['down', 'down']);
+      const calls = (connection.send as jest.Mock).mock.calls.filter(([command]) => command === 'switch.sync' || command === 'switch.edge');
+      const withdraw = calls.findIndex(([command, payload]) => command === 'switch.sync' && Array.isArray(payload?.pressedSwitchIds) && payload.pressedSwitchIds.length === 0 && payload.sequence > 2);
+      expect(withdraw).toBeGreaterThan(0);
+      expect(calls[withdraw + 1]?.[0]).toBe('switch.edge');
+      expect(calls[withdraw + 1]?.[1]?.state).toBe('down');
     }
     expect(scanCatalog).toBeTruthy();
     await controller.cleanup();
