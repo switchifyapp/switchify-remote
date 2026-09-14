@@ -153,12 +153,18 @@ export class ForwardingController {
     if (!mapping) return;
     this.#resetIdle();
     const duration = Math.max(0, event.eventTimeMs - event.downTimeMs);
-    if (this.selectedProfile()?.kind === 'scanning' && (event.cancelled || (!event.down && duration >= this.holdToStopMs))) {
-      void this.stop(event.cancelled ? 'Switch input cancelled. Start forwarding again.' : 'Forwarding stopped after the switch was held.', true);
+    // Scanning profiles leave hold limits to the PC, which owns the hold-action
+    // timing and its own emergency hold. A cancelled press is withdrawn with a
+    // sync so the PC drops the gesture without selecting, and the session
+    // continues; nothing here ends a scanning session on the user's behalf.
+    const scanning = this.selectedProfile()?.kind === 'scanning';
+    if (scanning && event.cancelled) {
+      this.#set({ mappings: this.#state.mappings.map((item) => item.keyCode === event.keyCode ? { ...item, pressed: false, downTimeMs: null } : item) });
+      const attempt = this.#attempt; const held = this.#heldIds();
+      void this.#enqueue(() => this.#syncNow(held, attempt));
       return;
     }
     const replacement = event.down && mapping.pressed && mapping.downTimeMs !== event.downTimeMs;
-    if (replacement && this.selectedProfile()?.kind === 'scanning') { void this.stop('A switch press was replaced. Start forwarding again.', true); return; }
     this.#set({ mappings: this.#state.mappings.map((item) => item.keyCode === event.keyCode ? { ...item, pressed: event.down, downTimeMs: event.down ? event.downTimeMs : null } : item) });
     const attempt = this.#attempt;
     void this.#enqueue(async () => {
@@ -166,7 +172,7 @@ export class ForwardingController {
       if (replacement) await this.#edge(mapping.switchId, false);
       if (attempt !== this.#attempt || this.#state.phase !== 'active') return;
       await this.#edge(mapping.switchId, event.down);
-      if (!event.down && !event.cancelled && duration >= this.holdToStopMs) void this.stop('Forwarding stopped after the switch was held.', true);
+      if (!scanning && !event.down && !event.cancelled && duration >= this.holdToStopMs) void this.stop('Forwarding stopped after the switch was held.', true);
     });
   }
 
@@ -194,7 +200,9 @@ export class ForwardingController {
     } else await this.connection.send('switch.session.stop', { sessionId: this.#sessionId, sequence: this.#sequence });
   }
 
-  #resetIdle(): void { if (this.#idle) this.timers.clear(this.#idle); this.#idle = this.timers.timeout(() => { void this.stop('Forwarding stopped after 60 seconds without switch activity.', true); }, 60_000); }
+  // A scanning user may watch the PC screen for a long time between presses,
+  // so the idle stop applies to keyboard forwarding only.
+  #resetIdle(): void { if (this.#idle) this.timers.clear(this.#idle); this.#idle = null; if (this.selectedProfile()?.kind === 'scanning') return; this.#idle = this.timers.timeout(() => { void this.stop('Forwarding stopped after 60 seconds without switch activity.', true); }, 60_000); }
   #clearTimers(): void { if (this.#sync) this.timers.clear(this.#sync); if (this.#idle) this.timers.clear(this.#idle); this.#sync = null; this.#idle = null; }
   #enqueue<T>(operation: () => Promise<T>): Promise<T> { this.#pending++; const next = this.#queue.then(operation, operation).finally(() => { this.#pending--; }); this.#queue = next.then(() => undefined, () => undefined); return next; }
   #set(patch: Partial<ForwardingState>): void { this.#state = { ...this.#state, ...patch }; this.#listeners.forEach((listener) => listener()); }
