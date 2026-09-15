@@ -30,6 +30,21 @@ function manager(overrides: Record<string, unknown> = {}): BleManager {
 }
 
 describe('ReactNativeBleTransport', () => {
+  it('links observed peers and BLE stages to the selected attempt without identifiers', async () => {
+    const log = new DiagnosticLog();
+    let callback!: (error: Error | null, value: Device | null) => void;
+    const transport = new ReactNativeBleTransport(manager({ startDeviceScan: jest.fn((_u, _o, cb) => { callback = cb; }) }), 'ios', 1000, undefined, log);
+    const attempt = log.beginAttempt('pc-1', 'saved');
+    const result = transport.resolveAndConnect('pc-1', attempt);
+    await waitFor(() => !!callback);
+    callback(null, device({ id: 'private-address', name: 'private-name' }));
+    await result;
+    expect(log.export()).toContain('ble_peer_observed: [attempt-1 PC-1 saved] Observed PC-1; replies=notifications.');
+    expect(log.export()).toContain('ble_resolution_succeeded: [attempt-1 PC-1 saved]');
+    expect(log.export()).not.toMatch(/private|pc-1/);
+    await transport.disconnect();
+  });
+
   it('uses peer-specific reads for negotiated Linux replies, never notifications', async () => {
     const connected = device({ readCharacteristicForService: jest.fn(async (_service, characteristic) => ({
       value: characteristic.endsWith('7eb-1d6d-4d92-9ef0-1f89d3db21f4')
@@ -37,10 +52,12 @@ describe('ReactNativeBleTransport', () => {
         : '',
     } as Characteristic)) });
     const native = manager({ connectToDevice: jest.fn(async () => connected) });
-    const transport = new ReactNativeBleTransport(native, 'ios');
-    await transport.connect('ble-1');
+    const log = new DiagnosticLog();
+    const transport = new ReactNativeBleTransport(native, 'ios', 10_000, undefined, log);
+    await transport.connect('ble-1', log.beginAttempt('pc-1', 'saved'));
     const stop = transport.subscribe(jest.fn(), jest.fn());
     await transport.notificationsReady();
+    expect(log.export()).toContain('ble_response_read_ready_succeeded: [attempt-1 PC-1 saved]');
     expect(connected.monitorCharacteristicForService).not.toHaveBeenCalled();
     expect(connected.readDescriptorForService).not.toHaveBeenCalled();
     expect(connected.readCharacteristicForService).toHaveBeenCalledWith(expect.any(String), '7a78f7ec-1d6d-4d92-9ef0-1f89d3db21f4', expect.any(String));

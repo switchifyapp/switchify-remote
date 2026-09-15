@@ -1,4 +1,5 @@
 import type { PcStatus } from '@/domain/protocol/types';
+import type { DiagnosticAttempt } from '@/diagnostics/DiagnosticLog';
 
 export type DiscoveredDesktop = PcStatus & { peripheralId: string; rssi: number | null };
 export type Unsubscribe = () => void;
@@ -7,8 +8,8 @@ export type BleAvailability = 'ready' | 'unauthorized' | 'poweredOff' | 'unsuppo
 export interface BleTransport {
   availability(): Promise<BleAvailability>;
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe;
-  connect(peripheralId: string): Promise<void>;
-  resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop>;
+  connect(peripheralId: string, attempt?: DiagnosticAttempt): Promise<void>;
+  resolveAndConnect(desktopId: string, attempt?: DiagnosticAttempt): Promise<DiscoveredDesktop>;
   disconnect(): Promise<void>;
   maxWriteValueBytes(): number;
   writeFrame(frameBase64: string): Promise<void>;

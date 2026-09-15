@@ -51,6 +51,26 @@ Run the matrix on a physical Android phone and iPhone against current Switchify 
 9. While repeat, drag, modifiers, and a text stream are active, background and terminate the app, disconnect Bluetooth, and quit Switchify PC. Confirm the desktop returns to neutral input state each time.
 10. Export diagnostics and verify that no typed content, token, authentication proof, nonce, or verification code appears.
 
+### Correlating connection attempts
+
+Connection events and BLE stages include local labels such as `[attempt-3 PC-2 switch]`.
+Origins distinguish nearby selection, saved selection, preferred auto-connect, explicit switching,
+and reconnect retries. `ble_peer_observed` records an anonymous candidate and its advertised reply
+mode (`read-v1` or `notifications`); compare this with the selected PC label and `selected_match`.
+Read-based readiness has its own `response_read_ready` stage.
+
+Teardown events record the observed trigger: explicit disconnect, scan, switch, focus cancellation,
+native disconnect, response failure, write failure, health failure, or failed connection setup.
+These are triggers, not inferred radio/OS root causes. A superseded attempt and a new attempt have
+different labels, even when they target the same PC. Confirm that foregrounding does not replace
+an active manual connection with the preferred PC, and that quick switches cannot revive an old attempt.
+
+Labels are not names, addresses, credentials, or persistent desktop identifiers. The log keeps
+200 entries and at most 128 identity-to-label mappings in memory; eviction can assign a later label
+to an old PC. Clear removes the mappings and invalidates old correlation contexts; restart also
+starts a new label namespace. Do not compare these labels across exports separated by clear/restart.
+No new telemetry or persistence is added. Physical reconnect success must still be recorded separately.
+
 The development-preview PR remains draft until all four platform pairings are recorded successfully.
 
 ### Movement width regression

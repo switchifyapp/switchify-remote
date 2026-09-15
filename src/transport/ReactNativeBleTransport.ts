@@ -4,7 +4,7 @@ import { toByteArray } from 'base64-js';
 
 import { BLE_DESCRIPTORS, BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
-import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog } from '@/diagnostics/DiagnosticLog';
+import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog, DiagnosticAttempt } from '@/diagnostics/DiagnosticLog';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from './BleTransport';
 import { desktopDisplayName } from './desktopDisplayName';
 import { ReadResponsePoller } from './ReadResponsePoller';
@@ -25,13 +25,14 @@ export class ReactNativeBleTransport implements BleTransport {
   #writePoisoned = false;
   #readReplies = false;
   #responsePoller: ReadResponsePoller | null = null;
+  #diagnosticAttempt: DiagnosticAttempt | undefined;
 
   constructor(
     manager: BleManager | null = null,
     private readonly platform = Platform.OS,
     private readonly nativeTimeoutMs = 10_000,
     private readonly managerFactory = () => new BleManager(),
-    private readonly diagnostics?: Pick<DiagnosticLog, 'addConnectionStage'>,
+    private readonly diagnostics?: Pick<DiagnosticLog, 'addConnectionStage'> & Partial<Pick<DiagnosticLog, 'peerObserved'>>,
   ) { this.#manager = manager; }
 
   async availability(): Promise<BleAvailability> {
@@ -44,6 +45,7 @@ export class ReactNativeBleTransport implements BleTransport {
   }
 
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe {
+    this.#diagnosticAttempt = undefined;
     const operation = ++this.#operation;
     let active = true;
     const waiting = new Map<string, Device>();
@@ -96,16 +98,18 @@ export class ReactNativeBleTransport implements BleTransport {
     };
   }
 
-  async connect(peripheralId: string): Promise<void> {
+  async connect(peripheralId: string, attempt?: DiagnosticAttempt): Promise<void> {
     await this.disconnect();
+    this.#diagnosticAttempt = attempt;
     const operation = ++this.#operation;
     const result = this.#connectQueue.catch(() => undefined).then(() => this.#connect(peripheralId, operation));
     this.#connectQueue = result.then(() => undefined, () => undefined);
     await result;
   }
 
-  async resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop> {
+  async resolveAndConnect(desktopId: string, attempt?: DiagnosticAttempt): Promise<DiscoveredDesktop> {
     await this.disconnect();
+    this.#diagnosticAttempt = attempt;
     const operation = ++this.#operation;
     this.#recordStage('resolution', 'started', operation);
     return new Promise<DiscoveredDesktop>((resolve, reject) => {
@@ -162,6 +166,7 @@ export class ReactNativeBleTransport implements BleTransport {
         this.#scanKeys.add(this.#scanKey(device));
         const task = this.#readStatus(device, (desktop) => {
           if (!active || operation !== this.#operation) return false;
+          try { this.diagnostics?.peerObserved?.(desktop.desktopId, desktop.responseTransport === 'read-v1', attempt, desktop.desktopId === desktopId); } catch { /* Diagnostic isolation. */ }
           this.#recordStage('selected_match', desktop.desktopId === desktopId ? 'succeeded' : 'not_matched', operation);
           if (desktop.desktopId !== desktopId || claimedDeviceId !== null) return false;
           claimedDeviceId = device.id;
@@ -369,7 +374,7 @@ export class ReactNativeBleTransport implements BleTransport {
   async notificationsReady(): Promise<void> {
     if (this.#readReplies) {
       if (!this.#responsePoller) throw new Error('Bluetooth response reader has not started.');
-      await this.#responsePoller.ready;
+      await this.#stage('response_read_ready', () => this.#responsePoller!.ready);
       return;
     }
     if (this.platform !== 'android') return;
@@ -446,7 +451,7 @@ export class ReactNativeBleTransport implements BleTransport {
   #recordStage(stage: ConnectionStage, outcome: ConnectionStageOutcome, operation: number): void {
     if (operation !== this.#operation) return;
     // Diagnostics must never change Bluetooth control flow, even if a UI listener throws.
-    try { this.diagnostics?.addConnectionStage(stage, outcome); } catch { /* best effort */ }
+    try { this.diagnostics?.addConnectionStage(stage, outcome, this.#diagnosticAttempt); } catch { /* best effort */ }
   }
 
   async #stage<T>(stage: ConnectionStage, action: () => Promise<T>, operation = this.#operation): Promise<T> {

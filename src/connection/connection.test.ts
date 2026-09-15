@@ -1,4 +1,4 @@
-import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
+import { DiagnosticLog, type DiagnosticAttempt } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
 import { ConnectionManager } from './ConnectionManager';
@@ -29,6 +29,7 @@ class FakeTransport implements BleTransport {
   resolveGate: Promise<void> | null = null;
   resolveGates = new Map<string, Promise<void>>();
   resolveDesktopIds: string[] = [];
+  attempts: DiagnosticAttempt[] = [];
   resolveStarted: ((desktopId: string) => void) | null = null;
   failConnect = false;
   failReadiness = false;
@@ -42,7 +43,8 @@ class FakeTransport implements BleTransport {
     await this.connectGate;
     if (this.failConnect) throw new Error('connect failed');
   }; disconnect = async () => undefined; writeFrame = async () => undefined;
-  resolveAndConnect = async (desktopId: string) => {
+  resolveAndConnect = async (desktopId: string, attempt?: DiagnosticAttempt) => {
+    if (attempt) this.attempts.push(attempt);
     this.resolveDesktopIds.push(desktopId);
     this.resolveStarted?.(desktopId);
     await (this.resolveGates.get(desktopId) ?? this.resolveGate);
@@ -64,6 +66,84 @@ const waitFor = async (condition: () => boolean): Promise<void> => {
 };
 
 describe('connection lifecycle', () => {
+  it('keeps overlapping manual attempts separate and ignores late completion', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('private-first'), pc('private-second')];
+    storage.saved.forEach((p) => storage.tokens.set(p.desktopId, 'private-token'));
+    const transport = new FakeTransport();
+    let release!: () => void;
+    transport.resolveGates.set('private-first', new Promise<void>((resolve) => { release = resolve; }));
+    transport.resolveError = new Error('private native error');
+    const log = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, storage, log, async () => true);
+    const first = manager.connectSaved(storage.saved[0]!);
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    await manager.connectSaved(storage.saved[1]!);
+    const completed = log.export();
+    release();
+    await first;
+    expect(log.export()).toBe(completed);
+    expect(transport.attempts).toMatchObject([{ attempt: 1, pc: 1, source: 'saved' }, { attempt: 2, pc: 2, source: 'saved' }]);
+    expect(completed).toContain('[attempt-1 PC-1 saved] A new connection request');
+    expect(completed).toContain('[attempt-2 PC-2 saved] Connection attempt failed');
+    expect(completed).not.toContain('private');
+  });
+
+  it('does not let preferred auto-connect replace a pending manual target', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('preferred-private'), pc('manual-private')];
+    storage.saved.forEach((p) => storage.tokens.set(p.desktopId, 'private-token'));
+    const transport = new FakeTransport();
+    let release!: () => void;
+    transport.resolveGate = new Promise<void>((resolve) => { release = resolve; });
+    transport.resolveError = new Error('private error');
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+    const manual = manager.connectSaved(storage.saved[1]!);
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    await manager.connectPreferred();
+    expect(transport.resolveDesktopIds).toEqual(['manual-private']);
+    release();
+    await manual;
+  });
+
+  it('distinguishes automatic preferred requests from explicit switches', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('preferred-private'), pc('switched-private')];
+    storage.saved.forEach((p) => storage.tokens.set(p.desktopId, 'private-token'));
+    const transport = new FakeTransport();
+    transport.resolveError = new Error('private error');
+    const log = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, storage, log, async () => true);
+    await manager.connectPreferred();
+    await manager.switchSaved(storage.saved[1]!);
+    expect(transport.attempts).toMatchObject([{ source: 'preferred', pc: 1 }, { source: 'switch', pc: 2 }]);
+    expect(log.export()).toContain('teardown_switch');
+    expect(log.export()).not.toContain('private');
+  });
+
+  it('does not cancel a manual replacement when an older preferred attempt loses focus', async () => {
+    const storage = new FakeStorage();
+    storage.saved = [pc('preferred-private'), pc('manual-private')];
+    storage.saved.forEach((p) => storage.tokens.set(p.desktopId, 'private-token'));
+    const transport = new FakeTransport();
+    let releasePreferred!: () => void;
+    let releaseManual!: () => void;
+    transport.resolveGates.set('preferred-private', new Promise<void>((resolve) => { releasePreferred = resolve; }));
+    transport.resolveGates.set('manual-private', new Promise<void>((resolve) => { releaseManual = resolve; }));
+    transport.resolveError = new Error('private error');
+    const log = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, storage, log, async () => true);
+    const preferred = manager.connectPreferred();
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    const manual = manager.connectSaved(storage.saved[1]!);
+    await waitFor(() => transport.resolveDesktopIds.length === 2);
+    await manager.cancelPreferredConnection();
+    const state = manager.snapshot();
+    releasePreferred(); releaseManual();
+    await Promise.all([preferred, manual]);
+    expect(state).toMatchObject({ kind: 'connecting', desktop: { desktopId: 'manual-private' } });
+    expect(log.snapshot().some((entry) => entry.code === 'teardown_focus')).toBe(false);
+  });
   it('matches the Android pairing verification algorithm', () => {
     expect(pairingVerificationCode('desktop-1', 'device-1', 'nonce-1')).toBe('215918');
     expect(pairingVerificationCode('0:0:1280:720:1.5', 'android-device-id', 'random-request-nonce')).toBe('735258');

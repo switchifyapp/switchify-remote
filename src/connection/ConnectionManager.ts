@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 
 import { authenticatedCommand, commandPayloads, pairingRequest } from '@/domain/protocol/commands';
 import type { JsonObject, PointerProfile, ProtocolResponse } from '@/domain/protocol/types';
-import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
+import { DiagnosticLog, type DiagnosticAttempt, type AttemptSource } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
 import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
 import { ProtocolClient, ProtocolWriteError } from './ProtocolClient';
@@ -33,6 +33,7 @@ export class ConnectionManager {
   #cleanups = new Set<Cleanup>();
   #operation = 0;
   #preferredConnect: Promise<void> | null = null;
+  #preferredOperation: number | null = null;
   #disconnecting: Promise<void> | null = null;
   #switchIntent = 0;
   #invalidSavedDesktopIds = new Set<string>();
@@ -41,6 +42,14 @@ export class ConnectionManager {
   #healthTimer: ReturnType<typeof setTimeout> | null = null;
   #healthProbe: Promise<boolean> | null = null;
   #protocolOperations = 0;
+  #attempt: DiagnosticAttempt | undefined;
+  #record(code: Parameters<DiagnosticLog['add']>[0], level: Parameters<DiagnosticLog['add']>[1] = 'info'): void {
+    this.diagnostics.add(code, level, this.#attempt);
+  }
+  #startAttempt(desktopId: string, source: AttemptSource): void {
+    if (this.#attempt) this.#record('attempt_superseded');
+    this.#attempt = this.diagnostics.beginAttempt(desktopId, source);
+  }
 
   constructor(
     private readonly transport: BleTransport,
@@ -64,7 +73,9 @@ export class ConnectionManager {
   }
 
   async scan(): Promise<void> {
+    this.#record('teardown_scan');
     await this.disconnect(false);
+    this.#attempt = undefined;
     const operation = ++this.#operation;
     const saved = await this.#orderedSaved();
     if (!this.#current(operation)) return;
@@ -73,7 +84,7 @@ export class ConnectionManager {
     const availability = await this.transport.availability();
     if (!this.#current(operation)) return;
     if (availability !== 'ready') { this.#set(this.#availabilityState(availability, saved)); return; }
-    this.diagnostics.add('scan_started');
+    this.#record('scan_started');
     const discovered = new Map<string, DiscoveredDesktop>();
     this.#set({ kind: 'scanning', saved, discovered: [] });
     this.#scanStop = this.transport.scan((desktop) => {
@@ -85,13 +96,14 @@ export class ConnectionManager {
 
   async connect(desktop: DiscoveredDesktop): Promise<void> {
     const operation = ++this.#operation;
+    this.#startAttempt(desktop.desktopId, 'nearby');
     this.#scanStop?.(); this.#scanStop = null;
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
     this.#set({ kind: 'connecting', desktop });
-    this.diagnostics.add('connecting');
+    this.#record('connecting');
     try {
-      const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
+      const resolved = await this.transport.resolveAndConnect(desktop.desktopId, this.#attempt);
       if (!this.#current(operation)) return;
       await this.#connectDesktop(resolved, operation, true, true);
     } catch {
@@ -99,8 +111,10 @@ export class ConnectionManager {
     }
   }
 
-  async connectSaved(pc: SavedPc): Promise<void> {
+  async connectSaved(pc: SavedPc, source: AttemptSource = 'saved'): Promise<void> {
     const operation = ++this.#operation;
+    if (source === 'preferred') this.#preferredOperation = operation;
+    this.#startAttempt(pc.desktopId, source);
     this.#scanStop?.(); this.#scanStop = null;
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
@@ -135,9 +149,9 @@ export class ConnectionManager {
 
     const savedDesktop: DiscoveredDesktop = { ...pc, rssi: null };
     this.#set({ kind: 'connecting', desktop: savedDesktop });
-    this.diagnostics.add('connecting');
+    this.#record('connecting');
     try {
-      const resolved = await this.transport.resolveAndConnect(pc.desktopId);
+      const resolved = await this.transport.resolveAndConnect(pc.desktopId, this.#attempt);
       if (!this.#current(operation)) return;
       await this.#connectDesktop(resolved, operation, true, true, token);
     } catch {
@@ -148,13 +162,15 @@ export class ConnectionManager {
   async switchSaved(pc: SavedPc): Promise<void> {
     const intent = ++this.#switchIntent;
     if ('desktop' in this.#state && this.#state.desktop.desktopId === pc.desktopId && !this.#disconnecting) return;
+    this.#record('teardown_switch');
     await this.#beginDisconnect(false);
     if (intent !== this.#switchIntent) return;
-    await this.connectSaved(pc);
+    await this.connectSaved(pc, 'switch');
   }
 
   async connectPreferred(): Promise<void> {
     if (this.#preferredConnect) return this.#preferredConnect;
+    this.#preferredOperation = this.#operation;
     const attempt = (async () => {
       await this.#disconnecting;
       if (this.#state.kind === 'connected' || this.#state.kind === 'connecting' || this.#state.kind === 'pairing' || this.#state.kind === 'reconnecting' || this.#state.kind === 'scanning') return;
@@ -165,27 +181,28 @@ export class ConnectionManager {
         this.#set({ kind: 'idle', saved: [] });
         return;
       }
-      await this.connectSaved(saved[0]!);
+      await this.connectSaved(saved[0]!, 'preferred');
     })();
     this.#preferredConnect = attempt;
     try { await attempt; }
-    finally { if (this.#preferredConnect === attempt) this.#preferredConnect = null; }
+    finally { if (this.#preferredConnect === attempt) { this.#preferredConnect = null; this.#preferredOperation = null; } }
   }
 
   async cancelPreferredConnection(): Promise<void> {
-    if (!this.#preferredConnect || this.#state.kind === 'connected') return;
+    if (!this.#preferredConnect || this.#preferredOperation !== this.#operation || this.#state.kind === 'connected') return;
+    this.#record('teardown_focus');
     await this.disconnect(false);
   }
 
   async #connectDesktop(desktop: DiscoveredDesktop, operation: number, announced = false, transportConnected = false, savedToken: string | null = null): Promise<void> {
     this.#set({ kind: 'connecting', desktop });
-    if (!announced) this.diagnostics.add('connecting');
+    if (!announced) this.#record('connecting');
     try {
-      if (!transportConnected) await this.transport.connect(desktop.peripheralId);
+      if (!transportConnected) await this.transport.connect(desktop.peripheralId, this.#attempt);
       if (!this.#current(operation)) return;
-      this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation));
+      this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(desktop, operation, 'teardown_native'));
       const client = new ProtocolClient(this.transport, this.id);
-      await client.start(() => void this.#unexpectedDisconnect(desktop, operation));
+      await client.start(() => void this.#unexpectedDisconnect(desktop, operation, 'teardown_response'));
       if (!this.#current(operation)) { await client.close(); return; }
       this.#client = client;
       this.#deviceId = await this.storage.getDeviceId();
@@ -209,7 +226,7 @@ export class ConnectionManager {
       await this.load();
       return true;
     } catch {
-      this.diagnostics.add('unpair_failed', 'warning');
+      this.#record('unpair_failed', 'warning');
       this.#set({ kind: 'failed', message: 'Could not remove this saved PC.', saved: await this.#orderedSaved() });
       return false;
     }
@@ -223,6 +240,7 @@ export class ConnectionManager {
   }
 
   async disconnect(record = true): Promise<void> {
+    if (record) this.#record('teardown_requested');
     this.#switchIntent += 1;
     await this.#beginDisconnect(record);
   }
@@ -230,6 +248,7 @@ export class ConnectionManager {
   async #beginDisconnect(record: boolean): Promise<void> {
     if (this.#disconnecting) return this.#disconnecting;
     this.#preferredConnect = null;
+    this.#preferredOperation = null;
     const attempt = this.#disconnect(record);
     this.#disconnecting = attempt;
     try { await attempt; }
@@ -245,7 +264,7 @@ export class ConnectionManager {
     for (const cleanup of [...this.#cleanups]) await Promise.resolve(cleanup()).catch(() => undefined);
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
-    if (record) { this.diagnostics.add('cleanup_complete'); this.diagnostics.add('disconnected'); }
+    if (record) { this.#record('cleanup_complete'); this.#record('disconnected'); }
     const saved = await this.#orderedSaved();
     if (this.#current(operation)) this.#set({ kind: 'idle', saved });
   }
@@ -282,12 +301,12 @@ export class ConnectionManager {
       if (response.kind === 'switchProfileCatalog') return response;
       if (response.kind === 'error' && response.code === 'invalid_auth') await this.#fail('Saved access is no longer valid.', this.#operation, true);
       if (response.kind === 'error' && response.code === 'name_update_failed') {
-        this.diagnostics.add('remote_name_sync_failed', 'warning');
+        this.#record('remote_name_sync_failed', 'warning');
         return response;
       }
     } catch (error) {
       if (error instanceof ProtocolWriteError || responseMode === 'none') {
-        void this.#unexpectedDisconnect(desktop, sourceOperation);
+        void this.#unexpectedDisconnect(desktop, sourceOperation, 'teardown_write');
       } else {
         shouldProbe = true;
       }
@@ -297,7 +316,7 @@ export class ConnectionManager {
         this.#scheduleHealth(healthyActivity ? 5_000 : shouldProbe ? 0 : 5_000);
       }
     }
-    this.diagnostics.add('command_failed', 'warning');
+    if (this.#current(sourceOperation)) this.#record('command_failed', 'warning');
     return null;
   }
 
@@ -312,13 +331,13 @@ export class ConnectionManager {
     const requestId = this.id();
     const nonce = Crypto.randomUUID();
     this.#set({ kind: 'pairing', desktop, verificationCode: pairingVerificationCode(desktop.desktopId, this.#deviceId!, nonce) });
-    this.diagnostics.add('pairing_requested');
+    this.#record('pairing_requested');
     const deviceName = await this.getRemoteName();
     if (!this.#current(operation)) return;
     const response = await this.#client!.request(pairingRequest({ id: requestId, deviceId: this.#deviceId!, deviceName, desktopId: desktop.desktopId, requestNonce: nonce }), requestId, 60_000);
     if (!this.#current(operation)) return;
     if (response.kind !== 'pairingComplete' || response.desktopId !== desktop.desktopId || response.deviceId !== this.#deviceId) {
-      if (response.kind === 'error') this.diagnostics.add('pairing_rejected', 'warning');
+      if (response.kind === 'error') this.#record('pairing_rejected', 'warning');
       throw new Error('Pairing was not completed.');
     }
     await this.storage.save({ desktopId: desktop.desktopId, displayName: desktop.displayName, platform: desktop.platform, peripheralId: desktop.peripheralId, lastConnectedAt: this.now() }, response.token);
@@ -342,7 +361,7 @@ export class ConnectionManager {
       }
       throw new Error('Authentication failed.');
     }
-    if (response.kind === 'error') this.diagnostics.add('remote_name_sync_failed', 'warning');
+    if (response.kind === 'error') this.#record('remote_name_sync_failed', 'warning');
     this.#token = token;
     const profile = await this.#requestPointerProfile(token, desktop, operation);
     if (!this.#current(operation)) return;
@@ -350,13 +369,13 @@ export class ConnectionManager {
     await this.storage.save(saved, token);
     this.#invalidSavedDesktopIds.delete(desktop.desktopId);
     if (!this.#current(operation)) return;
-    this.diagnostics.add('connected');
+    this.#record('connected');
     if (profile) {
       this.#set({ kind: 'connected', desktop, profile, profileStatus: 'ready' });
       this.#scheduleHealth();
     } else {
       this.#set({ kind: 'connected', desktop, profile: null, profileStatus: 'recovering' });
-      this.diagnostics.add('profile_recovery_started');
+      this.#record('profile_recovery_started');
       void this.#recoverPointerProfile(token, desktop, operation);
     }
   }
@@ -382,7 +401,7 @@ export class ConnectionManager {
         if (profile) {
           if (this.#state.kind === 'connected' && this.#state.profileStatus === 'recovering') {
             this.#set({ ...this.#state, profile, profileStatus: 'ready' });
-            this.diagnostics.add('profile_recovered');
+            this.#record('profile_recovered');
             this.#scheduleHealth();
           }
           return;
@@ -411,7 +430,7 @@ export class ConnectionManager {
     try {
       response = await this.#client!.request(authenticatedCommand({ id, deviceId: this.#deviceId!, token, timestamp: this.now(), type, payload }), id, 5_000);
     } catch (error) {
-      if (error instanceof ProtocolWriteError && this.#current(operation)) void this.#unexpectedDisconnect(desktop, operation);
+      if (error instanceof ProtocolWriteError && this.#current(operation)) void this.#unexpectedDisconnect(desktop, operation, 'teardown_write');
     }
     if (!this.#current(operation)) return null;
     return response?.kind === 'pointerProfile' ? response.profile : null;
@@ -425,7 +444,7 @@ export class ConnectionManager {
     if (!this.#current(operation) || this.#state.kind !== 'connected' || this.#state.profileStatus !== 'recovering') return;
     const state = this.#state;
     this.#set({ ...state, profileStatus: 'unavailable' });
-    this.diagnostics.add('profile_recovery_exhausted', 'warning');
+    this.#record('profile_recovery_exhausted', 'warning');
   }
 
   #waitForProfileRecovery(milliseconds: number, operation: number): Promise<boolean> {
@@ -448,12 +467,13 @@ export class ConnectionManager {
     this.#profileRecoveryTimers.clear();
   }
 
-  async #unexpectedDisconnect(desktop: DiscoveredDesktop, sourceOperation: number): Promise<void> {
+  async #unexpectedDisconnect(desktop: DiscoveredDesktop, sourceOperation: number, reason: 'teardown_native' | 'teardown_response' | 'teardown_write' | 'teardown_health'): Promise<void> {
     if (!this.#current(sourceOperation) || this.#state.kind === 'idle' || this.#state.kind === 'reconnecting' || this.#state.kind === 'failed') return;
+    this.#record(reason, 'warning');
     const operation = ++this.#operation;
     this.#cancelHealthTimer();
     this.#set({ kind: 'reconnecting', desktop, attempt: 1 });
-    this.diagnostics.add('connection_lost', 'warning');
+    this.#record('connection_lost', 'warning');
     await this.#teardownConnection();
     const token = await this.storage.token(desktop.desktopId);
     if (!token || !this.#current(operation)) { if (this.#current(operation)) await this.#fail('Connection to the PC was lost.', operation); return; }
@@ -463,11 +483,12 @@ export class ConnectionManager {
       await this.reconnectDelay(attempt * 500);
       if (!this.#current(operation)) return;
       try {
-        const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
+        this.#startAttempt(desktop.desktopId, 'reconnect');
+        const resolved = await this.transport.resolveAndConnect(desktop.desktopId, this.#attempt);
         if (!this.#current(operation)) return;
-        this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(resolved, operation));
+        this.#disconnectStop = this.transport.subscribeDisconnect(() => void this.#unexpectedDisconnect(resolved, operation, 'teardown_native'));
         const client = new ProtocolClient(this.transport, this.id);
-        await client.start(() => void this.#unexpectedDisconnect(resolved, operation));
+        await client.start(() => void this.#unexpectedDisconnect(resolved, operation, 'teardown_response'));
         if (!this.#current(operation)) { await client.close(); return; }
         this.#client = client;
         this.#deviceId = await this.storage.getDeviceId();
@@ -484,11 +505,12 @@ export class ConnectionManager {
 
   async #fail(message: string, operation: number, auth = false): Promise<void> {
     if (!this.#current(operation)) return;
+    this.#record('teardown_failure', 'warning');
     const saved = await this.#orderedSaved();
     if (!this.#current(operation)) return;
     await this.#teardownConnection();
     if (!this.#current(operation)) return;
-    if (auth) this.diagnostics.add('authentication_failed', 'error');
+    if (auth) this.#record('authentication_failed', 'error');
     this.#set({ kind: 'failed', message, saved });
   }
 
@@ -525,8 +547,8 @@ export class ConnectionManager {
         if (scheduleOnSuccess) this.#scheduleHealth();
         return true;
       }
-      this.diagnostics.add('connection_health_failed', 'warning');
-      void this.#unexpectedDisconnect(desktop, operation);
+      this.#record('connection_health_failed', 'warning');
+      void this.#unexpectedDisconnect(desktop, operation, 'teardown_health');
       return false;
     })();
     this.#healthProbe = probe;
@@ -549,7 +571,7 @@ export class ConnectionManager {
     if (!this.#current(operation)) return;
     const availability = await this.transport.availability().catch(() => 'poweredOff' as BleAvailability);
     if (!this.#current(operation)) return;
-    this.diagnostics.add('scan_failed', 'error');
+    this.#record('scan_failed', 'error');
     this.#set(availability === 'ready' ? { kind: 'failed', message: 'Bluetooth discovery could not start.', saved } : this.#availabilityState(availability, saved));
   }
 
