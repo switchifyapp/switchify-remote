@@ -22,7 +22,8 @@ describe('ForwardingController', () => {
     const scanCatalog: ProtocolResponse = { kind: 'switchProfileCatalog', id: 'catalog', catalog: { catalogRevision: 1, profiles: [{ id: 'builtin.switchify-scanning', version: 1, name: 'Switchify scanning', kind: 'scanning', bindings: [{ switchId: 1, label: 'Select', behavior: 'stateful' }] } ] } };
     const connection = { request: jest.fn(async () => scanCatalog), send: jest.fn(async () => true) };
     const pc = profile(generic, ['switch.edge']); pc.capabilities.switchScanning = true;
-    const controller = new ForwardingController(connection, bridge, pc, 5000, fakeTimers(), () => 'session');
+    const onSafetyStop = jest.fn();
+    const controller = new ForwardingController(connection, bridge, pc, 5000, fakeTimers(), () => 'session', onSafetyStop);
     await controller.loadProfiles(); await controller.start();
     bridge.emit({ type: 'switchEdge', generation: 41, sequence: 1, keyCode: 20, down: true, downTimeMs: 0, eventTimeMs: 0, cancelled: false });
     for (let i = 0; i < 10; i++) await Promise.resolve();
@@ -37,7 +38,12 @@ describe('ForwardingController', () => {
     expect(controller.snapshot().phase).toBe('idle');
     const edges = (connection.send as jest.Mock).mock.calls.filter(([command]) => command === 'switch.edge').map(([, payload]) => payload.state);
     expect(edges).toEqual(['down', 'up', 'down']);
-    expect(connection.send).toHaveBeenCalledWith('switch.session.stop', expect.anything());
+    // The stop is a safety stop and follows the last edge, so the PC never
+    // sees an edge after the session has ended.
+    expect(onSafetyStop).toHaveBeenCalledTimes(1);
+    const commands = (connection.send as jest.Mock).mock.calls.map(([command]) => command).filter((command) => command === 'switch.edge' || command === 'switch.session.stop');
+    expect(commands.at(-1)).toBe('switch.session.stop');
+    expect(commands.filter((command) => command === 'switch.session.stop')).toHaveLength(1);
     await controller.cleanup();
   });
   it.each(['cancelled', 'replaced'])('keeps a scanning session alive and never selects on its own when %s', async (reason) => {
