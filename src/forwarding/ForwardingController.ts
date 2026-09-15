@@ -153,11 +153,16 @@ export class ForwardingController {
     if (!mapping) return;
     this.#resetIdle();
     const duration = Math.max(0, event.eventTimeMs - event.downTimeMs);
-    // Scanning profiles leave hold limits to the PC, which owns the hold-action
-    // timing and its own emergency hold. A cancelled press is withdrawn with a
-    // sync so the PC drops the gesture without selecting, and the session
-    // continues; nothing here ends a scanning session on the user's behalf.
+    // The PC owns hold-action timing for scanning profiles, so shorter holds
+    // deliver their release. The Forwarding hold-to-stop still applies: it is
+    // the switch user's way out of a session, and it stops without sending an
+    // actionable release. A cancelled press is withdrawn with a sync so the PC
+    // drops the gesture without selecting, and the session continues.
     const scanning = this.selectedProfile()?.kind === 'scanning';
+    if (scanning && !event.down && !event.cancelled && duration >= this.holdToStopMs) {
+      void this.stop('Forwarding stopped after the switch was held.', true);
+      return;
+    }
     if (scanning && event.cancelled) {
       this.#set({ mappings: this.#state.mappings.map((item) => item.keyCode === event.keyCode ? { ...item, pressed: false, downTimeMs: null } : item) });
       const attempt = this.#attempt; const held = this.#heldIds();
@@ -176,7 +181,7 @@ export class ForwardingController {
       else if (replacement) await this.#edge(mapping.switchId, false);
       if (attempt !== this.#attempt || this.#state.phase !== 'active') return;
       await this.#edge(mapping.switchId, event.down);
-      if (!scanning && !event.down && !event.cancelled && duration >= this.holdToStopMs) void this.stop('Forwarding stopped after the switch was held.', true);
+      if (!event.down && !event.cancelled && duration >= this.holdToStopMs) void this.stop('Forwarding stopped after the switch was held.', true);
     });
   }
 
