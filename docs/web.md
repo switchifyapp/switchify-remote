@@ -24,7 +24,7 @@ Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and Chr
 | Saved PCs | Rescans and matches the desktop ID | Reuses devices this site may already use (`navigator.bluetooth.getDevices()`), matching by desktop ID. Otherwise it asks once through the picker, which needs a tap. |
 | Write size | Negotiated MTU (Android requests 517) | Fixed at 182 bytes (a 185-byte ATT MTU). The browser hides the negotiated MTU, and Switchify PC on macOS rejects long (offset) writes. |
 | GATT concurrency | Native transaction queue | One GATT operation at a time, because browsers reject overlapping operations |
-| Write cancellation | Cancels the native transaction | An in-flight write cannot be aborted. Cancelling one makes writes unavailable until the next connection, matching the native behaviour when cancellation fails. |
+| Write cancellation | Cancels the native transaction | An in-flight write cannot be aborted, so cancelling waits up to one second for it to finish. That way disconnect cleanup (drag end, modifier release) still reaches the PC. Only a write that never finishes makes writes unavailable until the next connection, matching the native behaviour when cancellation fails. |
 | Pairing secrets | Keychain / Keystore via `expo-secure-store` | AES-GCM ciphertext in `localStorage`, encrypted with a non-extractable key held in IndexedDB (`secretStorage.web.ts`). Clearing site data removes the pairing. |
 | Alerts | Native dialogs | `window.alert` and `window.confirm` (every app alert is a notice or a cancel plus one action) |
 | Announcements | `AccessibilityInfo` | A polite ARIA live region (`installPlatform.web.ts`) |
