@@ -1,5 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Linking, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 
 import { ActionButton } from '@/components/ActionButton';
 import { AppText } from '@/components/AppText';
@@ -12,7 +12,7 @@ import { UnpairButton } from '@/components/UnpairButton';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
 import { bluetoothPermissionRecoveryMessage, bluetoothUnsupportedMessage } from '@/connection/permissions';
-import { mergePcList, pcListAction, type PcListItem } from '@/connection/pcList';
+import { discoveryButton, mergePcList, pcListAction, type PcListItem } from '@/connection/pcList';
 import { shouldUseTwoColumns, useLayout, useTheme } from '@/theme/ThemeContext';
 
 export default function PcsScreen() {
@@ -24,6 +24,7 @@ export default function PcsScreen() {
   const saved = 'saved' in state ? state.saved : [];
   const discovered = state.kind === 'scanning' ? state.discovered : [];
   const pcs = mergePcList(saved, discovered);
+  const discovery = discoveryButton(state.kind === 'scanning', discovered.length, Platform.OS);
   const permissionRecovery = bluetoothPermissionRecoveryMessage();
   const announcement = state.kind === 'scanning' ? 'Searching for nearby PCs.' : state.kind === 'connecting' ? `Connecting to ${state.desktop.displayName}.` : state.kind === 'reconnecting' ? `Reconnecting to ${state.desktop.displayName}, attempt ${state.attempt}.` : state.kind === 'pairing' ? `Approve the pairing request on your PC. Verification code ${state.verificationCode.split('').join(' ')}.` : state.kind === 'connected' ? `Connected to ${state.desktop.displayName}.` : state.kind === 'failed' ? `Connection failed. ${state.message}` : state.kind === 'permissionDenied' ? `Bluetooth permission needed. ${permissionRecovery}` : state.kind === 'bluetoothOff' ? 'Turn on Bluetooth, then search again.' : state.kind === 'unsupported' ? 'Bluetooth is unavailable on this device.' : null;
   useAccessibilityAnnouncement(announcement);
@@ -33,7 +34,7 @@ export default function PcsScreen() {
     {state.kind === 'connected' ? <Card variant="hero"><View style={{ alignItems: 'center', flexDirection: 'row', gap: spacing.md }}><MaterialIcons color={colors.brandText} importantForAccessibility="no" name="computer" size={28} /><View style={{ flex: 1, gap: spacing.xs }}><AppText variant="title">{state.desktop.displayName}</AppText><StatusBadge icon="check-circle" label="Connected" tone="success" /></View></View><ActionButton icon="link-off" label="Disconnect" tone="secondary" onPress={() => void manager.disconnect()} /></Card> : null}
     {state.kind === 'connecting' || state.kind === 'reconnecting' ? <Card variant="hero"><StatusBadge icon="sync" label={state.kind === 'connecting' ? 'Connecting' : `Reconnect attempt ${state.attempt}`} tone="brand" /><AppText variant="title">{state.desktop.displayName}</AppText><AppText muted>{state.kind === 'connecting' ? `Connecting to ${state.desktop.displayName}…` : `Reconnecting to ${state.desktop.displayName}…`}</AppText></Card> : null}
     {state.kind === 'failed' ? <Card variant="danger"><StatusBadge icon="error-outline" label="Connection failed" tone="danger" /><AppText variant="title">Could not connect</AppText><AppText muted>{state.message}</AppText></Card> : null}
-    {state.kind !== 'connected' && state.kind !== 'pairing' && state.kind !== 'connecting' && state.kind !== 'reconnecting' ? <ActionButton icon="bluetooth-searching" label={state.kind === 'scanning' ? 'Searching…' : 'Find nearby PCs'} busy={state.kind === 'scanning'} disabled={state.kind === 'scanning'} onPress={() => void manager.scan()} /> : null}
+    {state.kind !== 'connected' && state.kind !== 'pairing' && state.kind !== 'connecting' && state.kind !== 'reconnecting' ? <ActionButton icon="bluetooth-searching" {...discovery} onPress={() => void manager.scan()} /> : null}
     {state.kind === 'permissionDenied' ? <EmptyState icon="settings-bluetooth" title="Bluetooth permission needed" body={permissionRecovery} action={<ActionButton label="Open settings" tone="secondary" onPress={() => void Linking.openSettings()} />} /> : null}
     {state.kind === 'bluetoothOff' ? <EmptyState icon="bluetooth-disabled" title="Turn on Bluetooth" body="Turn on Bluetooth, then search again." /> : null}
     {state.kind === 'unsupported' ? <EmptyState icon="block" title="Bluetooth unavailable" body={bluetoothUnsupportedMessage()} /> : null}
