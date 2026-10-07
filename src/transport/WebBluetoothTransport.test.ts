@@ -3,6 +3,7 @@ import { fromByteArray, toByteArray } from 'base64-js';
 import { BLE_UUIDS } from '@/domain/protocol/constants';
 import { BluetoothDeviceSelectionCancelledError } from './BleTransport';
 import {
+  REMEMBERED_DEVICE_BUDGET_MS,
   WEB_MAX_WRITE_VALUE_BYTES,
   WebBluetoothTransport,
   type WebBluetooth,
@@ -45,6 +46,7 @@ class FakePeripheral extends EventTarget implements WebBluetoothDevice, WebBluet
   overlapping = false;
   connects = 0;
   writeGate: Promise<void> | null = null;
+  connectGate: Promise<void> | null = null;
   characteristics: Record<string, FakeCharacteristic>;
   constructor(readonly id: string, public status: string, readonly name: string | null = 'Office PC', withResponse = false) {
     super();
@@ -52,7 +54,7 @@ class FakePeripheral extends EventTarget implements WebBluetoothDevice, WebBluet
     this.characteristics = Object.fromEntries(uuids.map((uuid) => [uuid, new FakeCharacteristic(this, uuid)]));
   }
   get gatt(): WebBluetoothServer { return this; }
-  async connect(): Promise<WebBluetoothServer> { this.connects += 1; this.connected = true; return this; }
+  async connect(): Promise<WebBluetoothServer> { this.connects += 1; await this.connectGate; this.connected = true; return this; }
   disconnect(): void {
     if (!this.connected) return;
     this.connected = false;
@@ -95,7 +97,7 @@ class FakeBluetooth implements WebBluetooth {
   }
 }
 
-const flush = async () => { for (let index = 0; index < 20; index += 1) await Promise.resolve(); };
+const flush = async () => { for (let index = 0; index < 100; index += 1) await Promise.resolve(); };
 
 describe('WebBluetoothTransport', () => {
   it('reports when the browser has no Web Bluetooth', async () => {
@@ -227,7 +229,7 @@ describe('WebBluetoothTransport', () => {
     expect(await transport.verifyConnection('desk-1')).toBe(false);
   });
 
-  it('requires a reconnect after cancelling a write already in flight', async () => {
+  it('waits for an in-flight write when cancelling so cleanup commands still reach the PC', async () => {
     const bluetooth = new FakeBluetooth();
     const peripheral = new FakePeripheral('web-1', status('desk-1'));
     bluetooth.chooser = async () => peripheral;
@@ -238,10 +240,78 @@ describe('WebBluetoothTransport', () => {
     const inFlight = transport.writeFrame('YQ==');
     const queued = transport.writeFrame('Yg==');
     await flush();
-    await transport.cancelPendingWrites();
+    const cancelling = transport.cancelPendingWrites();
     await expect(queued).rejects.toThrow('cancelled');
     release();
     await inFlight;
-    await expect(transport.writeFrame('Yw==')).rejects.toThrow('until reconnect');
+    await cancelling;
+    peripheral.writeGate = null;
+    await transport.writeFrame('Yw==');
+    expect(peripheral.characteristics[BLE_UUIDS.receive]!.writes.map((bytes) => fromByteArray(bytes))).toEqual(['YQ==', 'Yw==']);
+  });
+
+  it('requires a reconnect only when an in-flight write never settles, and a new connection is not blocked by it', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth, 30);
+    await transport.resolveAndConnect('desk-1');
+    peripheral.writeGate = new Promise<void>(() => undefined);
+    const stuck = transport.writeFrame('YQ==');
+    void stuck.catch(() => undefined);
+    await flush();
+    await transport.cancelPendingWrites();
+    await expect(transport.writeFrame('Yg==')).rejects.toThrow('until reconnect');
+    peripheral.writeGate = null;
+    peripheral.busy = false;
+    await transport.resolveAndConnect('desk-1');
+    await expect(transport.writeFrame('Yw==')).resolves.toBeUndefined();
+  });
+
+  it('reports a device with an invalid status instead of waiting forever', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', 'not json');
+    bluetooth.chooser = async () => peripheral;
+    const onError = jest.fn();
+    new WebBluetoothTransport(() => bluetooth).scan(jest.fn(), onError);
+    await flush();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Bluetooth discovery failed.' }));
+    expect(peripheral.connected).toBe(false);
+  });
+
+  it('closes a discovery connection that completes after the search stopped', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    let release!: () => void;
+    peripheral.connectGate = new Promise((resolve) => { release = resolve; });
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const found = jest.fn();
+    const stop = transport.scan(found, jest.fn());
+    await flush();
+    stop();
+    release();
+    await flush();
+    expect(peripheral.connected).toBe(false);
+    expect(found).not.toHaveBeenCalled();
+  });
+
+  it('stops checking unreachable remembered devices in time to open the picker', async () => {
+    jest.useFakeTimers();
+    try {
+      const bluetooth = new FakeBluetooth();
+      const unreachable = new FakePeripheral('web-0', status('desk-0'));
+      unreachable.connectGate = new Promise<void>(() => undefined);
+      const chosen = new FakePeripheral('web-1', status('desk-1'));
+      bluetooth.remembered = [unreachable];
+      bluetooth.chooser = async () => chosen;
+      const transport = new WebBluetoothTransport(() => bluetooth);
+      const connecting = transport.resolveAndConnect('desk-1');
+      await jest.advanceTimersByTimeAsync(REMEMBERED_DEVICE_BUDGET_MS + 10);
+      await expect(connecting).resolves.toMatchObject({ desktopId: 'desk-1' });
+      expect(bluetooth.requests).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

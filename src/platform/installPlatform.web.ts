@@ -68,7 +68,9 @@ const alert: typeof Alert.alert = (title, message, buttons) => {
   }
   const cancel = choices.find((button) => button.style === 'cancel') ?? choices[0];
   const action = choices.find((button) => button !== cancel);
-  if (window.confirm(text)) action?.onPress?.();
+  // Browser dialogs only offer OK and Cancel, so the action is named in the text.
+  const prompt = action?.text ? `${text}\n\nChoose OK to ${action.text.toLowerCase()}.` : text;
+  if (window.confirm(prompt)) action?.onPress?.();
   else cancel?.onPress?.();
 };
 
@@ -82,4 +84,9 @@ export function installPlatform(): void {
   };
   info.announceForAccessibility = announce;
   info.announceForAccessibilityWithOptions = (message) => announce(message);
+  // Some screen readers ignore a live region that appears just before its first update.
+  if (typeof document !== 'undefined') {
+    if (document.body) liveRegion();
+    else document.addEventListener('DOMContentLoaded', () => liveRegion(), { once: true });
+  }
 }
