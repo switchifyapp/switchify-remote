@@ -29,6 +29,7 @@ Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and Chr
 | Alerts | Native dialogs | `window.alert` and `window.confirm` (every app alert is a notice or a cancel plus one action) |
 | Announcements | `AccessibilityInfo` | A polite ARIA live region (`installPlatform.web.ts`) |
 | Diagnostics export | Share sheet | Text file download |
+| Inactive tabs | Detached by the navigator | Removed from layout (`tabSceneLayout.web.tsx`), since the web navigator only hides them from screen readers and leaves their controls in the keyboard order |
 | Android bridge and Switch Forwarding | Android only | Unavailable |
 
 The protocol, framing limits, authentication and pairing approval are unchanged. See [protocol compatibility](protocol-compatibility.md).
