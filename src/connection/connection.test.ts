@@ -1,6 +1,6 @@
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
-import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
+import { BluetoothDeviceSelectionCancelledError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
 import { ConnectionManager } from './ConnectionManager';
 import { pairingVerificationCode } from './verificationCode';
 
@@ -33,8 +33,10 @@ class FakeTransport implements BleTransport {
   failConnect = false;
   failReadiness = false;
   connectGate: Promise<void> | null = null;
-  scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe {
+  scanError: ((error: Error) => void) | null = null;
+  scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe {
     this.scanCallback = onDesktop;
+    this.scanError = onError;
     return () => { this.scanStops += 1; this.scanCallback = null; };
   }
   connect = async (peripheralId: string) => {
@@ -68,6 +70,31 @@ describe('connection lifecycle', () => {
     expect(pairingVerificationCode('desktop-1', 'device-1', 'nonce-1')).toBe('215918');
     expect(pairingVerificationCode('0:0:1280:720:1.5', 'android-device-id', 'random-request-nonce')).toBe('735258');
     expect(pairingVerificationCode('desktop', 'device', 'nonce-14')).toBe('028314');
+  });
+
+  it('returns to idle when the device picker is closed during discovery', async () => {
+    const transport = new FakeTransport();
+    const diagnostics = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, new FakeStorage(), diagnostics, async () => true);
+    await manager.scan();
+    transport.scanError?.(new BluetoothDeviceSelectionCancelledError());
+    await waitFor(() => manager.snapshot().kind === 'idle');
+    expect(transport.scanStops).toBe(1);
+    expect(diagnostics.snapshot().map((entry) => entry.code)).toContain('scan_cancelled');
+    expect(diagnostics.snapshot().map((entry) => entry.code)).not.toContain('scan_failed');
+  });
+
+  it('returns to idle, not failed, when the picker is closed while connecting', async () => {
+    const transport = new FakeTransport();
+    const storage = new FakeStorage();
+    storage.saved = [pc('pc-1')];
+    storage.tokens.set('pc-1', 'token');
+    transport.resolveError = new BluetoothDeviceSelectionCancelledError();
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+    await manager.connectSaved(pc('pc-1'));
+    expect(manager.snapshot()).toMatchObject({ kind: 'idle', saved: [{ desktopId: 'pc-1' }] });
+    await manager.connect({ ...pc('pc-1'), rssi: null });
+    expect(manager.snapshot().kind).toBe('idle');
   });
 
   it('discovers PCs through an injectable fake without hardware', async () => {

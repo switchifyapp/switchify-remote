@@ -5,7 +5,7 @@ import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import { PairingStore } from '@/storage/PairingStore';
 import { preferencesStore } from '@/storage/PreferencesStore';
 import { resolveRemoteName } from '@/device/remoteName';
-import { ReactNativeBleTransport } from '@/transport/ReactNativeBleTransport';
+import { createBleTransport } from '@/transport/createBleTransport';
 import { ConnectionManager, type ConnectionState } from './ConnectionManager';
 import { requestBluetoothPermission } from './permissions';
 
@@ -15,7 +15,7 @@ export function ConnectionProvider({ children }: PropsWithChildren) {
   const manager = useMemo(() => {
     const diagnostics = new DiagnosticLog();
     return new ConnectionManager(
-      new ReactNativeBleTransport(null, undefined, undefined, undefined, diagnostics),
+      createBleTransport(diagnostics),
       new PairingStore(),
       diagnostics,
       requestBluetoothPermission,

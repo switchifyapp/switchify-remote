@@ -21,6 +21,7 @@ export type ConnectionStageOutcome = 'started' | 'succeeded' | 'failed' | 'not_m
 const messages = {
   scan_started: 'Looking for nearby PCs.',
   scan_failed: 'Bluetooth discovery could not start.',
+  scan_cancelled: 'No PC was chosen in the Bluetooth device picker.',
   connecting: 'Connecting to a PC.',
   connected: 'Connected to a PC.',
   connection_lost: 'The connection to the PC was lost.',

@@ -18,3 +18,8 @@ export interface BleTransport {
   notificationsReady(): Promise<void>;
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe;
 }
+
+/** The person closed a device chooser without choosing a PC, as browsers require for Web Bluetooth. */
+export class BluetoothDeviceSelectionCancelledError extends Error {
+  constructor() { super('Bluetooth device selection was cancelled.'); }
+}

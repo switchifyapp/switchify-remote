@@ -16,6 +16,7 @@ import { Screen } from '@/components/Screen';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import { useConnectionManager } from '@/connection/ConnectionContext';
 import type { ConnectionManager } from '@/connection/ConnectionManager';
+import { bluetoothPromptMessage } from '@/connection/permissions';
 import { useTheme } from '@/theme/ThemeContext';
 import {
   firstRunSetupStore,
@@ -232,10 +233,7 @@ function BluetoothStep({
           text="Remote commands are not routed through a Switchify account or cloud service."
         />
       </Card>
-      <AppText muted>
-        Your device will show its Bluetooth permission prompt after you choose
-        Allow Bluetooth.
-      </AppText>
+      <AppText muted>{bluetoothPromptMessage()}</AppText>
       <View style={{ gap: spacing.md }}>
         <ActionButton
           busy={busy}

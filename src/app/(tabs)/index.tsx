@@ -11,7 +11,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { UnpairButton } from '@/components/UnpairButton';
 import { useAccessibilityAnnouncement } from '@/components/useAccessibilityAnnouncement';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
-import { bluetoothPermissionRecoveryMessage } from '@/connection/permissions';
+import { bluetoothPermissionRecoveryMessage, bluetoothUnsupportedMessage } from '@/connection/permissions';
 import { mergePcList, pcListAction, type PcListItem } from '@/connection/pcList';
 import { shouldUseTwoColumns, useLayout, useTheme } from '@/theme/ThemeContext';
 
@@ -36,7 +36,7 @@ export default function PcsScreen() {
     {state.kind !== 'connected' && state.kind !== 'pairing' && state.kind !== 'connecting' && state.kind !== 'reconnecting' ? <ActionButton icon="bluetooth-searching" label={state.kind === 'scanning' ? 'Searching…' : 'Find nearby PCs'} busy={state.kind === 'scanning'} disabled={state.kind === 'scanning'} onPress={() => void manager.scan()} /> : null}
     {state.kind === 'permissionDenied' ? <EmptyState icon="settings-bluetooth" title="Bluetooth permission needed" body={permissionRecovery} action={<ActionButton label="Open settings" tone="secondary" onPress={() => void Linking.openSettings()} />} /> : null}
     {state.kind === 'bluetoothOff' ? <EmptyState icon="bluetooth-disabled" title="Turn on Bluetooth" body="Turn on Bluetooth, then search again." /> : null}
-    {state.kind === 'unsupported' ? <EmptyState icon="block" title="Bluetooth unavailable" body="This device cannot use the Bluetooth features required by Switchify Remote." /> : null}
+    {state.kind === 'unsupported' ? <EmptyState icon="block" title="Bluetooth unavailable" body={bluetoothUnsupportedMessage()} /> : null}
     {state.kind === 'scanning' && discovered.length === 0 ? <EmptyState icon="radar" title="Looking for PCs" body="Open Switchify PC and keep Bluetooth enabled." /> : null}
     {pcs.length > 0 ? <View style={{ gap: spacing.md }}><AppText accessibilityRole="header" variant="title">PCs</AppText><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>{pcs.map((pc, index) => <View key={pc.desktopId} style={{ flexBasis: twoColumns ? '47%' : '100%', flexGrow: 1 }}><PcCard pc={pc} preferred={pc.saved !== null && index === 0} connect={() => { if (pc.saved) void manager.connectSaved({ ...pc.saved, displayName: pc.displayName, platform: pc.platform, peripheralId: pc.peripheralId }); else void manager.connect(pc); }} unpair={pc.saved ? () => void manager.unpair(pc.desktopId) : null} /></View>)}</View></View> : null}
   </Screen>;

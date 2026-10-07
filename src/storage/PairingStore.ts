@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 
+import { secretStorage as platformSecretStorage, type SecretStorage } from './secretStorage';
+
 import type { PcPlatform } from '@/domain/protocol/types';
 
 const INDEX_KEY = 'switchify.remote.pairings.v1';
@@ -27,12 +29,11 @@ export interface PairingStorage {
 }
 
 type PublicStorage = Pick<typeof AsyncStorage, 'getItem' | 'setItem' | 'removeItem'>;
-type SecretStorage = Pick<typeof SecureStore, 'getItemAsync' | 'setItemAsync' | 'deleteItemAsync'>;
 
 export class PairingStore implements PairingStorage {
   #storageQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly publicStorage: PublicStorage = AsyncStorage, private readonly secretStorage: SecretStorage = SecureStore) {}
+  constructor(private readonly publicStorage: PublicStorage = AsyncStorage, private readonly secretStorage: SecretStorage = platformSecretStorage) {}
 
   async getDeviceId(): Promise<string> {
     const existing = await this.secretStorage.getItemAsync(DEVICE_ID_KEY);
