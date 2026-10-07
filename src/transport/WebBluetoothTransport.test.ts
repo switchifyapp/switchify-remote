@@ -1,7 +1,7 @@
 import { fromByteArray, toByteArray } from 'base64-js';
 
 import { BLE_UUIDS } from '@/domain/protocol/constants';
-import { BluetoothDeviceSelectionCancelledError } from './BleTransport';
+import { BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError } from './BleTransport';
 import {
   REMEMBERED_DEVICE_BUDGET_MS,
   WEB_MAX_WRITE_VALUE_BYTES,
@@ -337,9 +337,9 @@ describe('WebBluetoothTransport', () => {
     }
   });
 
-  it('treats a picker the browser refused to open as a cancelled selection', async () => {
+  it('reports a picker the browser refused to open as blocked, not cancelled', async () => {
     const bluetooth = new FakeBluetooth();
     bluetooth.chooser = async () => { throw Object.assign(new Error('Must be handling a user gesture.'), { name: 'SecurityError' }); };
-    await expect(new WebBluetoothTransport(() => bluetooth).resolveAndConnect('desk-1')).rejects.toBeInstanceOf(BluetoothDeviceSelectionCancelledError);
+    await expect(new WebBluetoothTransport(() => bluetooth).resolveAndConnect('desk-1')).rejects.toBeInstanceOf(BluetoothPickerBlockedError);
   });
 });

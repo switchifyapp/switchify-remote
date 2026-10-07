@@ -4,7 +4,7 @@ import { BLE_UUIDS } from '@/domain/protocol/constants';
 import { parseStatus } from '@/domain/protocol/responses';
 import type { PcStatus } from '@/domain/protocol/types';
 import type { ConnectionStage, ConnectionStageOutcome, DiagnosticLog } from '@/diagnostics/DiagnosticLog';
-import { BluetoothDeviceSelectionCancelledError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from './BleTransport';
+import { BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from './BleTransport';
 import { desktopDisplayName } from './desktopDisplayName';
 import { ReadResponsePoller } from './ReadResponsePoller';
 
@@ -75,13 +75,15 @@ function toBase64(view: DataView): string {
   return fromByteArray(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
 }
 
-/**
- * Closing the picker is a NotFoundError. A SecurityError means the browser refused to
- * open it because the tap was too long ago; both leave the person to tap again.
- */
-function isCancellation(error: unknown): boolean {
-  const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined;
-  return name === 'NotFoundError' || name === 'SecurityError';
+function errorName(error: unknown): unknown {
+  return typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined;
+}
+
+/** Closing the picker is a NotFoundError; a SecurityError means the browser would not open it. */
+function pickerError(error: unknown): Error | null {
+  if (errorName(error) === 'NotFoundError') return new BluetoothDeviceSelectionCancelledError();
+  if (errorName(error) === 'SecurityError') return new BluetoothPickerBlockedError();
+  return null;
 }
 
 function cancelled(): Error {
@@ -139,7 +141,7 @@ export class WebBluetoothTransport implements BleTransport {
       onDesktop(desktop);
     })().catch((error: unknown) => {
       if (!active || operation !== this.#operation) return;
-      onError(isCancellation(error) ? new BluetoothDeviceSelectionCancelledError() : new Error('Bluetooth discovery failed.'));
+      onError(pickerError(error) ?? new Error('Bluetooth discovery failed.'));
     });
     return () => {
       if (!active) return;
@@ -187,7 +189,7 @@ export class WebBluetoothTransport implements BleTransport {
     } catch (error) {
       this.#recordStage('resolution', 'failed', operation);
       if (operation === this.#operation) await this.disconnect();
-      throw isCancellation(error) ? new BluetoothDeviceSelectionCancelledError() : error;
+      throw pickerError(error) ?? error;
     }
   }
 

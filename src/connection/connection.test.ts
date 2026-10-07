@@ -1,6 +1,6 @@
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
-import { BluetoothDeviceSelectionCancelledError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
+import { BLUETOOTH_PICKER_BLOCKED_MESSAGE, BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
 import { ConnectionManager } from './ConnectionManager';
 import { pairingVerificationCode } from './verificationCode';
 
@@ -95,6 +95,18 @@ describe('connection lifecycle', () => {
     expect(manager.snapshot()).toMatchObject({ kind: 'idle', saved: [{ desktopId: 'pc-1' }] });
     await manager.connect({ ...pc('pc-1'), rssi: null });
     expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('explains a picker the browser refused to open instead of returning silently', async () => {
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+    await manager.scan();
+    transport.scanError?.(new BluetoothPickerBlockedError());
+    await waitFor(() => manager.snapshot().kind === 'failed');
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: BLUETOOTH_PICKER_BLOCKED_MESSAGE });
+    transport.resolveError = new BluetoothPickerBlockedError();
+    await manager.connect({ ...pc('pc-1'), rssi: null });
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: BLUETOOTH_PICKER_BLOCKED_MESSAGE });
   });
 
   it('discovers PCs through an injectable fake without hardware', async () => {

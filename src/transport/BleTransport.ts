@@ -23,3 +23,10 @@ export interface BleTransport {
 export class BluetoothDeviceSelectionCancelledError extends Error {
   constructor() { super('Bluetooth device selection was cancelled.'); }
 }
+
+/** The browser refused to open its device picker: the tap was too long ago, or Bluetooth is blocked for the site. */
+export class BluetoothPickerBlockedError extends Error {
+  constructor() { super('The browser did not open the Bluetooth picker.'); }
+}
+
+export const BLUETOOTH_PICKER_BLOCKED_MESSAGE = 'Your browser did not open the Bluetooth picker. Try again, and allow Bluetooth for this site if it is blocked.';

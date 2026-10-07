@@ -20,7 +20,7 @@ Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and Chr
 | Area | Native | Web |
 |---|---|---|
 | Transport | `ReactNativeBleTransport` (react-native-ble-plx) | `WebBluetoothTransport`, selected by `createBleTransport.web.ts` |
-| Discovery | Background scan lists every nearby PC | The browser's device picker returns one chosen PC per search. Closing the picker returns to idle (`scan_cancelled`) without showing an error. |
+| Discovery | Background scan lists every nearby PC | The browser's device picker returns one chosen PC per search. Closing the picker returns to idle (`scan_cancelled`) without showing an error. If the browser refuses to open the picker, because the tap was too long ago or Bluetooth is blocked for the site, the app explains this and asks you to try again. |
 | Saved PCs | Rescans and matches the desktop ID | Reuses devices this site may already use (`navigator.bluetooth.getDevices()`), matching by desktop ID. Otherwise it asks once through the picker, which needs a tap. |
 | Write size | Negotiated MTU (Android requests 517) | Fixed at 182 bytes (a 185-byte ATT MTU). The browser hides the negotiated MTU, and Switchify PC on macOS rejects long (offset) writes. |
 | GATT concurrency | Native transaction queue | One GATT operation at a time, because browsers reject overlapping operations |

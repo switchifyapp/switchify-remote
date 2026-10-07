@@ -4,7 +4,7 @@ import { authenticatedCommand, commandPayloads, pairingRequest } from '@/domain/
 import type { JsonObject, PointerProfile, ProtocolResponse } from '@/domain/protocol/types';
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
-import { BluetoothDeviceSelectionCancelledError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
+import { BLUETOOTH_PICKER_BLOCKED_MESSAGE, BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
 import { ProtocolClient, ProtocolWriteError } from './ProtocolClient';
 import { pairingVerificationCode } from './verificationCode';
 
@@ -97,7 +97,7 @@ export class ConnectionManager {
     } catch (error) {
       if (!this.#current(operation)) return;
       if (error instanceof BluetoothDeviceSelectionCancelledError) await this.#selectionCancelled(operation);
-      else await this.#fail('Could not connect to this PC.', operation);
+      else await this.#fail(error instanceof BluetoothPickerBlockedError ? BLUETOOTH_PICKER_BLOCKED_MESSAGE : 'Could not connect to this PC.', operation);
     }
   }
 
@@ -145,7 +145,7 @@ export class ConnectionManager {
     } catch (error) {
       if (!this.#current(operation)) return;
       if (error instanceof BluetoothDeviceSelectionCancelledError) await this.#selectionCancelled(operation);
-      else await this.#fail('Could not find this PC nearby.', operation);
+      else await this.#fail(error instanceof BluetoothPickerBlockedError ? BLUETOOTH_PICKER_BLOCKED_MESSAGE : 'Could not find this PC nearby.', operation);
     }
   }
 
@@ -555,6 +555,12 @@ export class ConnectionManager {
       this.#scanStop?.(); this.#scanStop = null;
       this.diagnostics.add('scan_cancelled');
       this.#set({ kind: 'idle', saved });
+      return;
+    }
+    if (error instanceof BluetoothPickerBlockedError) {
+      this.#scanStop?.(); this.#scanStop = null;
+      this.diagnostics.add('scan_failed', 'error');
+      this.#set({ kind: 'failed', message: BLUETOOTH_PICKER_BLOCKED_MESSAGE, saved });
       return;
     }
     const availability = await this.transport.availability().catch(() => 'poweredOff' as BleAvailability);
