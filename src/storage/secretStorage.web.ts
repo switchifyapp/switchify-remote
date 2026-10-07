@@ -24,6 +24,14 @@ function request<T>(operation: IDBRequest<T>): Promise<T> {
   });
 }
 
+function committed(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? unavailable());
+    transaction.onerror = () => reject(transaction.error ?? unavailable());
+  });
+}
+
 async function openDatabase(): Promise<IDBDatabase> {
   const open = window.indexedDB.open(DATABASE, 1);
   open.onupgradeneeded = () => open.result.createObjectStore(STORE);
@@ -43,7 +51,12 @@ async function loadKey(): Promise<CryptoKey> {
     if (existing) return existing;
     const created = await window.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
     try {
-      await request(database.transaction(STORE, 'readwrite').objectStore(STORE).add(created, KEY_ID));
+      // The key is only used once it is durably stored, or values could outlive it.
+      const transaction = database.transaction(STORE, 'readwrite');
+      const saved = committed(transaction);
+      void saved.catch(() => undefined);
+      await request(transaction.objectStore(STORE).add(created, KEY_ID));
+      await saved;
       return created;
     } catch (error) {
       // Another tab stored its key first; every tab must use the same one.

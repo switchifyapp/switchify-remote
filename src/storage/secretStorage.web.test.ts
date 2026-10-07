@@ -10,6 +10,7 @@ type Request<T> = { result: T; error: Error | null; onsuccess: (() => void) | nu
 class FakeIndexedDb {
   stores = new Map<string, Map<string, unknown>>();
   failOpen = false;
+  abortCommit = false;
   addGate: Promise<void> | null = null;
   open(): Request<unknown> {
     const request: Request<unknown> = { result: null, error: null, onsuccess: null, onerror: null, onupgradeneeded: null };
@@ -17,7 +18,16 @@ class FakeIndexedDb {
       if (this.failOpen) { request.error = new Error('blocked'); request.onerror?.(); return; }
       const database = {
         createObjectStore: (name: string) => { this.stores.set(name, new Map()); },
-        transaction: (name: string) => ({ objectStore: () => this.#store(name) }),
+        transaction: (name: string) => {
+          const transaction: { oncomplete: (() => void) | null; onabort: (() => void) | null; onerror: (() => void) | null; error: Error | null; objectStore: () => unknown } = {
+            oncomplete: null, onabort: null, onerror: null, error: null,
+            objectStore: () => this.#store(name, (failed) => setTimeout(() => {
+              if (failed || this.abortCommit) { transaction.error = new Error('aborted'); transaction.onabort?.(); }
+              else transaction.oncomplete?.();
+            }, 0)),
+          };
+          return transaction;
+        },
         close: () => undefined,
       };
       request.result = database;
@@ -26,13 +36,13 @@ class FakeIndexedDb {
     }, 0);
     return request;
   }
-  #store(name: string) {
+  #store(name: string, settled: (failed: boolean) => void) {
     const store = this.stores.get(name)!;
     const respond = <T>(action: () => T, gate: Promise<void> | null = null): Request<T | undefined> => {
       const request: Request<T | undefined> = { result: undefined, error: null, onsuccess: null, onerror: null };
       void Promise.resolve(gate).then(() => setTimeout(() => {
-        try { request.result = action(); request.onsuccess?.(); }
-        catch (error) { request.error = error as Error; request.onerror?.(); }
+        try { request.result = action(); request.onsuccess?.(); settled(false); }
+        catch (error) { request.error = error as Error; request.onerror?.(); settled(true); }
       }, 0));
       return request;
     };
@@ -40,7 +50,7 @@ class FakeIndexedDb {
       get: (key: string) => respond(() => store.get(key)),
       add: (value: unknown, key: string) => respond(() => {
         if (store.has(key)) throw Object.assign(new Error('exists'), { name: 'ConstraintError' });
-        store.set(key, value);
+        if (!this.abortCommit) store.set(key, value);
       }, this.addGate),
     };
   }
@@ -102,6 +112,12 @@ describe('web secret storage', () => {
     const reader = load().secretStorage;
     expect(await reader.getItemAsync('a')).toBe('one');
     expect(await reader.getItemAsync('b')).toBe('two');
+  });
+
+  it('does not use a key whose save was aborted', async () => {
+    indexedDb.abortCommit = true;
+    await expect(load().secretStorage.setItemAsync('token', 'secret-token')).rejects.toThrow();
+    expect(window.localStorage.getItem('switchify.remote.secret.v1.token')).toBeNull();
   });
 
   it('refuses to run outside a secure context', async () => {

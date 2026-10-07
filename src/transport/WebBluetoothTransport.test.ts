@@ -314,4 +314,32 @@ describe('WebBluetoothTransport', () => {
       jest.useRealTimers();
     }
   });
+
+  it('keeps the connection when a timed-out check of the same PC finishes after it is chosen', async () => {
+    jest.useFakeTimers();
+    try {
+      const bluetooth = new FakeBluetooth();
+      const slow = new FakePeripheral('web-1', status('desk-1'));
+      let release!: () => void;
+      slow.connectGate = new Promise((resolve) => { release = resolve; });
+      bluetooth.remembered = [slow];
+      bluetooth.chooser = async () => slow;
+      const transport = new WebBluetoothTransport(() => bluetooth);
+      const connecting = transport.resolveAndConnect('desk-1');
+      await jest.advanceTimersByTimeAsync(REMEMBERED_DEVICE_BUDGET_MS + 10);
+      release();
+      await jest.advanceTimersByTimeAsync(10);
+      await expect(connecting).resolves.toMatchObject({ desktopId: 'desk-1' });
+      expect(slow.connected).toBe(true);
+      expect(transport.maxWriteValueBytes()).toBe(WEB_MAX_WRITE_VALUE_BYTES);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('treats a picker the browser refused to open as a cancelled selection', async () => {
+    const bluetooth = new FakeBluetooth();
+    bluetooth.chooser = async () => { throw Object.assign(new Error('Must be handling a user gesture.'), { name: 'SecurityError' }); };
+    await expect(new WebBluetoothTransport(() => bluetooth).resolveAndConnect('desk-1')).rejects.toBeInstanceOf(BluetoothDeviceSelectionCancelledError);
+  });
 });

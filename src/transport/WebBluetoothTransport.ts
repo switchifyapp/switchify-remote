@@ -75,8 +75,13 @@ function toBase64(view: DataView): string {
   return fromByteArray(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
 }
 
+/**
+ * Closing the picker is a NotFoundError. A SecurityError means the browser refused to
+ * open it because the tap was too long ago; both leave the person to tap again.
+ */
 function isCancellation(error: unknown): boolean {
-  return error instanceof Error && error.name === 'NotFoundError';
+  const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined;
+  return name === 'NotFoundError' || name === 'SecurityError';
 }
 
 function cancelled(): Error {
@@ -88,8 +93,9 @@ export class WebBluetoothTransport implements BleTransport {
   #session: Session | null = null;
   #devices = new Map<string, WebBluetoothDevice>();
   #desktopDevices = new Map<string, string>();
-  /** The operation allowed to close each device's connection, so a stale attempt never closes a newer one. */
+  /** The connect attempt allowed to close each device's connection, so a stale attempt never closes a newer one. */
   #owners = new Map<string, number>();
+  #attempts = 0;
   #probes = new Map<WebBluetoothDevice, number>();
   #queue: Pending[] = [];
   #running: Pending | null = null;
@@ -139,7 +145,8 @@ export class WebBluetoothTransport implements BleTransport {
       if (!active) return;
       active = false;
       if (operation === this.#operation) this.#operation += 1;
-      if (probe) this.#releaseProbe(probe, operation);
+      const attempt = probe ? this.#probes.get(probe) : undefined;
+      if (probe && attempt !== undefined) this.#releaseProbe(probe, attempt);
     };
   }
 
@@ -193,7 +200,7 @@ export class WebBluetoothTransport implements BleTransport {
     await this.cancelPendingWrites();
     this.#resetQueue();
     this.#writePoisoned = false;
-    for (const [probe, owner] of [...this.#probes]) this.#releaseProbe(probe, owner);
+    for (const [probe, attempt] of [...this.#probes]) this.#releaseProbe(probe, attempt);
     const session = this.#session;
     this.#session = null;
     if (session) {
@@ -306,9 +313,10 @@ export class WebBluetoothTransport implements BleTransport {
   async #open(device: WebBluetoothDevice, operation: number): Promise<PcStatus> {
     this.#devices.set(device.id, device);
     this.#probes.delete(device);
-    this.#owners.set(device.id, operation);
+    const attempt = ++this.#attempts;
+    this.#owners.set(device.id, attempt);
     try {
-      const server = await this.#connectGatt(device, operation, 'connect');
+      const server = await this.#connectGatt(device, operation, attempt, 'connect');
       const characteristics = await this.#stage('services', () => this.#bounded(this.#characteristics(server), 'Bluetooth operation timed out.'), operation);
       if (operation !== this.#operation) throw cancelled();
       const view = await this.#stage('status_read', () => this.#bounded(this.#gatt(() => characteristics.status.readValue()), 'Bluetooth operation timed out.'), operation);
@@ -322,19 +330,19 @@ export class WebBluetoothTransport implements BleTransport {
       this.#writePoisoned = false;
       return status;
     } catch (error) {
-      this.#closeIfOwner(device, operation);
+      this.#closeIfOwner(device, attempt);
       throw error;
     }
   }
 
   /** Connects, and closes the connection if it only completes after the attempt was abandoned. */
-  async #connectGatt(device: WebBluetoothDevice, operation: number, stage: ConnectionStage, timeoutMs = this.timeoutMs): Promise<WebBluetoothServer> {
+  async #connectGatt(device: WebBluetoothDevice, operation: number, attempt: number, stage: ConnectionStage, timeoutMs = this.timeoutMs): Promise<WebBluetoothServer> {
     const gatt = device.gatt;
     if (!gatt) throw new Error('This device does not support Bluetooth connections.');
     let abandoned = false;
     const connecting = gatt.connect();
     void connecting.then(() => {
-      if (abandoned || operation !== this.#operation) this.#closeIfOwner(device, operation);
+      if (abandoned || operation !== this.#operation) this.#closeIfOwner(device, attempt);
     }, () => undefined);
     try {
       const server = await this.#stage(stage, () => this.#bounded(connecting, 'Bluetooth operation timed out.', timeoutMs), operation);
@@ -357,14 +365,15 @@ export class WebBluetoothTransport implements BleTransport {
     return { receive, transmit, status, response };
   }
 
-  /** Reads a device's status over a short-lived probe connection owned by `operation`. */
+  /** Reads a device's status over a short-lived probe connection with its own connect attempt. */
   async #readDesktop(device: WebBluetoothDevice, operation: number, timeoutMs = this.timeoutMs): Promise<DiscoveredDesktop | null> {
-    this.#probes.set(device, operation);
-    this.#owners.set(device.id, operation);
+    const attempt = ++this.#attempts;
+    this.#probes.set(device, attempt);
+    this.#owners.set(device.id, attempt);
     const deadline = this.now() + timeoutMs;
     const remaining = () => Math.max(1, deadline - this.now());
     try {
-      const server = await this.#connectGatt(device, operation, 'probe_connect', remaining());
+      const server = await this.#connectGatt(device, operation, attempt, 'probe_connect', remaining());
       const service = await this.#stage('probe_services', () => this.#bounded(server.getPrimaryService(BLE_UUIDS.service), 'Bluetooth operation timed out.', remaining()), operation);
       if (operation !== this.#operation) throw cancelled();
       const characteristic = await this.#bounded(service.getCharacteristic(BLE_UUIDS.status), 'Bluetooth operation timed out.', remaining());
@@ -375,14 +384,14 @@ export class WebBluetoothTransport implements BleTransport {
       const status = decodeStatus(view);
       this.#recordStage('status_parse', status ? 'succeeded' : 'failed', operation);
       if (!status) {
-        this.#releaseProbe(device, operation);
+        this.#releaseProbe(device, attempt);
         return null;
       }
       this.#devices.set(device.id, device);
       this.#desktopDevices.set(status.desktopId, device.id);
       return this.#describe(device, status);
     } catch (error) {
-      this.#releaseProbe(device, operation);
+      this.#releaseProbe(device, attempt);
       throw error;
     }
   }
@@ -411,7 +420,8 @@ export class WebBluetoothTransport implements BleTransport {
       try {
         const desktop = await this.#readDesktop(device, operation, remaining);
         if (desktop?.desktopId === desktopId) return device;
-        this.#releaseProbe(device, operation);
+        const attempt = this.#probes.get(device);
+        if (attempt !== undefined) this.#releaseProbe(device, attempt);
       } catch {
         // An unreachable or unrelated device is skipped; the picker remains the fallback.
       }
@@ -428,13 +438,13 @@ export class WebBluetoothTransport implements BleTransport {
     };
   }
 
-  #releaseProbe(device: WebBluetoothDevice, operation: number): void {
-    if (this.#probes.get(device) === operation) this.#probes.delete(device);
-    this.#closeIfOwner(device, operation);
+  #releaseProbe(device: WebBluetoothDevice, attempt: number): void {
+    if (this.#probes.get(device) === attempt) this.#probes.delete(device);
+    this.#closeIfOwner(device, attempt);
   }
 
-  #closeIfOwner(device: WebBluetoothDevice, operation: number): void {
-    if (this.#session?.device === device || this.#owners.get(device.id) !== operation) return;
+  #closeIfOwner(device: WebBluetoothDevice, attempt: number): void {
+    if (this.#session?.device === device || this.#owners.get(device.id) !== attempt) return;
     // Ownership is kept while a connect is pending, so its late completion is still closed.
     if (!device.gatt?.connected) return;
     this.#owners.delete(device.id);
