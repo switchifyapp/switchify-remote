@@ -342,4 +342,19 @@ describe('WebBluetoothTransport', () => {
     bluetooth.chooser = async () => { throw Object.assign(new Error('Must be handling a user gesture.'), { name: 'SecurityError' }); };
     await expect(new WebBluetoothTransport(() => bluetooth).resolveAndConnect('desk-1')).rejects.toBeInstanceOf(BluetoothPickerBlockedError);
   });
+
+  it('treats a missing service after the picker as a connection failure, not a closed picker', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    peripheral.getPrimaryService = async () => { throw Object.assign(new Error('No Services matching UUID found in Device.'), { name: 'NotFoundError' }); };
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const failure = await transport.resolveAndConnect('desk-1').catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(BluetoothDeviceSelectionCancelledError);
+    const onError = jest.fn();
+    transport.scan(jest.fn(), onError);
+    await flush();
+    expect(onError.mock.calls[0]?.[0]).not.toBeInstanceOf(BluetoothDeviceSelectionCancelledError);
+  });
 });

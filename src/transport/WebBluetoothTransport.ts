@@ -79,11 +79,8 @@ function errorName(error: unknown): unknown {
   return typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined;
 }
 
-/** Closing the picker is a NotFoundError; a SecurityError means the browser would not open it. */
-function pickerError(error: unknown): Error | null {
-  if (errorName(error) === 'NotFoundError') return new BluetoothDeviceSelectionCancelledError();
-  if (errorName(error) === 'SecurityError') return new BluetoothPickerBlockedError();
-  return null;
+function isPickerOutcome(error: unknown): error is Error {
+  return error instanceof BluetoothDeviceSelectionCancelledError || error instanceof BluetoothPickerBlockedError;
 }
 
 function cancelled(): Error {
@@ -130,9 +127,7 @@ export class WebBluetoothTransport implements BleTransport {
     let active = true;
     let probe: WebBluetoothDevice | null = null;
     void (async () => {
-      const bluetooth = this.bluetooth();
-      if (!bluetooth) throw new Error('Web Bluetooth is unavailable.');
-      const device = await bluetooth.requestDevice({ filters: [{ services: [BLE_UUIDS.service] }] });
+      const device = await this.#choose();
       if (!active || operation !== this.#operation) return;
       probe = device;
       const desktop = await this.#readDesktop(device, operation);
@@ -141,7 +136,7 @@ export class WebBluetoothTransport implements BleTransport {
       onDesktop(desktop);
     })().catch((error: unknown) => {
       if (!active || operation !== this.#operation) return;
-      onError(pickerError(error) ?? new Error('Bluetooth discovery failed.'));
+      onError(isPickerOutcome(error) ? error : new Error('Bluetooth discovery failed.'));
     });
     return () => {
       if (!active) return;
@@ -175,9 +170,7 @@ export class WebBluetoothTransport implements BleTransport {
       device ??= await this.#findRememberedDesktop(desktopId, operation);
       if (operation !== this.#operation) throw cancelled();
       if (!device) {
-        const bluetooth = this.bluetooth();
-        if (!bluetooth) throw new Error('Web Bluetooth is unavailable.');
-        device = await bluetooth.requestDevice({ filters: [{ services: [BLE_UUIDS.service] }] });
+        device = await this.#choose();
         this.#devices.set(device.id, device);
       }
       if (operation !== this.#operation) throw cancelled();
@@ -189,7 +182,7 @@ export class WebBluetoothTransport implements BleTransport {
     } catch (error) {
       this.#recordStage('resolution', 'failed', operation);
       if (operation === this.#operation) await this.disconnect();
-      throw pickerError(error) ?? error;
+      throw error;
     }
   }
 
@@ -333,6 +326,23 @@ export class WebBluetoothTransport implements BleTransport {
       return status;
     } catch (error) {
       this.#closeIfOwner(device, attempt);
+      throw error;
+    }
+  }
+
+  /**
+   * Opens the browser's device picker. Only its errors mean the person closed the picker
+   * (NotFoundError) or the browser would not open it (SecurityError); the same names from
+   * later GATT steps are ordinary connection failures.
+   */
+  async #choose(): Promise<WebBluetoothDevice> {
+    const bluetooth = this.bluetooth();
+    if (!bluetooth) throw new Error('Web Bluetooth is unavailable.');
+    try {
+      return await bluetooth.requestDevice({ filters: [{ services: [BLE_UUIDS.service] }] });
+    } catch (error) {
+      if (errorName(error) === 'NotFoundError') throw new BluetoothDeviceSelectionCancelledError();
+      if (errorName(error) === 'SecurityError') throw new BluetoothPickerBlockedError();
       throw error;
     }
   }
