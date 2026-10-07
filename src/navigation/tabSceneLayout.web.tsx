@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useState } from 'react';
+import { type ReactElement, useCallback, useSyncExternalStore } from 'react';
 import { View } from 'react-native';
 
 import type { TabSceneNavigation } from './tabSceneLayout';
@@ -11,13 +11,13 @@ export type { TabSceneNavigation } from './tabSceneLayout';
  * them from layout keeps Tab order on the visible screen.
  */
 export function WebTabScene({ children, navigation }: { children: ReactElement; navigation: TabSceneNavigation }) {
-  const [focused, setFocused] = useState(() => navigation.isFocused());
-  useEffect(() => {
-    setFocused(navigation.isFocused());
-    const removeFocus = navigation.addListener('focus', () => setFocused(true));
-    const removeBlur = navigation.addListener('blur', () => setFocused(false));
+  const subscribe = useCallback((onChange: () => void) => {
+    const removeFocus = navigation.addListener('focus', onChange);
+    const removeBlur = navigation.addListener('blur', onChange);
     return () => { removeFocus(); removeBlur(); };
   }, [navigation]);
+  const isFocused = useCallback(() => navigation.isFocused(), [navigation]);
+  const focused = useSyncExternalStore(subscribe, isFocused, isFocused);
   return <View testID="web-tab-scene" style={{ display: focused ? 'flex' : 'none', flex: 1 }}>{children}</View>;
 }
 
