@@ -96,6 +96,7 @@ export class WebBluetoothTransport implements BleTransport {
   #owners = new Map<string, number>();
   #attempts = 0;
   #probes = new Map<WebBluetoothDevice, number>();
+  #discoveredProbe: { device: WebBluetoothDevice; server: WebBluetoothServer; service: WebBluetoothService; desktopId: string; attempt: number; retained: boolean } | null = null;
   #queue: Pending[] = [];
   #running: Pending | null = null;
   #queueGeneration = 0;
@@ -143,8 +144,15 @@ export class WebBluetoothTransport implements BleTransport {
       active = false;
       if (operation === this.#operation) this.#operation += 1;
       const attempt = probe ? this.#probes.get(probe) : undefined;
-      if (probe && attempt !== undefined) this.#releaseProbe(probe, attempt);
+      if (probe && attempt !== undefined && !(this.#discoveredProbe?.device === probe && this.#discoveredProbe.retained)) this.#releaseProbe(probe, attempt);
     };
+  }
+
+  retainDiscoveredConnection(desktopId: string): boolean {
+    const probe = this.#discoveredProbe;
+    if (!probe || probe.desktopId !== desktopId || !probe.server.connected || this.#session || this.#owners.get(probe.device.id) !== probe.attempt) return false;
+    probe.retained = true;
+    return true;
   }
 
   async connect(peripheralId: string): Promise<void> {
@@ -161,7 +169,7 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   async resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop> {
-    await this.disconnect();
+    await this.#disconnectExceptDiscovery(desktopId);
     const operation = ++this.#operation;
     this.#recordStage('resolution', 'started', operation);
     try {
@@ -187,6 +195,10 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   async disconnect(): Promise<void> {
+    await this.#disconnectExceptDiscovery();
+  }
+
+  async #disconnectExceptDiscovery(desktopId?: string): Promise<void> {
     this.#operation += 1;
     this.#responsePoller?.stop();
     this.#responsePoller = null;
@@ -195,7 +207,11 @@ export class WebBluetoothTransport implements BleTransport {
     await this.cancelPendingWrites();
     this.#resetQueue();
     this.#writePoisoned = false;
-    for (const [probe, attempt] of [...this.#probes]) this.#releaseProbe(probe, attempt);
+    for (const [probe, attempt] of [...this.#probes]) {
+      const ready = this.#discoveredProbe;
+      if (desktopId !== undefined && ready?.retained && ready.desktopId === desktopId && ready.device === probe && ready.server.connected) continue;
+      this.#releaseProbe(probe, attempt);
+    }
     const session = this.#session;
     this.#session = null;
     if (session) {
@@ -307,12 +323,16 @@ export class WebBluetoothTransport implements BleTransport {
 
   async #open(device: WebBluetoothDevice, operation: number): Promise<PcStatus> {
     this.#devices.set(device.id, device);
+    const probe = this.#discoveredProbe;
+    const reusable = probe?.device === device && probe.server.connected && this.#owners.get(device.id) === probe.attempt ? probe : null;
+    if (probe?.device === device) this.#discoveredProbe = null;
     this.#probes.delete(device);
     const attempt = ++this.#attempts;
     this.#owners.set(device.id, attempt);
     try {
-      const server = await this.#connectGatt(device, operation, attempt, 'connect');
-      const { characteristics, status } = await this.#stage('services', () => this.#characteristics(server, operation), operation);
+      const server = reusable?.server ?? await this.#connectGatt(device, operation, attempt, 'connect');
+      if (reusable) this.#recordStage('discovery_handoff', 'succeeded', operation);
+      const { characteristics, status } = await this.#stage('services', () => this.#characteristics(server, operation, reusable?.service), operation);
       if (operation !== this.#operation) throw cancelled();
       const readReplies = status.responseTransport === 'read-v1';
       if (readReplies && !characteristics.response) throw new Error('Bluetooth discovery status is invalid.');
@@ -362,7 +382,7 @@ export class WebBluetoothTransport implements BleTransport {
     }
   }
 
-  async #characteristics(server: WebBluetoothServer, operation: number): Promise<{ characteristics: Characteristics; status: PcStatus }> {
+  async #characteristics(server: WebBluetoothServer, operation: number, discoveredService?: WebBluetoothService): Promise<{ characteristics: Characteristics; status: PcStatus }> {
     const deadline = this.now() + this.timeoutMs;
     const step = async <T>(stage: ConnectionStage, action: () => Promise<T>): Promise<T> => {
       if (operation !== this.#operation) throw cancelled();
@@ -374,7 +394,7 @@ export class WebBluetoothTransport implements BleTransport {
     };
     // Discovery is sequential too. Do not ask notification-based PCs for the
     // read-v1 characteristic that they do not expose.
-    const service = await step('primary_service', () => server.getPrimaryService(BLE_UUIDS.service));
+    const service = discoveredService ?? await step('primary_service', () => server.getPrimaryService(BLE_UUIDS.service));
     const statusCharacteristic = await step('status_characteristic', () => service.getCharacteristic(BLE_UUIDS.status));
     const view = await step('status_read', () => statusCharacteristic.readValue());
     const status = decodeStatus(view);
@@ -412,6 +432,8 @@ export class WebBluetoothTransport implements BleTransport {
         this.#releaseProbe(device, attempt);
         return null;
       }
+      if (operation !== this.#operation) throw cancelled();
+      this.#discoveredProbe = { device, server, service, desktopId: status.desktopId, attempt, retained: false };
       this.#devices.set(device.id, device);
       this.#desktopDevices.set(status.desktopId, device.id);
       return this.#describe(device, status);
@@ -464,6 +486,7 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   #releaseProbe(device: WebBluetoothDevice, attempt: number): void {
+    if (this.#discoveredProbe?.device === device && this.#discoveredProbe.attempt === attempt) this.#discoveredProbe = null;
     if (this.#probes.get(device) === attempt) this.#probes.delete(device);
     this.#closeIfOwner(device, attempt);
   }

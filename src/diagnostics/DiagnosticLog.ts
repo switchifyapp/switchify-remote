@@ -7,6 +7,7 @@ const connectionStages = {
   mtu: 'Negotiate Bluetooth MTU',
   services: 'Discover connection services',
   primary_service: 'Discover PC primary service',
+  discovery_handoff: 'Reuse selected discovery connection',
   status_characteristic: 'Discover PC status characteristic',
   receive_characteristic: 'Discover PC command characteristic',
   transmit_characteristic: 'Discover PC notification characteristic',

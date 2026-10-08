@@ -106,6 +106,53 @@ class FakeBluetooth implements WebBluetooth {
 const flush = async () => { for (let index = 0; index < 100; index += 1) await Promise.resolve(); };
 
 describe('WebBluetoothTransport', () => {
+  it('hands a selected probe to pairing without reconnecting or rediscovering its service', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    const primary = jest.spyOn(peripheral, 'getPrimaryService');
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const stop = transport.scan(jest.fn(), jest.fn());
+    await flush();
+    expect(transport.retainDiscoveredConnection('desk-1')).toBe(true);
+    stop();
+    expect(peripheral.connected).toBe(true);
+    await expect(transport.resolveAndConnect('desk-1')).resolves.toMatchObject({ desktopId: 'desk-1' });
+    expect(peripheral.connects).toBe(1);
+    expect(primary).toHaveBeenCalledTimes(1);
+    await transport.disconnect();
+    expect(peripheral.connected).toBe(false);
+  });
+
+  it.each(['cancel', 'wrong-id', 'lost-link'] as const)('does not retain an unsafe probe after %s', async (reason) => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const stop = transport.scan(jest.fn(), jest.fn());
+    await flush();
+    if (reason === 'lost-link') peripheral.disconnect();
+    expect(transport.retainDiscoveredConnection(reason === 'wrong-id' ? 'other' : 'desk-1')).toBe(reason === 'cancel');
+    stop();
+    await transport.disconnect();
+    expect(peripheral.connected).toBe(false);
+    expect(transport.retainDiscoveredConnection('desk-1')).toBe(false);
+  });
+
+  it('rereads identity on a retained connection and rejects a changed desktop', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const stop = transport.scan(jest.fn(), jest.fn());
+    await flush();
+    transport.retainDiscoveredConnection('desk-1');
+    stop();
+    peripheral.status = status('other');
+    await expect(transport.resolveAndConnect('desk-1')).rejects.toThrow('different PC');
+    expect(peripheral.connected).toBe(false);
+  });
+
   it('does not publish a session when disconnected as discovery finishes', async () => {
     const bluetooth = new FakeBluetooth();
     const peripheral = new FakePeripheral('web-1', status('desk-1'));

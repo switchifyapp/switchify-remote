@@ -55,8 +55,14 @@ checks cancellation between operations. Diagnostics identify each lookup using
 fixed labels, never browser error text or Bluetooth identifiers.
 
 Issue #182 follows a real Chrome failure after status discovery and before pairing.
-The automated sequential-discovery tests are regression evidence, not proof that
-this resolves that hardware failure. A successful real pairing remains required.
+The current-code hardware retry narrowed the failure to primary-service discovery
+after reconnecting. Sequential characteristic discovery alone did not fix it.
+The web transport now explicitly retains the selected completed discovery probe
+across scan stop and connection preparation. It reuses that live service and
+rereads status before pairing; a changed desktop identity still fails. Normal
+scan stop, explicit disconnect, cancellation and failed setup close the probe.
+Native transports keep their existing preparation path. A successful real pairing
+with this handoff remains required before release.
 
 Automated tests use fake Web Bluetooth devices. Before release, check on real hardware:
 
