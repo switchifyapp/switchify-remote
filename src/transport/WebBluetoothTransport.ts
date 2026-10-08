@@ -313,6 +313,7 @@ export class WebBluetoothTransport implements BleTransport {
     try {
       const server = await this.#connectGatt(device, operation, attempt, 'connect');
       const { characteristics, status } = await this.#stage('services', () => this.#characteristics(server, operation), operation);
+      if (operation !== this.#operation) throw cancelled();
       const readReplies = status.responseTransport === 'read-v1';
       if (readReplies && !characteristics.response) throw new Error('Bluetooth discovery status is invalid.');
       this.#desktopDevices.set(status.desktopId, device.id);

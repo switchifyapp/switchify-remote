@@ -106,6 +106,20 @@ class FakeBluetooth implements WebBluetooth {
 const flush = async () => { for (let index = 0; index < 100; index += 1) await Promise.resolve(); };
 
 describe('WebBluetoothTransport', () => {
+  it('does not publish a session when disconnected as discovery finishes', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.chooser = async () => peripheral;
+    const diagnostics = { addConnectionStage: jest.fn() };
+    const transport = new WebBluetoothTransport(() => bluetooth, 100, diagnostics);
+    diagnostics.addConnectionStage.mockImplementation((stage, outcome) => {
+      if (stage === 'services' && outcome === 'succeeded') void transport.disconnect();
+    });
+    await expect(transport.resolveAndConnect('desk-1')).rejects.toThrow('cancelled');
+    expect(() => transport.maxWriteValueBytes()).toThrow('No PC is connected.');
+    expect(peripheral.connected).toBe(false);
+  });
+
   it('discovers sequentially and never requests read-response on a notification PC', async () => {
     const bluetooth = new FakeBluetooth();
     const peripheral = new FakePeripheral('web-1', status('desk-1'));
