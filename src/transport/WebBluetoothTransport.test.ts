@@ -106,6 +106,34 @@ class FakeBluetooth implements WebBluetooth {
 const flush = async () => { for (let index = 0; index < 100; index += 1) await Promise.resolve(); };
 
 describe('WebBluetoothTransport', () => {
+  it.each(['connect', 'resolve'] as const)('does not restart %s when disconnected during initial cleanup', async (method) => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.remembered = [peripheral];
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const connecting = method === 'connect' ? transport.connect('web-1') : transport.resolveAndConnect('desk-1');
+    const rejected = expect(connecting).rejects.toThrow('cancelled');
+    await transport.disconnect();
+    await rejected;
+    expect(bluetooth.requests).toBe(0);
+    expect(peripheral.connects).toBe(0);
+  });
+
+  it('lets only the replacement attempt proceed after initial cleanup', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const first = transport.resolveAndConnect('old');
+    const rejected = expect(first).rejects.toThrow('cancelled');
+    await expect(transport.resolveAndConnect('desk-1')).resolves.toMatchObject({ desktopId: 'desk-1' });
+    await rejected;
+    expect(bluetooth.requests).toBe(1);
+    expect(peripheral.connected).toBe(true);
+    await transport.disconnect();
+  });
+
   it('hands a selected probe to pairing without reconnecting or rediscovering its service', async () => {
     const bluetooth = new FakeBluetooth();
     const peripheral = new FakePeripheral('web-1', status('desk-1'));

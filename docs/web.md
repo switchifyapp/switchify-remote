@@ -34,6 +34,15 @@ Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and Chr
 
 The protocol, framing limits, authentication and pairing approval are unchanged. See [protocol compatibility](protocol-compatibility.md).
 
+First-time browser device identity creation uses an exclusive Web Lock, so tabs
+share one persisted identity. Waiting for a lock is bounded to five seconds. If
+locks are unavailable or persistence fails, initialization fails safely rather
+than using an unsaved identity. Existing encrypted identities remain readable.
+This keeps the existing keys, ciphertext format and native storage path unchanged.
+
+Connection cancellation includes initial cleanup: a stopped or replaced attempt
+must not reopen the picker or begin another connection after cleanup completes.
+
 ## Typing and probe recovery
 
 Keyboard Enter in live typing sends one Enter, clears only after acknowledgement,
