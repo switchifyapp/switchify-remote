@@ -1,6 +1,7 @@
 import { fromByteArray, toByteArray } from 'base64-js';
 
 import { BLE_UUIDS } from '@/domain/protocol/constants';
+import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import { BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError } from './BleTransport';
 import {
   REMEMBERED_DEVICE_BUDGET_MS,
@@ -45,6 +46,7 @@ class FakePeripheral extends EventTarget implements WebBluetoothDevice, WebBluet
   busy = false;
   overlapping = false;
   connects = 0;
+  discovered: string[] = [];
   writeGate: Promise<void> | null = null;
   connectGate: Promise<void> | null = null;
   characteristics: Record<string, FakeCharacteristic>;
@@ -64,9 +66,13 @@ class FakePeripheral extends EventTarget implements WebBluetoothDevice, WebBluet
     if (uuid !== BLE_UUIDS.service) throw new Error('missing service');
     return {
       getCharacteristic: async (characteristic: string) => {
-        const found = this.characteristics[characteristic];
-        if (!found) throw new Error('missing characteristic');
-        return found;
+        this.discovered.push(characteristic);
+        if (this.busy) throw new Error('GATT operation already in progress');
+        return this.operation(() => {
+          const found = this.characteristics[characteristic];
+          if (!found) throw new Error('missing characteristic');
+          return found;
+        });
       },
     };
   }
@@ -100,6 +106,52 @@ class FakeBluetooth implements WebBluetooth {
 const flush = async () => { for (let index = 0; index < 100; index += 1) await Promise.resolve(); };
 
 describe('WebBluetoothTransport', () => {
+  it('discovers sequentially and never requests read-response on a notification PC', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1'));
+    bluetooth.chooser = async () => peripheral;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    await transport.resolveAndConnect('desk-1');
+    expect(peripheral.discovered).toEqual([BLE_UUIDS.status, BLE_UUIDS.receive, BLE_UUIDS.transmit]);
+    expect(peripheral.overlapping).toBe(false);
+    await transport.disconnect();
+  });
+
+  it('fails safely when a read-v1 PC omits its required response characteristic', async () => {
+    const bluetooth = new FakeBluetooth();
+    const peripheral = new FakePeripheral('web-1', status('desk-1', { responseTransport: 'read-v1' }));
+    bluetooth.chooser = async () => peripheral;
+    const diagnostics = new DiagnosticLog();
+    const transport = new WebBluetoothTransport(() => bluetooth, 100, diagnostics);
+    await expect(transport.resolveAndConnect('desk-1')).rejects.toThrow();
+    expect(diagnostics.export()).toContain('ble_response_characteristic_failed');
+    expect(diagnostics.export()).not.toContain('missing characteristic');
+    expect(peripheral.connected).toBe(false);
+  });
+
+  it.each(['disconnect', 'timeout'] as const)('does not continue discovery after %s and a late service result', async (reason) => {
+    jest.useFakeTimers();
+    try {
+      const bluetooth = new FakeBluetooth();
+      const peripheral = new FakePeripheral('web-1', status('desk-1'));
+      const service = await peripheral.getPrimaryService(BLE_UUIDS.service);
+      let release!: (service: WebBluetoothService) => void;
+      peripheral.getPrimaryService = () => new Promise((resolve) => { release = resolve; });
+      bluetooth.chooser = async () => peripheral;
+      const transport = new WebBluetoothTransport(() => bluetooth, 100);
+      const connecting = transport.resolveAndConnect('desk-1');
+      const rejected = expect(connecting).rejects.toThrow();
+      await flush();
+      if (reason === 'disconnect') await transport.disconnect();
+      else await jest.advanceTimersByTimeAsync(100);
+      await rejected;
+      release(service);
+      await flush();
+      expect(peripheral.discovered).toEqual([]);
+      expect(peripheral.connected).toBe(false);
+    } finally { jest.useRealTimers(); }
+  });
+
   it.each(['resolve', 'reject'] as const)('does not let a timed-out probe block the chosen PC or its queue after late %s', async (outcome) => {
     jest.useFakeTimers();
     try {

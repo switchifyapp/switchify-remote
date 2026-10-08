@@ -312,12 +312,7 @@ export class WebBluetoothTransport implements BleTransport {
     this.#owners.set(device.id, attempt);
     try {
       const server = await this.#connectGatt(device, operation, attempt, 'connect');
-      const characteristics = await this.#stage('services', () => this.#bounded(this.#characteristics(server), 'Bluetooth operation timed out.'), operation);
-      if (operation !== this.#operation) throw cancelled();
-      const view = await this.#stage('status_read', () => this.#bounded(this.#gatt(() => characteristics.status.readValue()), 'Bluetooth operation timed out.'), operation);
-      if (operation !== this.#operation) throw cancelled();
-      const status = decodeStatus(view);
-      if (!status) throw new Error('Bluetooth discovery status is invalid.');
+      const { characteristics, status } = await this.#stage('services', () => this.#characteristics(server, operation), operation);
       const readReplies = status.responseTransport === 'read-v1';
       if (readReplies && !characteristics.response) throw new Error('Bluetooth discovery status is invalid.');
       this.#desktopDevices.set(status.desktopId, device.id);
@@ -366,15 +361,30 @@ export class WebBluetoothTransport implements BleTransport {
     }
   }
 
-  async #characteristics(server: WebBluetoothServer): Promise<Characteristics> {
-    const service = await server.getPrimaryService(BLE_UUIDS.service);
-    const [receive, transmit, status, response] = await Promise.all([
-      service.getCharacteristic(BLE_UUIDS.receive),
-      service.getCharacteristic(BLE_UUIDS.transmit),
-      service.getCharacteristic(BLE_UUIDS.status),
-      service.getCharacteristic(BLE_UUIDS.response).catch(() => null),
-    ]);
-    return { receive, transmit, status, response };
+  async #characteristics(server: WebBluetoothServer, operation: number): Promise<{ characteristics: Characteristics; status: PcStatus }> {
+    const deadline = this.now() + this.timeoutMs;
+    const step = async <T>(stage: ConnectionStage, action: () => Promise<T>): Promise<T> => {
+      if (operation !== this.#operation) throw cancelled();
+      const remaining = deadline - this.now();
+      if (remaining <= 0) throw new Error('Bluetooth operation timed out.');
+      const result = await this.#stage(stage, () => this.#bounded(action(), 'Bluetooth operation timed out.', remaining), operation);
+      if (operation !== this.#operation) throw cancelled();
+      return result;
+    };
+    // Discovery is sequential too. Do not ask notification-based PCs for the
+    // read-v1 characteristic that they do not expose.
+    const service = await step('primary_service', () => server.getPrimaryService(BLE_UUIDS.service));
+    const statusCharacteristic = await step('status_characteristic', () => service.getCharacteristic(BLE_UUIDS.status));
+    const view = await step('status_read', () => statusCharacteristic.readValue());
+    const status = decodeStatus(view);
+    this.#recordStage('status_parse', status ? 'succeeded' : 'failed', operation);
+    if (!status) throw new Error('Bluetooth discovery status is invalid.');
+    const receive = await step('receive_characteristic', () => service.getCharacteristic(BLE_UUIDS.receive));
+    const transmit = await step('transmit_characteristic', () => service.getCharacteristic(BLE_UUIDS.transmit));
+    const response = status.responseTransport === 'read-v1'
+      ? await step('response_characteristic', () => service.getCharacteristic(BLE_UUIDS.response))
+      : null;
+    return { characteristics: { receive, transmit, status: statusCharacteristic, response }, status };
   }
 
   /** Reads a device's status over a short-lived probe connection with its own connect attempt. */

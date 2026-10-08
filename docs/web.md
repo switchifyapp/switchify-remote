@@ -48,6 +48,16 @@ selection, and a late probe completion must not affect the chosen PC.
 
 ## Hardware validation still needed
 
+Connection discovery now reads status before looking up command and notification
+characteristics, one operation at a time. Only PCs advertising `read-v1` are asked
+for the read-response characteristic. Discovery shares one ten-second budget and
+checks cancellation between operations. Diagnostics identify each lookup using
+fixed labels, never browser error text or Bluetooth identifiers.
+
+Issue #182 follows a real Chrome failure after status discovery and before pairing.
+The automated sequential-discovery tests are regression evidence, not proof that
+this resolves that hardware failure. A successful real pairing remains required.
+
 Automated tests use fake Web Bluetooth devices. Before release, check on real hardware:
 
 - pairing and control from Chrome on Android against Switchify PC on Windows and on macOS
