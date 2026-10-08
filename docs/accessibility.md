@@ -1,5 +1,10 @@
 # Accessibility acceptance criteria
 
+On the web, live typing must submit from both keyboard Enter and the visible Enter
+control, then restore input focus after success or failure. Failure retains text
+and offers Retry Enter. Draft Enter remains multiline. Verify these using actual
+browser keyboard events, not only React Native's synthetic submitEditing callback.
+
 Switchify Remote is designed for VoiceOver, TalkBack, iOS Switch Control, and Android Switch Access.
 
 ## Custom section layouts

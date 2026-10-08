@@ -100,6 +100,56 @@ class FakeBluetooth implements WebBluetooth {
 const flush = async () => { for (let index = 0; index < 100; index += 1) await Promise.resolve(); };
 
 describe('WebBluetoothTransport', () => {
+  it.each(['resolve', 'reject'] as const)('does not let a timed-out probe block the chosen PC or its queue after late %s', async (outcome) => {
+    jest.useFakeTimers();
+    try {
+      const bluetooth = new FakeBluetooth();
+      const stale = new FakePeripheral('stale', status('other'));
+      let resolveRead!: (value: DataView) => void;
+      let rejectRead!: (error: Error) => void;
+      stale.characteristics[BLE_UUIDS.status]!.readValue = () => new Promise((resolve, reject) => {
+        resolveRead = resolve; rejectRead = reject;
+      });
+      const chosen = new FakePeripheral('chosen', status('wanted'));
+      bluetooth.remembered = [stale];
+      bluetooth.chooser = async () => chosen;
+      const transport = new WebBluetoothTransport(() => bluetooth);
+      const connecting = transport.resolveAndConnect('wanted');
+      await jest.advanceTimersByTimeAsync(REMEMBERED_DEVICE_BUDGET_MS + 10);
+      await expect(connecting).resolves.toMatchObject({ desktopId: 'wanted' });
+      expect(stale.connected).toBe(false);
+      expect(chosen.connected).toBe(true);
+      expect(bluetooth.requests).toBe(1);
+      if (outcome === 'resolve') resolveRead(view(status('other')));
+      else rejectRead(new Error('late native failure'));
+      await flush();
+      await transport.writeFrame('YQ==');
+      expect(await transport.verifyConnection('wanted')).toBe(true);
+      expect(chosen.overlapping).toBe(false);
+      await transport.disconnect();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not open the picker or revive a connection after disconnect during a probe read', async () => {
+    const bluetooth = new FakeBluetooth();
+    const stale = new FakePeripheral('stale', status('wanted'));
+    let resolveRead!: (value: DataView) => void;
+    stale.characteristics[BLE_UUIDS.status]!.readValue = () => new Promise((resolve) => { resolveRead = resolve; });
+    bluetooth.remembered = [stale];
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    const connecting = transport.resolveAndConnect('wanted');
+    const rejected = expect(connecting).rejects.toThrow('cancelled');
+    await flush();
+    await transport.disconnect();
+    resolveRead(view(status('wanted')));
+    await rejected;
+    expect(stale.connected).toBe(false);
+    expect(bluetooth.requests).toBe(0);
+    expect(await transport.verifyConnection('wanted')).toBe(false);
+  });
+
   it('reports when the browser has no Web Bluetooth', async () => {
     expect(await new WebBluetoothTransport(() => null).availability()).toBe('unsupported');
     const bluetooth = new FakeBluetooth();

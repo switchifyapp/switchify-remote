@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { TextInput, View } from "react-native";
+import { Platform, TextInput, View } from "react-native";
 
 import { ControlButton } from "@/components/ControlButton";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -7,6 +7,7 @@ import { preferencesStore, type TypingMode } from "@/storage/PreferencesStore";
 import { useTheme } from "@/theme/ThemeContext";
 import { scheduleLiveTextInputFocus } from "./focusLiveTextInput";
 import { LiveTypingController } from "./LiveTypingController";
+import { typingInputSubmission } from "./typingInputSubmission";
 import { SurfaceLayout } from "@/layouts/SurfaceLayout";
 import type { PcPlatform } from "@/domain/protocol/types";
 import { useRemoteActions } from "./actions/useRemoteActions";
@@ -161,7 +162,7 @@ export function TypingSurface({
         }
         maxLength={2000}
         multiline
-        submitBehavior={mode === "live" ? "submit" : "newline"}
+        {...typingInputSubmission(mode, Platform.OS)}
         placeholder={
           mode === "live"
             ? "Type on your PC"

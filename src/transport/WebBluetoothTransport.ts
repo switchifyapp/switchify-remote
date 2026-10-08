@@ -390,7 +390,9 @@ export class WebBluetoothTransport implements BleTransport {
       if (operation !== this.#operation) throw cancelled();
       const characteristic = await this.#bounded(service.getCharacteristic(BLE_UUIDS.status), 'Bluetooth operation timed out.', remaining());
       if (operation !== this.#operation) throw cancelled();
-      const view = await this.#stage('status_read', () => this.#bounded(this.#gatt(() => characteristic.readValue()), 'Bluetooth operation timed out.', remaining()), operation);
+      // Probe operations are sequential on a disposable connection, not the session
+      // queue. A timed-out read must not block a subsequently chosen PC.
+      const view = await this.#stage('status_read', () => this.#bounded(characteristic.readValue(), 'Bluetooth operation timed out.', remaining()), operation);
       if (operation !== this.#operation) throw cancelled();
       this.#recordStage('status_parse', 'started', operation);
       const status = decodeStatus(view);
