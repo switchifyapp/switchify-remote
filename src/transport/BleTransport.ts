@@ -7,6 +7,8 @@ export type BleAvailability = 'ready' | 'unauthorized' | 'poweredOff' | 'unsuppo
 export interface BleTransport {
   availability(): Promise<BleAvailability>;
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe;
+  /** Claim a completed discovery connection before stopping its scan. Disconnect still releases it. */
+  retainDiscoveredConnection?(desktopId: string): boolean;
   connect(peripheralId: string): Promise<void>;
   resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop>;
   disconnect(): Promise<void>;
@@ -18,3 +20,15 @@ export interface BleTransport {
   notificationsReady(): Promise<void>;
   subscribeDisconnect(onDisconnect: () => void): Unsubscribe;
 }
+
+/** The person closed a device chooser without choosing a PC, as browsers require for Web Bluetooth. */
+export class BluetoothDeviceSelectionCancelledError extends Error {
+  constructor() { super('Bluetooth device selection was cancelled.'); }
+}
+
+/** The browser refused to open its device picker: the tap was too long ago, or Bluetooth is blocked for the site. */
+export class BluetoothPickerBlockedError extends Error {
+  constructor() { super('The browser did not open the Bluetooth picker.'); }
+}
+
+export const BLUETOOTH_PICKER_BLOCKED_MESSAGE = 'Your browser did not open the Bluetooth picker. Try again, and allow Bluetooth for this site if it is blocked.';

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { computeBottomTabBarHeight } from '@/navigation/bottomTabBarLayout';
 import { tabDefinitions } from '@/navigation/tabDefinitions';
+import { tabSceneLayout } from '@/navigation/tabSceneLayout';
 import { useTheme } from '@/theme/ThemeContext';
 
 const icons = { index: 'computer', remote: 'settings-remote', settings: 'settings' } as const;
@@ -16,7 +17,7 @@ export default function TabsLayout() {
   const tabBarHeight = computeBottomTabBarHeight(fontScale, bottom);
 
   return (
-    <Tabs screenOptions={({ route }) => ({
+    <Tabs screenLayout={tabSceneLayout} screenOptions={({ route }) => ({
       headerShown: false,
       tabBarActiveTintColor: scheme === 'dark' ? colors.brandText : colors.brand,
       tabBarInactiveTintColor: colors.textMuted,

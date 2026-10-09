@@ -2,7 +2,7 @@
 
 Switchify Remote is the accessibility-first Android and iOS companion for controlling Switchify PC over Bluetooth. The development preview provides PC discovery and pairing plus Mouse, Typing, and Window control surfaces.
 
-The app uses Expo SDK 57 with native Bluetooth support. It does **not** run in Expo Go.
+The app uses Expo SDK 57 with native Bluetooth support. It does **not** run in Expo Go. It also runs as a [web app](docs/web.md) over Web Bluetooth in Chrome and Edge.
 
 ## Requirements
 

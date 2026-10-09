@@ -4,7 +4,7 @@ import { authenticatedCommand, commandPayloads, pairingRequest } from '@/domain/
 import type { JsonObject, PointerProfile, ProtocolResponse } from '@/domain/protocol/types';
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
-import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
+import { BLUETOOTH_PICKER_BLOCKED_MESSAGE, BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
 import { ProtocolClient, ProtocolWriteError } from './ProtocolClient';
 import { pairingVerificationCode } from './verificationCode';
 
@@ -80,13 +80,14 @@ export class ConnectionManager {
       if (!this.#current(operation)) return;
       discovered.set(desktop.desktopId, desktop);
       this.#set({ kind: 'scanning', saved, discovered: [...discovered.values()] });
-    }, () => { void this.#handleScanFailure(operation, saved); });
+    }, (error) => { void this.#handleScanFailure(operation, saved, error); });
   }
 
   async connect(desktop: DiscoveredDesktop): Promise<void> {
     const operation = ++this.#operation;
+    const retained = !this.#client && this.transport.retainDiscoveredConnection?.(desktop.desktopId) === true;
     this.#scanStop?.(); this.#scanStop = null;
-    await this.#teardownConnection();
+    await this.#teardownConnection(retained);
     if (!this.#current(operation)) return;
     this.#set({ kind: 'connecting', desktop });
     this.diagnostics.add('connecting');
@@ -94,8 +95,10 @@ export class ConnectionManager {
       const resolved = await this.transport.resolveAndConnect(desktop.desktopId);
       if (!this.#current(operation)) return;
       await this.#connectDesktop(resolved, operation, true, true);
-    } catch {
-      if (this.#current(operation)) await this.#fail('Could not connect to this PC.', operation);
+    } catch (error) {
+      if (!this.#current(operation)) return;
+      if (error instanceof BluetoothDeviceSelectionCancelledError) await this.#selectionCancelled(operation);
+      else await this.#fail(error instanceof BluetoothPickerBlockedError ? BLUETOOTH_PICKER_BLOCKED_MESSAGE : 'Could not connect to this PC.', operation);
     }
   }
 
@@ -140,8 +143,10 @@ export class ConnectionManager {
       const resolved = await this.transport.resolveAndConnect(pc.desktopId);
       if (!this.#current(operation)) return;
       await this.#connectDesktop(resolved, operation, true, true, token);
-    } catch {
-      if (this.#current(operation)) await this.#fail('Could not find this PC nearby.', operation);
+    } catch (error) {
+      if (!this.#current(operation)) return;
+      if (error instanceof BluetoothDeviceSelectionCancelledError) await this.#selectionCancelled(operation);
+      else await this.#fail(error instanceof BluetoothPickerBlockedError ? BLUETOOTH_PICKER_BLOCKED_MESSAGE : 'Could not find this PC nearby.', operation);
     }
   }
 
@@ -492,14 +497,14 @@ export class ConnectionManager {
     this.#set({ kind: 'failed', message, saved });
   }
 
-  async #teardownConnection(): Promise<void> {
+  async #teardownConnection(preserveDiscovery = false): Promise<void> {
     this.#cancelProfileRecovery();
     this.#cancelHealthTimer();
     this.#disconnectStop?.(); this.#disconnectStop = null;
     const client = this.#client;
     this.#client = null; this.#token = null;
     if (client) await client.close();
-    await this.transport.disconnect().catch(() => undefined);
+    if (!preserveDiscovery) await this.transport.disconnect().catch(() => undefined);
   }
 
   #scheduleHealth(delay = 5_000): void {
@@ -545,12 +550,32 @@ export class ConnectionManager {
     return defaultId ? [...saved].sort((a, b) => Number(b.desktopId === defaultId) - Number(a.desktopId === defaultId)) : saved;
   }
 
-  async #handleScanFailure(operation: number, saved: SavedPc[]): Promise<void> {
+  async #handleScanFailure(operation: number, saved: SavedPc[], error?: Error): Promise<void> {
     if (!this.#current(operation)) return;
+    if (error instanceof BluetoothDeviceSelectionCancelledError) {
+      this.#scanStop?.(); this.#scanStop = null;
+      this.diagnostics.add('scan_cancelled');
+      this.#set({ kind: 'idle', saved });
+      return;
+    }
+    if (error instanceof BluetoothPickerBlockedError) {
+      this.#scanStop?.(); this.#scanStop = null;
+      this.diagnostics.add('scan_failed', 'error');
+      this.#set({ kind: 'failed', message: BLUETOOTH_PICKER_BLOCKED_MESSAGE, saved });
+      return;
+    }
     const availability = await this.transport.availability().catch(() => 'poweredOff' as BleAvailability);
     if (!this.#current(operation)) return;
     this.diagnostics.add('scan_failed', 'error');
     this.#set(availability === 'ready' ? { kind: 'failed', message: 'Bluetooth discovery could not start.', saved } : this.#availabilityState(availability, saved));
+  }
+
+  async #selectionCancelled(operation: number): Promise<void> {
+    await this.#teardownConnection();
+    if (!this.#current(operation)) return;
+    this.diagnostics.add('scan_cancelled');
+    const saved = await this.#orderedSaved();
+    if (this.#current(operation)) this.#set({ kind: 'idle', saved });
   }
 
   #availabilityState(availability: Exclude<BleAvailability, 'ready'>, saved: SavedPc[]): ConnectionState {

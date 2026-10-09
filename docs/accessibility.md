@@ -1,5 +1,15 @@
 # Accessibility acceptance criteria
 
+Web selector buttons must include their full current value in the accessible name.
+Toggle controls expose pressed/unpressed state; ordinary action buttons must not be
+announced as toggles. Busy and disabled controls expose those states to browser
+assistive technology. Check the rendered DOM in addition to native prop tests.
+
+On the web, live typing must submit from both keyboard Enter and the visible Enter
+control, then restore input focus after success or failure. Failure retains text
+and offers Retry Enter. Draft Enter remains multiline. Verify these using actual
+browser keyboard events, not only React Native's synthetic submitEditing callback.
+
 Switchify Remote is designed for VoiceOver, TalkBack, iOS Switch Control, and Android Switch Access.
 
 ## Custom section layouts

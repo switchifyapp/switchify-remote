@@ -1,5 +1,14 @@
 # Physical development-preview smoke test
 
+## Web checks
+
+In Chrome on Android against Windows and macOS, verify live keyboard Enter and the
+visible Enter control each send once, clear on success, and restore input focus.
+After failed delivery, verify text remains and Retry Enter does not duplicate the
+text. Draft Enter must insert a newline without sending. Reload the page and
+reconnect a saved PC. Check fallback selection after an unreachable remembered PC.
+Keep fake-browser checks separate from physical Bluetooth evidence.
+
 Record the app commit, Switchify PC release, phone model/OS, and desktop platform for each run. Never paste pairing credentials or typed personal content into the record.
 
 ## Layout edit mode checks
