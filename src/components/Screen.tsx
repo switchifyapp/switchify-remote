@@ -1,12 +1,21 @@
 import { BlurTargetView } from 'expo-blur';
 import { type PropsWithChildren, type ReactNode, useCallback, useRef, useState } from 'react';
-import { AccessibilityInfo, ScrollView, View, type NativeScrollEvent, type ScrollViewProps, type NativeSyntheticEvent } from 'react-native';
+import { AccessibilityInfo, Platform, ScrollView, View, type NativeScrollEvent, type ScrollViewProps, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from './AppText';
 import { ScrollToTopButton } from './ScrollToTopButton';
 import { StickyBackdrop } from './StickyBackdrop';
 import { useLayout, useTheme } from '@/theme/ThemeContext';
+import { spacing as spacingTokens } from '@/theme/tokens';
+
+/**
+ * Native screens start below the status bar's safe-area inset. Browsers have no
+ * status bar, so without this the title would touch the top of the window.
+ */
+export function screenTopPadding(platform: string, nativeHeader: boolean): number {
+  return platform === 'web' && !nativeHeader ? spacingTokens.xxl : 0;
+}
 
 type ScreenProps = PropsWithChildren<{
   title: string;
@@ -91,7 +100,7 @@ function StickyScreenContent({ children, description, headerAccessory, isExpande
     ref={scrollRef}
     testID="screen-scroll"
     keyboardShouldPersistTaps={keyboardShouldPersistTaps}
-    contentContainerStyle={{ alignItems: 'center', flexGrow: 1, gap: spacing.md, paddingBottom: paddingBottom + (scrollToTop ? 48 + spacing.md : 0), paddingHorizontal }}
+    contentContainerStyle={{ alignItems: 'center', flexGrow: 1, gap: spacing.md, paddingBottom: paddingBottom + (scrollToTop ? 48 + spacing.md : 0), paddingHorizontal, paddingTop: screenTopPadding(Platform.OS, nativeHeader) }}
     onScroll={handleScroll}
     onScrollBeginDrag={scrollToTop ? cancelScrollToTop : undefined}
     onTouchStart={scrollToTop ? cancelScrollToTop : undefined}
@@ -138,7 +147,7 @@ export function Screen({ title, description, headerAccessory, bottomAccessory, n
   const paddingHorizontal = isExpanded ? spacing.xxl : spacing.xl;
   return (
     <SafeAreaView edges={nativeHeader ? [] : ['top']} style={{ backgroundColor: colors.background, flex: 1 }}>
-      {stickyAccessory === undefined ? <ScrollView testID="screen-scroll" keyboardShouldPersistTaps={keyboardShouldPersistTaps} contentContainerStyle={{ alignItems: 'center', flexGrow: 1, paddingBottom, paddingHorizontal }}>
+      {stickyAccessory === undefined ? <ScrollView testID="screen-scroll" keyboardShouldPersistTaps={keyboardShouldPersistTaps} contentContainerStyle={{ alignItems: 'center', flexGrow: 1, paddingBottom, paddingHorizontal, paddingTop: screenTopPadding(Platform.OS, nativeHeader) }}>
         <View testID="screen-content" style={{ gap: spacing.xl, maxWidth: isExpanded ? 960 : 640, paddingTop: nativeHeader ? spacing.xl : 0, width: '100%' }}>
           {!nativeHeader ? <ScreenHeader description={description} headerAccessory={headerAccessory} stackHeader={stackHeader} title={title} /> : null}
           {children}
