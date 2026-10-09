@@ -8,3 +8,6 @@ export const ScanningEnabledContext = createContext(false);
  * their controls never join the scan.
  */
 export const ScanVisibleContext = createContext(true);
+
+/** Grid rows scan as groups of their own. */
+export const ScanRowsContext = createContext(false);

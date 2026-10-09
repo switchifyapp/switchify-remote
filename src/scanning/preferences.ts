@@ -13,6 +13,8 @@ export type ScanningPreferences = {
   automatic: boolean;
   intervalMs: number;
   pattern: Pattern;
+  /** With the grouped pattern, scan each grid row as a group inside its section. */
+  rows: boolean;
   switches: SwitchSettings;
 };
 
@@ -23,6 +25,7 @@ export const DEFAULT_SCANNING: ScanningPreferences = {
   automatic: true,
   intervalMs: 1_000,
   pattern: 'grouped',
+  rows: false,
   switches: { holdIntervalMs: DEFAULT_SWITCH_SETTINGS.holdIntervalMs, bindings: DEFAULT_SWITCH_SETTINGS.bindings.map((binding) => ({ ...binding, holdActions: [...binding.holdActions] })) },
 };
 
@@ -56,8 +59,31 @@ export function normalizeScanning(raw: unknown): ScanningPreferences {
     automatic: options.automatic,
     intervalMs: options.intervalMs,
     pattern: options.pattern,
+    rows: value.rows === true,
     switches: validateSwitchSettings(switches, options.automatic) === null ? switches : DEFAULT_SCANNING.switches,
   };
+}
+
+const MANUAL_KEYS: Record<'next' | 'back', string[]> = {
+  next: ['Enter', 'ArrowRight', 'Digit2', 'F2'],
+  back: ['Backspace', 'ArrowLeft', 'Digit3', 'F3'],
+};
+
+/**
+ * Manual scanning needs switches for Next and Previous. Adds any that are missing on
+ * a free key (Enter and Backspace first, as in Switchify PC), so choosing Manual works
+ * straight away. The keys can be changed afterwards.
+ */
+export function withManualSwitches(switches: SwitchSettings): SwitchSettings {
+  const bindings = [...switches.bindings];
+  for (const action of ['next', 'back'] as const) {
+    if (bindings.some((item) => item.pressAction === action || item.holdActions.includes(action))) continue;
+    const used = new Set(bindings.map((item) => item.key));
+    const key = MANUAL_KEYS[action].find((candidate) => !used.has(candidate));
+    if (!key) continue;
+    bindings.push({ id: `switch-${action}`, name: action === 'next' ? 'Next' : 'Previous', key, pressAction: action, holdActions: [] });
+  }
+  return { ...switches, bindings };
 }
 
 /** A readable name for a KeyboardEvent.code, for showing which key a switch sends. */

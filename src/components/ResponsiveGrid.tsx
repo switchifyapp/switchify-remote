@@ -1,6 +1,8 @@
-import { Children, type ReactNode, useMemo, useState } from 'react';
+import { Children, type ReactNode, useContext, useMemo, useState } from 'react';
 import { View } from 'react-native';
 
+import { ScanRowsContext } from '@/scanning/ScanningContext';
+import { ScanSection } from '@/scanning/ScanSection';
 import { useLayout, useTheme } from '@/theme/ThemeContext';
 
 export function computeGridColumns(width: number, minItemWidth: number, gap: number, fontScale: number, maxColumns = Number.MAX_SAFE_INTEGER): number {
@@ -22,7 +24,8 @@ export function ResponsiveGrid({ minItemWidth, gap: gapOverride, maxColumns = Nu
   testID?: string;
 }) {
   const { fontScale } = useLayout();
-  const { spacing } = useTheme();
+  const { radii, spacing } = useTheme();
+  const scanRows = useContext(ScanRowsContext);
   const gap = gapOverride ?? spacing.sm;
   const [width, setWidth] = useState(0);
   const items = Children.toArray(children);
@@ -38,8 +41,13 @@ export function ResponsiveGrid({ minItemWidth, gap: gapOverride, maxColumns = Nu
     const next = Math.round(event.nativeEvent.layout.width);
     setWidth((current) => current === next ? current : next);
   }} style={{ gap }}>
-    {rows.map((row, rowIndex) => <View key={rowIndex} style={{ alignItems: 'stretch', flexDirection: 'row', gap }}>
-      {row.map((item, columnIndex) => <View key={`${rowIndex}-${columnIndex}`} testID={testID ? `${testID}-cell-${rowIndex * columns + columnIndex}` : undefined} style={cellWidth === null ? { flex: 1, minWidth: 0 } : { minWidth: 0, width: cellWidth }}>{item}</View>)}
-    </View>)}
+    {rows.map((row, rowIndex) => {
+      const cells = row.map((item, columnIndex) => <View key={`${rowIndex}-${columnIndex}`} testID={testID ? `${testID}-cell-${rowIndex * columns + columnIndex}` : undefined} style={cellWidth === null ? { flex: 1, minWidth: 0 } : { minWidth: 0, width: cellWidth }}>{item}</View>);
+      const style = { alignItems: 'stretch' as const, flexDirection: 'row' as const, gap };
+      // In row scanning, a row of several controls is one stop; a lone control stays direct.
+      return scanRows && rows.length > 1 && row.length > 1
+        ? <ScanSection key={rowIndex} leaveLabel="Leave row" radius={radii.md} style={style}>{cells}</ScanSection>
+        : <View key={rowIndex} style={style}>{cells}</View>;
+    })}
   </View>;
 }

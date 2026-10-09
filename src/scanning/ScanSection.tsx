@@ -10,10 +10,10 @@ import { useScannableGroup } from './useScannable';
  * then scanned in turn, and a final "Leave section" stop returns to the page.
  * `exclusive` confines scanning to it while mounted, for dialogs.
  */
-export function ScanSection({ children, exclusive = false, radius = 16, style }: PropsWithChildren<{ exclusive?: boolean; radius?: number; style?: StyleProp<ViewStyle> }>) {
+export function ScanSection({ children, exclusive = false, radius = 16, style, leaveLabel }: PropsWithChildren<{ exclusive?: boolean; radius?: number; style?: StyleProp<ViewStyle>; leaveLabel?: string }>) {
   const { id, attach, onLayout, highlighted, entered, escapeHighlighted } = useScannableGroup({ exclusive });
   return <View ref={attach} onLayout={onLayout} style={[{ position: 'relative' }, style]}>
     <ScanGroupScope id={id}>{children}</ScanGroupScope>
-    <ScanGroupHighlight highlighted={highlighted} entered={entered} escapeHighlighted={escapeHighlighted} radius={radius} />
+    <ScanGroupHighlight highlighted={highlighted} entered={entered} escapeHighlighted={escapeHighlighted} radius={radius} {...(leaveLabel ? { leaveLabel } : {})} />
   </View>;
 }
