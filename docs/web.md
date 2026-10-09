@@ -11,6 +11,15 @@ npx expo export -p web      # static site in dist/
 
 Web Bluetooth only works in a secure context, so serve the exported site over HTTPS. `http://localhost` also counts as secure for development.
 
+## Installing as an app
+
+The web app is a progressive web app, so Chrome and Edge offer to install it to the home screen or desktop, where it opens in its own window.
+
+- `public/manifest.json` sets the name, start URL, standalone display and colours. Its icons are in `public/icons/`: 192 and 512 pixel versions of the app icon, plus a maskable icon made from the Android adaptive foreground.
+- `src/app/+html.tsx` links the manifest and registers `public/sw.js`. Registration only happens in production exports, so `npm run web` never caches Metro's development bundles.
+- The service worker fetches pages from the network first and falls back to the cache when offline, so a new deployment is never stuck behind an old copy. Content-hashed bundles and assets under `/_expo/static/` and `/assets/` are cached once and reused. Bluetooth still needs the PC nearby; offline only means the app opens.
+- `vercel.json` serves `sw.js` and the manifest with `no-cache`, and the hashed bundles as immutable. To change caching behaviour, change the `CACHE` name in `sw.js` so old caches are cleared on activation.
+
 ## Supported browsers
 
 Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and ChromeOS. Safari, Firefox and every iOS browser lack it. In those browsers the PCs screen shows that Bluetooth is unavailable and names the supported browsers.
