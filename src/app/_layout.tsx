@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -7,13 +8,14 @@ import { ConnectionProvider } from '@/connection/ConnectionContext';
 import { diagnosticsScreenOptions } from '@/navigation/diagnosticsScreenOptions';
 import { FirstRunSetupGate } from '@/onboarding/FirstRunSetup';
 import { StoreCaptureRoot, storeCaptureEnabled } from '@/store-capture/StoreCaptureRoot';
-import { installPlatform } from '@/platform/installPlatform';
+import { installPlatform, markAppStarted } from '@/platform/installPlatform';
 import { ScanningProvider } from '@/scanning/ScanningProvider';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 installPlatform();
 
 export default function RootLayout() {
+  useEffect(() => { markAppStarted(); }, []);
   return (
     <SafeAreaProvider>
       <ThemeProvider>{storeCaptureEnabled() ? <StoreCaptureRoot /> : <ScanningProvider><ThemedApp /></ScanningProvider>}</ThemeProvider>
