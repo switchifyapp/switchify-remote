@@ -7,7 +7,10 @@ import { ConnectionProvider } from '@/connection/ConnectionContext';
 import { diagnosticsScreenOptions } from '@/navigation/diagnosticsScreenOptions';
 import { FirstRunSetupGate } from '@/onboarding/FirstRunSetup';
 import { StoreCaptureRoot, storeCaptureEnabled } from '@/store-capture/StoreCaptureRoot';
+import { installPlatform } from '@/platform/installPlatform';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
+
+installPlatform();
 
 export default function RootLayout() {
   return (

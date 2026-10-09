@@ -1,6 +1,6 @@
 import { DiagnosticLog } from '@/diagnostics/DiagnosticLog';
 import type { PairingStorage, SavedPc } from '@/storage/PairingStore';
-import type { BleAvailability, BleTransport, DiscoveredDesktop, Unsubscribe } from '@/transport/BleTransport';
+import { BLUETOOTH_PICKER_BLOCKED_MESSAGE, BluetoothDeviceSelectionCancelledError, BluetoothPickerBlockedError, type BleAvailability, type BleTransport, type DiscoveredDesktop, type Unsubscribe } from '@/transport/BleTransport';
 import { ConnectionManager } from './ConnectionManager';
 import { pairingVerificationCode } from './verificationCode';
 
@@ -33,8 +33,10 @@ class FakeTransport implements BleTransport {
   failConnect = false;
   failReadiness = false;
   connectGate: Promise<void> | null = null;
-  scan(onDesktop: (desktop: DiscoveredDesktop) => void): Unsubscribe {
+  scanError: ((error: Error) => void) | null = null;
+  scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe {
     this.scanCallback = onDesktop;
+    this.scanError = onError;
     return () => { this.scanStops += 1; this.scanCallback = null; };
   }
   connect = async (peripheralId: string) => {
@@ -64,10 +66,68 @@ const waitFor = async (condition: () => boolean): Promise<void> => {
 };
 
 describe('connection lifecycle', () => {
+  it('claims a discovered connection before stopping the scan and skips intermediate disconnect', async () => {
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+    const desktop = { ...pc('desk-1'), rssi: null };
+    await manager.scan();
+    const disconnect = jest.spyOn(transport, 'disconnect');
+    const retained = jest.fn(() => {
+      expect(transport.scanStops).toBe(0);
+      return true;
+    });
+    Object.assign(transport, { retainDiscoveredConnection: retained });
+    transport.resolveGate = new Promise(() => undefined);
+    void manager.connect(desktop);
+    await waitFor(() => transport.resolveDesktopIds.length === 1);
+    expect(retained).toHaveBeenCalledWith('desk-1');
+    expect(transport.scanStops).toBe(1);
+    expect(disconnect).not.toHaveBeenCalled();
+    await manager.disconnect();
+    expect(disconnect).toHaveBeenCalled();
+  });
+
   it('matches the Android pairing verification algorithm', () => {
     expect(pairingVerificationCode('desktop-1', 'device-1', 'nonce-1')).toBe('215918');
     expect(pairingVerificationCode('0:0:1280:720:1.5', 'android-device-id', 'random-request-nonce')).toBe('735258');
     expect(pairingVerificationCode('desktop', 'device', 'nonce-14')).toBe('028314');
+  });
+
+  it('returns to idle when the device picker is closed during discovery', async () => {
+    const transport = new FakeTransport();
+    const diagnostics = new DiagnosticLog();
+    const manager = new ConnectionManager(transport, new FakeStorage(), diagnostics, async () => true);
+    await manager.scan();
+    transport.scanError?.(new BluetoothDeviceSelectionCancelledError());
+    await waitFor(() => manager.snapshot().kind === 'idle');
+    expect(transport.scanStops).toBe(1);
+    expect(diagnostics.snapshot().map((entry) => entry.code)).toContain('scan_cancelled');
+    expect(diagnostics.snapshot().map((entry) => entry.code)).not.toContain('scan_failed');
+  });
+
+  it('returns to idle, not failed, when the picker is closed while connecting', async () => {
+    const transport = new FakeTransport();
+    const storage = new FakeStorage();
+    storage.saved = [pc('pc-1')];
+    storage.tokens.set('pc-1', 'token');
+    transport.resolveError = new BluetoothDeviceSelectionCancelledError();
+    const manager = new ConnectionManager(transport, storage, new DiagnosticLog(), async () => true);
+    await manager.connectSaved(pc('pc-1'));
+    expect(manager.snapshot()).toMatchObject({ kind: 'idle', saved: [{ desktopId: 'pc-1' }] });
+    await manager.connect({ ...pc('pc-1'), rssi: null });
+    expect(manager.snapshot().kind).toBe('idle');
+  });
+
+  it('explains a picker the browser refused to open instead of returning silently', async () => {
+    const transport = new FakeTransport();
+    const manager = new ConnectionManager(transport, new FakeStorage(), new DiagnosticLog(), async () => true);
+    await manager.scan();
+    transport.scanError?.(new BluetoothPickerBlockedError());
+    await waitFor(() => manager.snapshot().kind === 'failed');
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: BLUETOOTH_PICKER_BLOCKED_MESSAGE });
+    transport.resolveError = new BluetoothPickerBlockedError();
+    await manager.connect({ ...pc('pc-1'), rssi: null });
+    expect(manager.snapshot()).toMatchObject({ kind: 'failed', message: BLUETOOTH_PICKER_BLOCKED_MESSAGE });
   });
 
   it('discovers PCs through an injectable fake without hardware', async () => {

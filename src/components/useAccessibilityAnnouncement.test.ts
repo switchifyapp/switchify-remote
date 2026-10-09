@@ -1,7 +1,7 @@
 import { announceAccessibilityTransition } from './useAccessibilityAnnouncement';
 
 describe('accessibility announcements', () => {
-  it.each(['ios', 'android'])('announces each %s transition once', (platform) => {
+  it.each(['ios', 'android', 'web'])('announces each %s transition once', (platform) => {
     const announce = jest.fn();
     let previous: string | null = null;
     previous = announceAccessibilityTransition(platform, 'Connecting.', previous, announce);
@@ -14,7 +14,7 @@ describe('accessibility announcements', () => {
 
   it('does not announce on unsupported platforms', () => {
     const announce = jest.fn();
-    announceAccessibilityTransition('web', 'Connected.', null, announce);
+    announceAccessibilityTransition('windows', 'Connected.', null, announce);
     expect(announce).not.toHaveBeenCalled();
   });
 });

@@ -34,6 +34,17 @@ function fixture() {
 }
 
 describe('PairingStore transactions', () => {
+  it('uses platform atomic identity initialization when available', async () => {
+    const secrets = new SecretMemory();
+    const atomic = jest.fn(async (_name: string, _create: () => string) => 'shared-device');
+    const storage = Object.assign(secrets, { getOrCreateItemAsync: atomic });
+    const first = new PairingStore(new PublicMemory(), storage);
+    const second = new PairingStore(new PublicMemory(), storage);
+    expect(await Promise.all([first.getDeviceId(), second.getDeviceId()])).toEqual(['shared-device', 'shared-device']);
+    expect(atomic).toHaveBeenCalledWith('switchify.remote.device-id.v1', expect.any(Function));
+    expect(secrets.values.size).toBe(0);
+  });
+
   it('rolls back a token update when saving the public index fails', async () => {
     const { store, publicStorage } = fixture();
     publicStorage.failSet = 1;
@@ -126,5 +137,40 @@ describe('PairingStore transactions', () => {
     expect(await store.list()).toEqual([]);
     expect(publicStorage.values.get(indexKey)).toBe(JSON.stringify([pc]));
     expect(publicStorage.values.get(`${indexKey}.default`)).toBe('pc-1');
+  });
+
+  it('keeps both PCs when two tabs save at the same time under the shared lock', async () => {
+    const publicStorage = new PublicMemory();
+    const secretStorage = new SecretMemory();
+    const slowGet = publicStorage.getItem;
+    publicStorage.getItem = async (key: string) => { const value = await slowGet(key); await new Promise((resolve) => setTimeout(resolve, 5)); return value; };
+    let held: Promise<void> = Promise.resolve();
+    const sharedLock = async <T,>(_name: string, operation: () => Promise<T>): Promise<T> => {
+      const previous = held;
+      let release!: () => void;
+      held = new Promise<void>((resolve) => { release = resolve; });
+      await previous;
+      try { return await operation(); } finally { release(); }
+    };
+    const firstTab = new PairingStore(publicStorage, secretStorage, sharedLock);
+    const secondTab = new PairingStore(publicStorage, secretStorage, sharedLock);
+    await Promise.all([
+      firstTab.save({ ...pc, desktopId: 'pc-a' }, 'token-a'),
+      secondTab.save({ ...pc, desktopId: 'pc-b' }, 'token-b'),
+    ]);
+    const fresh = new PairingStore(publicStorage, secretStorage, sharedLock);
+    expect((await fresh.list()).map((saved) => saved.desktopId).sort()).toEqual(['pc-a', 'pc-b']);
+  });
+
+  it('runs every pairing change inside the storage lock', async () => {
+    const { publicStorage, secretStorage } = fixture();
+    const names: string[] = [];
+    const lock = async <T,>(name: string, operation: () => Promise<T>): Promise<T> => { names.push(name); return operation(); };
+    const store = new PairingStore(publicStorage, secretStorage, lock);
+    await store.list();
+    await store.save({ ...pc, desktopId: 'pc-2' }, 'token-2');
+    await store.setDefaultDesktopId('pc-2');
+    await store.remove('pc-2');
+    expect(names).toEqual(['pairings', 'pairings', 'pairings', 'pairings']);
   });
 });

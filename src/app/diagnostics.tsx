@@ -1,6 +1,4 @@
 import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
 import { useSyncExternalStore } from 'react';
 import { View } from 'react-native';
 
@@ -11,6 +9,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Screen } from '@/components/Screen';
 import { ResponsiveGrid } from '@/components/ResponsiveGrid';
 import { useConnectionManager } from '@/connection/ConnectionContext';
+import { exportDiagnostics } from '@/diagnostics/exportDiagnostics';
 import { useTheme } from '@/theme/ThemeContext';
 
 export default function DiagnosticsScreen() {
@@ -28,11 +27,4 @@ export default function DiagnosticsScreen() {
       {entries.length === 0 ? <EmptyState icon="history" title="No activity yet" body="Sanitized connection events will appear here." /> : <Card style={{ gap: 0, padding: 0 }}>{entries.map((entry, index) => <View key={entry.id} style={{ borderTopColor: colors.border, borderTopWidth: index === 0 ? 0 : 1, gap: spacing.xs, padding: spacing.lg }}><AppText muted variant="caption">{new Date(entry.timestamp).toLocaleTimeString()}</AppText><AppText>{entry.message}</AppText></View>)}</Card>}
     </Screen>
   );
-}
-
-async function exportDiagnostics(contents: string): Promise<void> {
-  if (!FileSystem.cacheDirectory || !await Sharing.isAvailableAsync()) return;
-  const path = `${FileSystem.cacheDirectory}switchify-remote-diagnostics.txt`;
-  await FileSystem.writeAsStringAsync(path, contents);
-  await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: 'Export Switchify Remote diagnostics' });
 }

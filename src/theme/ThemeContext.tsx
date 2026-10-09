@@ -1,6 +1,7 @@
 import { createContext, type PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, useColorScheme, useWindowDimensions } from 'react-native';
 
+import { subscribeReducedTransparency } from './reducedTransparency';
 import { palettes, radii, spacing, typography } from './tokens';
 
 type ThemeValue = {
@@ -22,12 +23,11 @@ export function ThemeProvider({ children }: PropsWithChildren) {
   const [reducedTransparency, setReducedTransparency] = useState(false);
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReducedMotion);
-    void AccessibilityInfo.isReduceTransparencyEnabled().then(setReducedTransparency);
     const motionSubscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
-    const transparencySubscription = AccessibilityInfo.addEventListener('reduceTransparencyChanged', setReducedTransparency);
+    const transparencySubscription = subscribeReducedTransparency(setReducedTransparency);
     return () => {
       motionSubscription.remove();
-      transparencySubscription.remove();
+      transparencySubscription();
     };
   }, []);
   const value = useMemo(() => ({ colors: palettes[scheme], radii, reducedMotion, reducedTransparency, scheme, spacing, typography }), [reducedMotion, reducedTransparency, scheme]);
