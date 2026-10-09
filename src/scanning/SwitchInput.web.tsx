@@ -5,6 +5,7 @@ import { Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { useKeyCaptureActive } from './keyCapture';
+import { runScanInterrupts } from './scanInterrupts';
 
 export const switchInputSupported = true;
 
@@ -21,7 +22,7 @@ export function SwitchInput({ settings }: { settings: SwitchSettings }) {
   const { colors, radii, spacing, typography } = useTheme();
   const snapshot = useScanSnapshot();
   const capturing = useKeyCaptureActive();
-  const { prompt } = useKeyboardSwitches({ settings, enabled: !capturing });
+  const { prompt } = useKeyboardSwitches({ settings, enabled: !capturing, interceptPress: runScanInterrupts });
   const message = statusMessage(snapshot, prompt ? ACTION_LABELS[prompt.action] : undefined);
   return <View accessibilityLiveRegion="polite" pointerEvents="none" style={{ alignItems: 'center', bottom: spacing.xxxl * 3, left: 0, position: 'absolute', right: 0 }}>
     {message ? <View testID="scan-status" style={{ backgroundColor: colors.text, borderRadius: radii.pill, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}>

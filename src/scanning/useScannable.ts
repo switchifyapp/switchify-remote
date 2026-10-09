@@ -2,6 +2,7 @@ import { useScanGroup, useScanItem, type Measurable } from '@switchify/scanning/
 import { type Ref, useCallback, useContext, useEffect, useId, useState } from 'react';
 import { Platform, type View } from 'react-native';
 
+import { useTheme } from '@/theme/ThemeContext';
 import { ScanningEnabledContext, ScanVisibleContext } from './ScanningContext';
 
 export type ScanHighlightState = { highlighted: boolean; groupHighlighted?: boolean };
@@ -11,21 +12,47 @@ function assign<T>(target: Ref<T> | undefined, value: T | null): void {
   else if (target && typeof target === 'object') (target as { current: T | null }).current = value;
 }
 
+type Span = { top: number; bottom: number };
+
+const REVEAL_MARGIN = 12;
+
+/**
+ * How to bring a highlighted control into view: not at all while it is fully
+ * visible, otherwise centred, or aligned to the top when it is too tall to centre.
+ * Centring leaves the next few stops visible, so the page moves once rather than on
+ * every step.
+ */
+export function revealPlan(item: Span, area: Span, margin = REVEAL_MARGIN): ScrollLogicalPosition | null {
+  if (item.top >= area.top + margin && item.bottom <= area.bottom - margin) return null;
+  return item.bottom - item.top > (area.bottom - area.top) * 0.8 ? 'start' : 'center';
+}
+
+function scrollArea(element: HTMLElement): Span {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const { overflowY } = getComputedStyle(parent);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight) return parent.getBoundingClientRect();
+  }
+  return { top: 0, bottom: window.innerHeight };
+}
+
 /** On the web a React Native view is its DOM element, which can scroll itself into view. */
-function scrollIntoView(view: unknown): void {
-  if (Platform.OS !== 'web') return;
-  const element = view as { scrollIntoView?: (options: ScrollIntoViewOptions) => void } | null;
-  element?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+function reveal(view: unknown, reducedMotion: boolean): void {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  const element = view as HTMLElement | null;
+  if (!element?.getBoundingClientRect || !element.scrollIntoView) return;
+  const block = revealPlan(element.getBoundingClientRect(), scrollArea(element));
+  if (block) element.scrollIntoView({ block, inline: 'nearest', behavior: reducedMotion ? 'auto' : 'smooth' });
 }
 
 function useScanAnchor<V>(highlighted: boolean, measuredRef: (node: V | null) => void, forwarded?: Ref<V> | undefined) {
+  const { reducedMotion } = useTheme();
   const [view, setView] = useState<V | null>(null);
   const attach = useCallback((node: V | null) => {
     setView(node);
     measuredRef(node);
     assign(forwarded, node);
   }, [measuredRef, forwarded]);
-  useEffect(() => { if (highlighted) scrollIntoView(view); }, [highlighted, view]);
+  useEffect(() => { if (highlighted) reveal(view, reducedMotion); }, [highlighted, view, reducedMotion]);
   return attach;
 }
 

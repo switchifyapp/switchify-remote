@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useBridgeSnapshot, useSwitchifyBridge } from '@/bridge/BridgeContext';
 import { EmptyState } from '@/components/EmptyState';
@@ -16,6 +16,7 @@ import { TypingSurface } from '@/remote/TypingSurface';
 import { WindowSurface } from '@/remote/WindowSurface';
 import { profilePresentation } from '@/remote/profilePresentation';
 import { useProfileStatusAnnouncement } from '@/remote/useProfileStatusAnnouncement';
+import { useScanInterrupt } from '@/scanning/scanInterrupts';
 import { usePreferences } from '@/storage/usePreferences';
 import { preferencesStore } from '@/storage/PreferencesStore';
 import { ForwardingRestoreState, ForwardingSurface, shouldClearForwardingRestore } from '@/forwarding/ForwardingSurface';
@@ -35,6 +36,12 @@ export default function RemoteScreen() {
   const session = useMemo(() => new RemoteSession(manager, profile, undefined, desktopId, bridge), [manager, desktopId, profile, bridge]);
   const sessionState = useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
   useProfileStatusAnnouncement(profileStatus);
+  // While movement or a key repeats, any switch press stops it, as on Switchify Android.
+  useScanInterrupt(useCallback(() => {
+    if (!session.snapshot().repeat) return false;
+    void session.stopRepeat();
+    return true;
+  }, [session]));
   usePreferredPcConnection(manager);
   useEffect(() => { if (params.surface === 'mouse' || params.surface === 'forwarding') void preferencesStore.update({ surface: params.surface }); }, [params.surface]);
   useEffect(() => manager.registerCleanup(() => session.cleanup()), [manager, session]);

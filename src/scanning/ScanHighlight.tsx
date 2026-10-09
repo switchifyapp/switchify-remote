@@ -27,7 +27,7 @@ export function ScanItemHighlight({ highlighted, groupHighlighted = false, radiu
 }
 
 /** The highlight around a scanned section, and its way out once entered. */
-export function ScanGroupHighlight({ highlighted, entered, escapeHighlighted, radius }: { highlighted: boolean; entered: boolean; escapeHighlighted: boolean; radius: number }) {
+export function ScanGroupHighlight({ highlighted, entered, escapeHighlighted, radius, leaveLabel = 'Leave section' }: { highlighted: boolean; entered: boolean; escapeHighlighted: boolean; radius: number; leaveLabel?: string }) {
   const { colors, spacing, typography } = useTheme();
   if (!highlighted && !escapeHighlighted && !entered) return null;
   return <View
@@ -48,7 +48,7 @@ export function ScanGroupHighlight({ highlighted, entered, escapeHighlighted, ra
   >
     {escapeHighlighted ? <View style={{ alignItems: 'center', alignSelf: 'flex-end', backgroundColor: colors.text, borderBottomLeftRadius: radius, flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
       <MaterialIcons color={colors.background} name="undo" size={16} />
-      <Text style={[typography.label, { color: colors.background, fontSize: 14 }]}>Leave section</Text>
+      <Text style={[typography.label, { color: colors.background, fontSize: 14 }]}>{leaveLabel}</Text>
     </View> : null}
   </View>;
 }

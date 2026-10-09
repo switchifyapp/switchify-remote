@@ -13,6 +13,8 @@ export type ScanningPreferences = {
   automatic: boolean;
   intervalMs: number;
   pattern: Pattern;
+  /** With the grouped pattern, scan each grid row as a group inside its section. */
+  rows: boolean;
   switches: SwitchSettings;
 };
 
@@ -23,6 +25,7 @@ export const DEFAULT_SCANNING: ScanningPreferences = {
   automatic: true,
   intervalMs: 1_000,
   pattern: 'grouped',
+  rows: false,
   switches: { holdIntervalMs: DEFAULT_SWITCH_SETTINGS.holdIntervalMs, bindings: DEFAULT_SWITCH_SETTINGS.bindings.map((binding) => ({ ...binding, holdActions: [...binding.holdActions] })) },
 };
 
@@ -56,6 +59,7 @@ export function normalizeScanning(raw: unknown): ScanningPreferences {
     automatic: options.automatic,
     intervalMs: options.intervalMs,
     pattern: options.pattern,
+    rows: value.rows === true,
     switches: validateSwitchSettings(switches, options.automatic) === null ? switches : DEFAULT_SCANNING.switches,
   };
 }

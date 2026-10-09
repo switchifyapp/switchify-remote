@@ -77,8 +77,9 @@ export function ScanningSettings() {
       </View>
       {scanning.automatic ? <SelectorField label="Scan speed" options={SCAN_SPEEDS_MS.map((ms) => ({ key: ms, label: `${ms / 1000} seconds` }))} selectedKey={scanning.intervalMs} onSelect={(intervalMs) => save({ ...scanning, intervalMs }).then(() => undefined)} /> : null}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-        <ControlButton label="Sections first" selected={scanning.pattern === 'grouped'} onPress={() => void save({ ...scanning, pattern: 'grouped' })} />
-        <ControlButton label="Every control" selected={scanning.pattern === 'linear'} onPress={() => void save({ ...scanning, pattern: 'linear' })} />
+        <ControlButton label="Sections" selected={scanning.pattern === 'grouped' && !scanning.rows} onPress={() => void save({ ...scanning, pattern: 'grouped', rows: false })} />
+        <ControlButton label="Rows" selected={scanning.pattern === 'grouped' && scanning.rows} onPress={() => void save({ ...scanning, pattern: 'grouped', rows: true })} />
+        <ControlButton label="Every control" selected={scanning.pattern === 'linear'} onPress={() => void save({ ...scanning, pattern: 'linear', rows: false })} />
       </View>
       <AppText variant="label">Switches</AppText>
       {scanning.switches.bindings.map((binding) => <View key={binding.id} style={{ borderColor: colors.border, borderRadius: 12, borderWidth: 1, gap: spacing.sm, padding: spacing.md }}>

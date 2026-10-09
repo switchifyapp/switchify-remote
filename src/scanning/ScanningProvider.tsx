@@ -4,7 +4,7 @@ import type { PropsWithChildren } from 'react';
 import { View } from 'react-native';
 
 import { usePreferences } from '@/storage/usePreferences';
-import { ScanningEnabledContext } from './ScanningContext';
+import { ScanningEnabledContext, ScanRowsContext } from './ScanningContext';
 import { SwitchInput, switchInputSupported } from './SwitchInput';
 
 /**
@@ -17,10 +17,12 @@ export function ScanningProvider({ children }: PropsWithChildren) {
   const enabled = scanning.enabled && switchInputSupported;
   return <ScanProvider policy={Policy.MENU} options={{ automatic: scanning.automatic, intervalMs: scanning.intervalMs, pattern: scanning.pattern, passLimit: 3 }}>
     <ScanningEnabledContext.Provider value={enabled}>
-      <View style={{ flex: 1 }}>
-        {children}
-        {enabled ? <SwitchInput settings={scanning.switches} /> : null}
-      </View>
+      <ScanRowsContext.Provider value={enabled && scanning.pattern === 'grouped' && scanning.rows}>
+        <View style={{ flex: 1 }}>
+          {children}
+          {enabled ? <SwitchInput settings={scanning.switches} /> : null}
+        </View>
+      </ScanRowsContext.Provider>
     </ScanningEnabledContext.Provider>
   </ScanProvider>;
 }

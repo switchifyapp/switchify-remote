@@ -13,6 +13,7 @@ describe('scanning preferences', () => {
       automatic: false,
       intervalMs: 1_500,
       pattern: 'linear',
+      rows: false,
       switches: { holdIntervalMs: 800, bindings: [
         { id: 'a', name: 'Select', key: 'Digit1', pressAction: 'select', holdActions: ['reverse'] },
         { id: 'b', name: 'Next', key: 'Digit2', pressAction: 'next', holdActions: [] },
@@ -40,5 +41,11 @@ describe('scanning preferences', () => {
     expect(keyLabel('Numpad5')).toBe('Keypad 5');
     expect(keyLabel('ArrowUp')).toBe('Up arrow');
     expect(keyLabel('F8')).toBe('F8');
+  });
+
+  it('keep row scanning only when it was chosen', () => {
+    expect(normalizeScanning({ pattern: 'grouped', rows: true }).rows).toBe(true);
+    expect(normalizeScanning({ pattern: 'grouped', rows: 'yes' }).rows).toBe(false);
+    expect(DEFAULT_SCANNING.rows).toBe(false);
   });
 });
