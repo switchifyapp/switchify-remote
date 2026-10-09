@@ -90,3 +90,9 @@ export function installPlatform(): void {
     else document.addEventListener('DOMContentLoaded', () => liveRegion(), { once: true });
   }
 }
+
+/** Tells the root HTML's startup watchdog that the app rendered, so it never shows its recovery message. */
+export function markAppStarted(): void {
+  if (typeof window === 'undefined') return;
+  (window as Window & { __switchifyStarted?: () => void }).__switchifyStarted?.();
+}

@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { AccessibilityInfo, Alert } from 'react-native';
 
-import { installPlatform } from './installPlatform.web';
+import { installPlatform, markAppStarted } from './installPlatform.web';
 
 describe('web platform shims', () => {
   beforeAll(() => installPlatform());
@@ -45,5 +45,14 @@ describe('web platform shims', () => {
     Alert.alert('Unpair Office?', 'This removes saved access.', buttons);
     expect(keep).toHaveBeenCalledTimes(1);
     expect(unpair).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the startup watchdog the app has started', () => {
+    const started = jest.fn();
+    (window as Window & { __switchifyStarted?: () => void }).__switchifyStarted = started;
+    markAppStarted();
+    expect(started).toHaveBeenCalledTimes(1);
+    delete (window as Window & { __switchifyStarted?: () => void }).__switchifyStarted;
+    expect(() => markAppStarted()).not.toThrow();
   });
 });

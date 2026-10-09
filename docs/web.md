@@ -20,6 +20,8 @@ The web app is a progressive web app, so Chrome and Edge offer to install it to 
 - The service worker fetches pages from the network first and falls back to the cache when offline, so a new deployment is never stuck behind an old copy. Content-hashed bundles and assets under `/_expo/static/` and `/assets/` are cached once and reused. Bluetooth still needs the PC nearby; offline only means the app opens.
 - `vercel.json` serves `sw.js` and the manifest with `no-cache`, and the hashed bundles as immutable. To change caching behaviour, change the `CACHE` name in `sw.js` so old caches are cleared on activation.
 
+If the app has not started 10 seconds after the page loads, an inline script in `src/app/+html.tsx` shows "Switchify Remote didn't start" with a Reload button. Reload unregisters the service worker and clears its caches first, so a broken or stale copy cannot leave anyone on the loading screen. The root layout reports that the app started, which removes the message if a slow connection made it appear. It only runs in production exports.
+
 ## Switch scanning
 
 Switch users can operate Remote with keyboard-style switch interfaces, which send key presses such as Space or Enter. Scanning uses [@switchify/scanning](https://github.com/switchifyapp/switchify-scanning), the TypeScript port of Switchify PC's item scanner, so timing, passes, groups and hold actions behave as they do on the PC.
