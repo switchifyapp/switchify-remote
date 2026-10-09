@@ -7,6 +7,7 @@ import { AppText } from '@/components/AppText';
 import { ControlButton } from '@/components/ControlButton';
 import { EmptyState } from '@/components/EmptyState';
 import { focusAccessibilityTarget } from '@/components/accessibilityFocus';
+import { webControlAccessibility } from '@/components/webControlAccessibility';
 import type { ConnectionManager, ConnectionState } from '@/connection/ConnectionManager';
 import type { SavedPc } from '@/storage/PairingStore';
 import { useTheme } from '@/theme/ThemeContext';
@@ -94,6 +95,7 @@ export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { conne
       accessibilityRole="button"
       accessibilityLabel="Switch PC"
       accessibilityValue={{ text: `${presentation.status}, ${presentation.name}` }}
+      {...webControlAccessibility(Platform.OS, { label: 'Switch PC', value: `${presentation.status}, ${presentation.name}`, expanded: visible })}
       accessibilityHint="Opens your saved PCs."
       onPress={open}
       style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed ? colors.surfacePressed : colors.surfaceRaised, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, flexDirection: 'row', gap: spacing.md, minHeight: 56, paddingHorizontal: spacing.md, paddingVertical: spacing.sm })}

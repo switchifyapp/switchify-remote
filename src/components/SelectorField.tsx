@@ -7,6 +7,7 @@ import { AppText } from './AppText';
 import { ControlButton } from './ControlButton';
 import { focusAccessibilityTarget } from './accessibilityFocus';
 import { useTheme } from '@/theme/ThemeContext';
+import { webControlAccessibility } from './webControlAccessibility';
 
 export type SelectorOption<T extends string | number> = { key: T; label: string; disabled?: boolean };
 
@@ -91,7 +92,7 @@ export function SelectorField<T extends string | number>({ label, options, selec
   };
 
   return <>
-    <Pressable ref={fieldRef} accessibilityRole="button" accessibilityLabel={label} accessibilityValue={{ text: selected?.label ?? '' }} accessibilityHint={hint} onPress={() => { setSelectionError(null); setVisible(true); }} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed ? colors.surfacePressed : colors.surfaceRaised, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, flexDirection: 'row', gap: spacing.sm, minHeight: 48, padding: spacing.md })}>
+    <Pressable ref={fieldRef} accessibilityRole="button" accessibilityLabel={label} accessibilityValue={{ text: selected?.label ?? '' }} {...webControlAccessibility(Platform.OS, { label, value: selected?.label ?? '', expanded: visible })} accessibilityHint={hint} onPress={() => { setSelectionError(null); setVisible(true); }} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed ? colors.surfacePressed : colors.surfaceRaised, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, flexDirection: 'row', gap: spacing.sm, minHeight: 48, padding: spacing.md })}>
       <AppText style={{ flex: 1, flexShrink: 1 }} variant="label">{label}: {selected?.label ?? ''}</AppText>
       <MaterialIcons color={colors.textMuted} importantForAccessibility="no" name="unfold-more" size={20} />
     </Pressable>

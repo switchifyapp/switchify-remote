@@ -156,8 +156,9 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   async connect(peripheralId: string): Promise<void> {
-    await this.disconnect();
     const operation = ++this.#operation;
+    await this.#disconnectExceptDiscovery(undefined, operation);
+    if (operation !== this.#operation) throw cancelled();
     let device = this.#devices.get(peripheralId) ?? null;
     if (!device) {
       const remembered = await this.#rememberedDevices();
@@ -169,8 +170,9 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   async resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop> {
-    await this.#disconnectExceptDiscovery(desktopId);
     const operation = ++this.#operation;
+    await this.#disconnectExceptDiscovery(desktopId, operation);
+    if (operation !== this.#operation) throw cancelled();
     this.#recordStage('resolution', 'started', operation);
     try {
       const known = this.#desktopDevices.get(desktopId);
@@ -198,13 +200,13 @@ export class WebBluetoothTransport implements BleTransport {
     await this.#disconnectExceptDiscovery();
   }
 
-  async #disconnectExceptDiscovery(desktopId?: string): Promise<void> {
-    this.#operation += 1;
+  async #disconnectExceptDiscovery(desktopId?: string, operation = ++this.#operation): Promise<void> {
     this.#responsePoller?.stop();
     this.#responsePoller = null;
     this.#notificationsReady = null;
     this.#cancelTimers();
     await this.cancelPendingWrites();
+    if (operation !== this.#operation) return;
     this.#resetQueue();
     this.#writePoisoned = false;
     for (const [probe, attempt] of [...this.#probes]) {

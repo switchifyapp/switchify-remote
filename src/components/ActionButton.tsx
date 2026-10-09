@@ -1,6 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { ComponentProps, Ref } from 'react';
-import { ActivityIndicator, Animated, Pressable, Text, View, type View as NativeView } from 'react-native';
+import { ActivityIndicator, Animated, Platform, Pressable, Text, View, type View as NativeView } from 'react-native';
+import { webControlAccessibility } from './webControlAccessibility';
 import { useTheme } from '@/theme/ThemeContext';
 import { usePressScale } from './usePressScale';
 
@@ -14,7 +15,7 @@ export function ActionButton({ label, onPress, disabled = false, busy = false, s
   const background = resolvedTone === 'primary' ? colors.brand : resolvedTone === 'danger' ? colors.dangerTint : resolvedTone === 'secondary' ? colors.surfaceRaised : 'transparent';
   const foreground = resolvedTone === 'primary' ? colors.onBrand : resolvedTone === 'danger' ? colors.danger : resolvedTone === 'tertiary' ? colors.brandText : colors.text;
   return (
-    <Animated.View style={{ transform: [{ scale: press.scale }], width: '100%' }}><Pressable ref={controlRef} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} onPressIn={press.pressIn} onPressOut={press.pressOut} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed && !disabled ? (resolvedTone === 'primary' ? colors.brandPressed : colors.surfacePressed) : background, borderColor: resolvedTone === 'tertiary' ? 'transparent' : resolvedTone === 'danger' ? colors.danger : colors.border, borderRadius: radii.md, borderWidth: resolvedTone === 'primary' ? 0 : 1, justifyContent: 'center', minHeight: 52, opacity: disabled ? 0.4 : 1, paddingHorizontal: spacing.lg })}>
+    <Animated.View style={{ transform: [{ scale: press.scale }], width: '100%' }}><Pressable ref={controlRef} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} {...webControlAccessibility(Platform.OS, { disabled, busy })} disabled={disabled} onPress={onPress} onPressIn={press.pressIn} onPressOut={press.pressOut} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed && !disabled ? (resolvedTone === 'primary' ? colors.brandPressed : colors.surfacePressed) : background, borderColor: resolvedTone === 'tertiary' ? 'transparent' : resolvedTone === 'danger' ? colors.danger : colors.border, borderRadius: radii.md, borderWidth: resolvedTone === 'primary' ? 0 : 1, justifyContent: 'center', minHeight: 52, opacity: disabled ? 0.4 : 1, paddingHorizontal: spacing.lg })}>
       <View style={{ alignItems: 'center', flexDirection: 'row', gap: spacing.sm }}>
         {busy ? <ActivityIndicator color={foreground} /> : icon ? <MaterialIcons color={foreground} importantForAccessibility="no" name={icon} size={20} /> : null}
         <Text style={[typography.label, { color: foreground, flexShrink: 1, textAlign: 'center' }]}>{label}</Text>

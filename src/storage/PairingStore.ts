@@ -36,6 +36,9 @@ export class PairingStore implements PairingStorage {
   constructor(private readonly publicStorage: PublicStorage = AsyncStorage, private readonly secretStorage: SecretStorage = platformSecretStorage) {}
 
   async getDeviceId(): Promise<string> {
+    if (this.secretStorage.getOrCreateItemAsync) {
+      return this.secretStorage.getOrCreateItemAsync(DEVICE_ID_KEY, () => `remote-${Crypto.randomUUID()}`);
+    }
     const existing = await this.secretStorage.getItemAsync(DEVICE_ID_KEY);
     if (existing) return existing;
     const created = `remote-${Crypto.randomUUID()}`;
