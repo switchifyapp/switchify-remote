@@ -20,6 +20,15 @@ The web app is a progressive web app, so Chrome and Edge offer to install it to 
 - The service worker fetches pages from the network first and falls back to the cache when offline, so a new deployment is never stuck behind an old copy. Content-hashed bundles and assets under `/_expo/static/` and `/assets/` are cached once and reused. Bluetooth still needs the PC nearby; offline only means the app opens.
 - `vercel.json` serves `sw.js` and the manifest with `no-cache`, and the hashed bundles as immutable. To change caching behaviour, change the `CACHE` name in `sw.js` so old caches are cleared on activation.
 
+## Switch scanning
+
+Switch users can operate Remote with keyboard-style switch interfaces, which send key presses such as Space or Enter. Scanning uses [@switchify/scanning](https://github.com/switchifyapp/switchify-scanning), the TypeScript port of Switchify PC's item scanner, so timing, passes, groups and hold actions behave as they do on the PC.
+
+- **Settings:** turn it on in Settings → Switch scanning, which is off by default. Then choose automatic or manual movement, the scan speed, and "Sections first" (grouped) or "Every control" (linear). Assign each switch by choosing Set key and pressing the switch. Each switch has a press action and an optional hold action. Settings that cannot drive scanning are refused, for example ones with no Select, or manual scanning without Next and Previous.
+- **Using it:** Select starts scanning, and Escape stops it. In grouped mode each surface section is one stop. Select enters it, its controls are scanned in turn, and a final "Leave section" stop returns to the page. Open dialogs (selectors, the PC switcher, the layout editor and the action picker) confine scanning to themselves. Controls on hidden tabs are never scanned, and the highlighted control scrolls into view. Automatic movement pauses while a switch is held.
+- **Implementation:** `src/scanning/` holds the provider, the `useScannable` hook used by `ControlButton`, `ActionButton`, `IconButton`, `ListRow`, `SelectorField`, the PC switcher and the tab bar, the highlight rings, and the settings card. Scanning settings live in `switchify.remote.preferences.v1` under `scanning`, and unknown or unusable values fall back on their own.
+- **Limits:** keys still type into a text field while one has focus, so live typing is not yet switch-accessible. Native builds have no global key events, so scanning is web-only for now.
+
 ## Supported browsers
 
 Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and ChromeOS. Safari, Firefox and every iOS browser lack it. In those browsers the PCs screen shows that Bluetooth is unavailable and names the supported browsers.

@@ -11,6 +11,9 @@ import { PrivacyPolicyLink } from '@/components/PrivacyPolicyLink';
 import { RemoteNameEditor, type RemoteNameSaveResult } from '@/components/RemoteNameEditor';
 import { Screen } from '@/components/Screen';
 import { SelectorField } from '@/components/SelectorField';
+import { ScanningSettings } from '@/scanning/ScanningSettings';
+import { ScanSection } from '@/scanning/ScanSection';
+import { switchInputSupported } from '@/scanning/SwitchInput';
 import { useConnectionManager, useConnectionState } from '@/connection/ConnectionContext';
 import type { SavedPc } from '@/storage/PairingStore';
 import { preferencesStore } from '@/storage/PreferencesStore';
@@ -37,6 +40,7 @@ export default function SettingsScreen() {
   return <Screen title="Settings" description="Preferences are stored only on this device.">
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
       <View style={cardWidth}><SettingCard title="Opening surface" description="Shown first when the remote connects."><SelectorField label="Opening surface" options={surfaces.map((surface) => ({ key: surface, label: surface[0]!.toUpperCase() + surface.slice(1) }))} selectedKey={preferences.surface} onSelect={(surface) => preferencesStore.update({ surface })} /></SettingCard></View>
+      {switchInputSupported ? <View style={cardWidth}><SettingCard title="Switch scanning" description="Use switches to move a highlight through the controls and select them."><ScanningSettings /></SettingCard></View> : null}
       <View style={cardWidth}><SettingCard title="Remote name" description="Shown on computers when pairing and in their saved device list."><RemoteNameEditor remoteName={preferences.remoteName} onSave={saveRemoteName} /></SettingCard></View>
       <View style={cardWidth}><SettingCard title="Typing mode" description="Choose whether text sends live or as a draft."><View style={{ flexDirection: 'row', gap: spacing.sm }}><ControlButton label="Live" selected={preferences.typingMode === 'live'} onPress={() => void preferencesStore.update({ typingMode: 'live' })} /><ControlButton label="Draft" selected={preferences.typingMode === 'draft'} onPress={() => void preferencesStore.update({ typingMode: 'draft' })} /></View></SettingCard></View>
       <View style={cardWidth}><SettingCard title="Default PC" description="Select the computer used for automatic connection.">{saved.length === 0 ? <EmptyState icon="computer" title="No saved PCs" body="Pair a PC before choosing a default." /> : <View style={{ gap: spacing.sm }}><ControlButton label="Most recently connected" selected={defaultId === null} onPress={() => void setDefault(null)} />{saved.map((pc) => <ControlButton key={pc.desktopId} label={pc.displayName} selected={defaultId === pc.desktopId} onPress={() => void setDefault(pc.desktopId)} />)}</View>}</SettingCard></View>
@@ -48,6 +52,6 @@ export default function SettingsScreen() {
 }
 
 function SettingCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
-  const { spacing } = useTheme();
-  return <Card><View style={{ gap: spacing.xs }}><AppText accessibilityRole="header" variant="heading">{title}</AppText><AppText muted variant="caption">{description}</AppText></View>{children}</Card>;
+  const { radii, spacing } = useTheme();
+  return <ScanSection radius={radii.lg}><Card><View style={{ gap: spacing.xs }}><AppText accessibilityRole="header" variant="heading">{title}</AppText><AppText muted variant="caption">{description}</AppText></View>{children}</Card></ScanSection>;
 }

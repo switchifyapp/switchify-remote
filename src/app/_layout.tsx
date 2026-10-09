@@ -8,6 +8,7 @@ import { diagnosticsScreenOptions } from '@/navigation/diagnosticsScreenOptions'
 import { FirstRunSetupGate } from '@/onboarding/FirstRunSetup';
 import { StoreCaptureRoot, storeCaptureEnabled } from '@/store-capture/StoreCaptureRoot';
 import { installPlatform } from '@/platform/installPlatform';
+import { ScanningProvider } from '@/scanning/ScanningProvider';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 installPlatform();
@@ -15,7 +16,7 @@ installPlatform();
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider>{storeCaptureEnabled() ? <StoreCaptureRoot /> : <ThemedApp />}</ThemeProvider>
+      <ThemeProvider>{storeCaptureEnabled() ? <StoreCaptureRoot /> : <ScanningProvider><ThemedApp /></ScanningProvider>}</ThemeProvider>
     </SafeAreaProvider>
   );
 }

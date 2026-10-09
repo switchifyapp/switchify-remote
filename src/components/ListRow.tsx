@@ -4,11 +4,14 @@ import { Pressable, View } from 'react-native';
 
 import { AppText } from './AppText';
 import { useTheme } from '@/theme/ThemeContext';
+import { ScanItemHighlight } from '@/scanning/ScanHighlight';
+import { useScannable } from '@/scanning/useScannable';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
 export function ListRow({ title, description, icon, hint, onPress }: { title: string; description?: string; icon?: IconName; hint?: string; onPress?: () => void }) {
   const { colors, radii, spacing } = useTheme();
+  const { attach: scanAttach, onLayout: scanLayout, highlighted: scanHighlighted, groupHighlighted: scanGroupHighlighted } = useScannable({ onActivate: onPress });
   const content = <>
     {icon ? <MaterialIcons color={colors.brandText} importantForAccessibility="no" name={icon} size={22} /> : null}
     <View style={{ flex: 1 }}><AppText variant="label">{title}</AppText>{description ? <AppText muted variant="caption">{description}</AppText> : null}</View>
@@ -16,5 +19,5 @@ export function ListRow({ title, description, icon, hint, onPress }: { title: st
   </>;
   const style = { alignItems: 'center' as const, borderRadius: radii.md, flexDirection: 'row' as const, gap: spacing.md, minHeight: 56, padding: spacing.md };
   if (!onPress) return <View style={style}>{content}</View>;
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={hint} onPress={onPress} style={({ pressed }) => [style, { backgroundColor: pressed ? colors.surfacePressed : 'transparent' }]}>{content}</Pressable>;
+  return <Pressable ref={scanAttach} onLayout={scanLayout} accessibilityRole="button" accessibilityLabel={title} accessibilityHint={hint} onPress={onPress} style={({ pressed }) => [style, { backgroundColor: pressed ? colors.surfacePressed : 'transparent' }]}>{content}<ScanItemHighlight highlighted={scanHighlighted} groupHighlighted={scanGroupHighlighted} radius={radii.md} /></Pressable>;
 }

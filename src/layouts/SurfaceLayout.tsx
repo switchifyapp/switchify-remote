@@ -9,6 +9,7 @@ import { Platform, ScrollView, View } from "react-native";
 import { ControlButton } from "@/components/ControlButton";
 import { AppText } from "@/components/AppText";
 import { ResponsiveGrid } from "@/components/ResponsiveGrid";
+import { ScanSection } from "@/scanning/ScanSection";
 import { focusAccessibilityTarget } from "@/components/accessibilityFocus";
 import { useLayout, useTheme } from "@/theme/ThemeContext";
 import { useLayoutEditMode } from "./LayoutEditMode";
@@ -60,7 +61,7 @@ export function SurfaceLayout({
   useEffect(() => {
     editableRef.current = editing && !blocked;
   }, [blocked, editing]);
-  const { spacing } = useTheme();
+  const { radii, spacing } = useTheme();
   const { fontScale } = useLayout();
   useEffect(() => {
     mounted.current = true;
@@ -89,6 +90,7 @@ export function SurfaceLayout({
     spacing.sm,
   );
   return (
+    <ScanSection radius={radii.md}>
     <View
       testID={`section-${surface}-${section}`}
       onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
@@ -215,5 +217,6 @@ export function SurfaceLayout({
         />
       ) : null}
     </View>
+    </ScanSection>
   );
 }
