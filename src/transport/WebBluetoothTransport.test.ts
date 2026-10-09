@@ -56,7 +56,14 @@ class FakePeripheral extends EventTarget implements WebBluetoothDevice, WebBluet
     this.characteristics = Object.fromEntries(uuids.map((uuid) => [uuid, new FakeCharacteristic(this, uuid)]));
   }
   get gatt(): WebBluetoothServer { return this; }
-  async connect(): Promise<WebBluetoothServer> { this.connects += 1; await this.connectGate; this.connected = true; return this; }
+  failConnect = false;
+  async connect(): Promise<WebBluetoothServer> {
+    this.connects += 1;
+    await this.connectGate;
+    if (this.failConnect) throw Object.assign(new Error('Connection failed.'), { name: 'NetworkError' });
+    this.connected = true;
+    return this;
+  }
   disconnect(): void {
     if (!this.connected) return;
     this.connected = false;
@@ -547,5 +554,21 @@ describe('WebBluetoothTransport', () => {
     transport.scan(jest.fn(), onError);
     await flush();
     expect(onError.mock.calls[0]?.[0]).not.toBeInstanceOf(BluetoothDeviceSelectionCancelledError);
+  });
+
+  it('forgets a cached device that fails so the next attempt finds the PC again', async () => {
+    const bluetooth = new FakeBluetooth();
+    const previous = new FakePeripheral('web-old', status('desk-1'));
+    const replacement = new FakePeripheral('web-new', status('desk-1'));
+    bluetooth.chooser = async () => previous;
+    const transport = new WebBluetoothTransport(() => bluetooth);
+    await transport.resolveAndConnect('desk-1');
+    await transport.disconnect();
+    previous.failConnect = true;
+    bluetooth.chooser = async () => replacement;
+    await expect(transport.resolveAndConnect('desk-1')).rejects.toThrow();
+    expect(bluetooth.requests).toBe(1);
+    await expect(transport.resolveAndConnect('desk-1')).resolves.toMatchObject({ desktopId: 'desk-1', peripheralId: 'web-new' });
+    expect(bluetooth.requests).toBe(2);
   });
 });

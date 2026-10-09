@@ -174,9 +174,10 @@ export class WebBluetoothTransport implements BleTransport {
     await this.#disconnectExceptDiscovery(desktopId, operation);
     if (operation !== this.#operation) throw cancelled();
     this.#recordStage('resolution', 'started', operation);
+    let device: WebBluetoothDevice | null = null;
     try {
       const known = this.#desktopDevices.get(desktopId);
-      let device = known ? this.#devices.get(known) ?? null : null;
+      device = known ? this.#devices.get(known) ?? null : null;
       device ??= await this.#findRememberedDesktop(desktopId, operation);
       if (operation !== this.#operation) throw cancelled();
       if (!device) {
@@ -191,6 +192,9 @@ export class WebBluetoothTransport implements BleTransport {
       return this.#describe(device, status);
     } catch (error) {
       this.#recordStage('resolution', 'failed', operation);
+      // A PC can change its Bluetooth address (Windows rotates it). Forget a device that
+      // failed so the next attempt looks it up again or asks through the picker.
+      if (operation === this.#operation && device && this.#desktopDevices.get(desktopId) === device.id) this.#desktopDevices.delete(desktopId);
       if (operation === this.#operation) await this.disconnect();
       throw error;
     }

@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 
 import { secretStorage as platformSecretStorage, type SecretStorage } from './secretStorage';
+import { withStorageLock } from './storageLock';
 
 import type { PcPlatform } from '@/domain/protocol/types';
 
@@ -33,7 +34,11 @@ type PublicStorage = Pick<typeof AsyncStorage, 'getItem' | 'setItem' | 'removeIt
 export class PairingStore implements PairingStorage {
   #storageQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly publicStorage: PublicStorage = AsyncStorage, private readonly secretStorage: SecretStorage = platformSecretStorage) {}
+  constructor(
+    private readonly publicStorage: PublicStorage = AsyncStorage,
+    private readonly secretStorage: SecretStorage = platformSecretStorage,
+    private readonly exclusive: <T>(name: string, operation: () => Promise<T>) => Promise<T> = withStorageLock,
+  ) {}
 
   async getDeviceId(): Promise<string> {
     if (this.secretStorage.getOrCreateItemAsync) {
@@ -128,7 +133,7 @@ export class PairingStore implements PairingStorage {
     let release!: () => void;
     this.#storageQueue = new Promise<void>((resolve) => { release = resolve; });
     await previous.catch(() => undefined);
-    try { return await operation(); }
+    try { return await this.exclusive('pairings', operation); }
     finally { release(); }
   }
 }
