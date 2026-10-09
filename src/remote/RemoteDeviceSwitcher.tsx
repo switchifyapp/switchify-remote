@@ -8,6 +8,9 @@ import { ControlButton } from '@/components/ControlButton';
 import { EmptyState } from '@/components/EmptyState';
 import { focusAccessibilityTarget } from '@/components/accessibilityFocus';
 import { webControlAccessibility } from '@/components/webControlAccessibility';
+import { ScanItemHighlight } from '@/scanning/ScanHighlight';
+import { ScanSection } from '@/scanning/ScanSection';
+import { useScannable } from '@/scanning/useScannable';
 import type { ConnectionManager, ConnectionState } from '@/connection/ConnectionManager';
 import type { SavedPc } from '@/storage/PairingStore';
 import { useTheme } from '@/theme/ThemeContext';
@@ -89,9 +92,11 @@ export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { conne
     managePcs();
   };
 
+  const { attach: scanAttach, onLayout: scanLayout, highlighted: scanHighlighted, groupHighlighted: scanGroupHighlighted } = useScannable({ onActivate: open, controlRef: buttonRef });
   return <>
     <Pressable
-      ref={buttonRef}
+      ref={scanAttach}
+      onLayout={scanLayout}
       accessibilityRole="button"
       accessibilityLabel="Switch PC"
       accessibilityValue={{ text: `${presentation.status}, ${presentation.name}` }}
@@ -106,6 +111,7 @@ export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { conne
         <AppText muted variant="caption">{presentation.status}</AppText>
       </View>
       <MaterialIcons color={colors.textMuted} importantForAccessibility="no" name="keyboard-arrow-up" size={24} />
+      <ScanItemHighlight highlighted={scanHighlighted} groupHighlighted={scanGroupHighlighted} radius={radii.lg} />
     </Pressable>
     <Modal testID="pc-switcher-modal" animationType={reducedMotion || Platform.OS === 'android' ? 'none' : 'fade'} onDismiss={restoreButtonFocus} onRequestClose={dismiss} onShow={() => {
       modalShown.current = true;
@@ -118,12 +124,14 @@ export function RemoteDeviceSwitcher({ connection, manager, managePcs }: { conne
       <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', padding: spacing.xl }}>
         <Pressable testID="pc-switcher-scrim" accessible={false} importantForAccessibility="no" onPress={dismiss} style={{ backgroundColor: 'rgba(0, 0, 0, 0.58)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }} />
         <View testID="pc-switcher-dialog" accessibilityViewIsModal onAccessibilityEscape={dismiss} style={{ backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, gap: spacing.md, maxHeight: '80%', maxWidth: 480, padding: spacing.xl, width: '100%' }}>
+          <ScanSection exclusive style={{ flexShrink: 1, gap: spacing.md }}>
           <AppText accessibilityRole="header" variant="heading">Switch PC</AppText>
           {saved === null ? <ActionButton controlRef={loadingOptionRef} label="Loading saved PCs…" busy disabled onPress={() => undefined} /> : saved.length > 0 ? <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
             {saved.map((pc, index) => <ControlButton key={pc.desktopId} {...(pc.desktopId === currentDesktopId ? { controlRef: selectedOptionRef } : index === 0 ? { controlRef: firstOptionRef } : {})} label={pc.displayName} selected={pc.desktopId === currentDesktopId} onPress={() => selectPc(pc)} />)}
           </ScrollView> : <EmptyState icon="computer" title="No saved PCs" body="Pair a PC before using quick switching." />}
           <ActionButton controlRef={manageOptionRef} icon="settings-remote" label="Manage PCs" tone="secondary" onPress={openManagePcs} />
           <ActionButton icon="close" label="Close" tone="tertiary" onPress={dismiss} />
+          </ScanSection>
         </View>
       </View>
     </Modal>

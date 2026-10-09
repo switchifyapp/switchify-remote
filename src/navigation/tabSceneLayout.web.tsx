@@ -1,6 +1,7 @@
 import { type ReactElement, useCallback, useSyncExternalStore } from 'react';
 import { View } from 'react-native';
 
+import { ScanVisibleContext } from '@/scanning/ScanningContext';
 import type { TabSceneNavigation } from './tabSceneLayout';
 
 export type { TabSceneNavigation } from './tabSceneLayout';
@@ -18,7 +19,7 @@ export function WebTabScene({ children, navigation }: { children: ReactElement; 
   }, [navigation]);
   const isFocused = useCallback(() => navigation.isFocused(), [navigation]);
   const focused = useSyncExternalStore(subscribe, isFocused, isFocused);
-  return <View testID="web-tab-scene" style={{ display: focused ? 'flex' : 'none', flex: 1 }}>{children}</View>;
+  return <ScanVisibleContext.Provider value={focused}><View testID="web-tab-scene" style={{ display: focused ? 'flex' : 'none', flex: 1 }}>{children}</View></ScanVisibleContext.Provider>;
 }
 
 export const tabSceneLayout = ({ children, navigation }: { children: ReactElement; navigation: TabSceneNavigation }): ReactElement =>

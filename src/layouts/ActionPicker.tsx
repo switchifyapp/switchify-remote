@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { ScanSection } from "@/scanning/ScanSection";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -31,7 +32,9 @@ export function ActionPicker(props: ActionPickerProps) {
     <SafeAreaProvider
       style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
     >
+      <ScanSection exclusive radius={0} style={{ flex: 1 }}>
       <ActionPickerContent {...props} />
+      </ScanSection>
     </SafeAreaProvider>
   );
 }

@@ -1,4 +1,5 @@
 import { ResponsiveGrid } from "@/components/ResponsiveGrid";
+import { ScanSection } from "@/scanning/ScanSection";
 import { sectionGridMetrics } from "./gridMetrics";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -448,6 +449,7 @@ export function LayoutEditor({
     >
       <SafeAreaProvider style={{ flex: 1 }}>
         <GestureHandlerRootView style={{ flex: 1 }}>
+          <ScanSection exclusive radius={0} style={{ flex: 1 }}>
           <SafeAreaView
             accessibilityViewIsModal={pickerCell === null}
             accessibilityElementsHidden={pickerCell !== null}
@@ -874,6 +876,7 @@ export function LayoutEditor({
               onClose={closePicker}
             />
           ) : null}
+          </ScanSection>
         </GestureHandlerRootView>
       </SafeAreaProvider>
     </Modal>

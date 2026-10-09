@@ -10,6 +10,8 @@ import {
 } from "react-native";
 import { useTheme } from "@/theme/ThemeContext";
 import { usePressScale } from "./usePressScale";
+import { ScanItemHighlight } from '@/scanning/ScanHighlight';
+import { useScannable } from '@/scanning/useScannable';
 import { webControlAccessibility } from './webControlAccessibility';
 
 type IconName = ComponentProps<typeof MaterialIcons>["name"];
@@ -47,6 +49,7 @@ export function ControlButton({
 }) {
   const { colors, radii, spacing, typography } = useTheme();
   const press = usePressScale(selected);
+  const { attach: scanAttach, onLayout: scanLayout, highlighted: scanHighlighted, groupHighlighted: scanGroupHighlighted } = useScannable({ onActivate: onPress, disabled, controlRef });
   return (
     <Animated.View
       style={{
@@ -58,7 +61,8 @@ export function ControlButton({
       }}
     >
       <Pressable
-        ref={controlRef}
+        ref={scanAttach}
+        onLayout={scanLayout}
         accessibilityRole={role}
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={hint}
@@ -146,6 +150,7 @@ export function ControlButton({
             size={18}
           />
         ) : null}
+        <ScanItemHighlight highlighted={scanHighlighted} groupHighlighted={scanGroupHighlighted} radius={radii.md} />
       </Pressable>
     </Animated.View>
   );

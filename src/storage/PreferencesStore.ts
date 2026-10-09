@@ -1,13 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { validateRemoteName } from '@/device/remoteName';
+import { DEFAULT_SCANNING, normalizeScanning, type ScanningPreferences } from '@/scanning/preferences';
 
 export type RemoteSurface = 'mouse' | 'typing' | 'window' | 'forwarding';
 export type TypingMode = 'live' | 'draft';
-export type Preferences = { surface: RemoteSurface; typingMode: TypingMode; draft: string; forwardingHoldToStopMs: number; forwardingProfiles: Record<string, string>; remoteName: string | null };
+export type Preferences = { surface: RemoteSurface; typingMode: TypingMode; draft: string; forwardingHoldToStopMs: number; forwardingProfiles: Record<string, string>; remoteName: string | null; scanning: ScanningPreferences };
 
 const KEY = 'switchify.remote.preferences.v1';
-const defaults: Preferences = { surface: 'mouse', typingMode: 'live', draft: '', forwardingHoldToStopMs: 5_000, forwardingProfiles: {}, remoteName: null };
+const defaults: Preferences = { surface: 'mouse', typingMode: 'live', draft: '', forwardingHoldToStopMs: 5_000, forwardingProfiles: {}, remoteName: null, scanning: DEFAULT_SCANNING };
 
 export class PreferencesStore {
   #value = defaults;
@@ -33,6 +34,7 @@ export class PreferencesStore {
               ? Object.fromEntries(Object.entries(raw.forwardingProfiles).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
               : {},
             remoteName: remoteName?.valid ? remoteName.value : null,
+            scanning: normalizeScanning(raw.scanning),
           };
         } catch { this.#value = defaults; }
         this.#loaded = true;

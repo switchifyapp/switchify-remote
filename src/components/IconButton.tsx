@@ -3,6 +3,8 @@ import type { ComponentProps } from "react";
 import { Animated, Platform, Pressable } from "react-native";
 import { useTheme } from "@/theme/ThemeContext";
 import { usePressScale } from "./usePressScale";
+import { ScanItemHighlight } from '@/scanning/ScanHighlight';
+import { useScannable } from '@/scanning/useScannable';
 import { webControlAccessibility } from './webControlAccessibility';
 
 export function IconButton({
@@ -22,6 +24,7 @@ export function IconButton({
 }) {
   const { colors, radii } = useTheme();
   const press = usePressScale(selected);
+  const { attach: scanAttach, onLayout: scanLayout, highlighted: scanHighlighted, groupHighlighted: scanGroupHighlighted } = useScannable({ onActivate: onPress, disabled });
   return (
     <Animated.View
       style={{
@@ -32,6 +35,8 @@ export function IconButton({
       }}
     >
       <Pressable
+        ref={scanAttach}
+        onLayout={scanLayout}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={hint}
@@ -64,6 +69,7 @@ export function IconButton({
           size={24}
           color={selected ? colors.onBrand : colors.text}
         />
+        <ScanItemHighlight highlighted={scanHighlighted} groupHighlighted={scanGroupHighlighted} radius={radii.md} />
       </Pressable>
     </Animated.View>
   );

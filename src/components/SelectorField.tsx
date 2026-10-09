@@ -8,6 +8,9 @@ import { ControlButton } from './ControlButton';
 import { focusAccessibilityTarget } from './accessibilityFocus';
 import { useTheme } from '@/theme/ThemeContext';
 import { webControlAccessibility } from './webControlAccessibility';
+import { ScanItemHighlight } from '@/scanning/ScanHighlight';
+import { ScanSection } from '@/scanning/ScanSection';
+import { useScannable } from '@/scanning/useScannable';
 
 export type SelectorOption<T extends string | number> = { key: T; label: string; disabled?: boolean };
 
@@ -91,21 +94,26 @@ export function SelectorField<T extends string | number>({ label, options, selec
     }
   };
 
+  const openSelector = () => { setSelectionError(null); setVisible(true); };
+  const { attach: scanAttach, onLayout: scanLayout, highlighted: scanHighlighted, groupHighlighted: scanGroupHighlighted } = useScannable({ onActivate: openSelector, controlRef: fieldRef });
   return <>
-    <Pressable ref={fieldRef} accessibilityRole="button" accessibilityLabel={label} accessibilityValue={{ text: selected?.label ?? '' }} {...webControlAccessibility(Platform.OS, { label, value: selected?.label ?? '', expanded: visible })} accessibilityHint={hint} onPress={() => { setSelectionError(null); setVisible(true); }} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed ? colors.surfacePressed : colors.surfaceRaised, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, flexDirection: 'row', gap: spacing.sm, minHeight: 48, padding: spacing.md })}>
+    <Pressable ref={scanAttach} onLayout={scanLayout} accessibilityRole="button" accessibilityLabel={label} accessibilityValue={{ text: selected?.label ?? '' }} {...webControlAccessibility(Platform.OS, { label, value: selected?.label ?? '', expanded: visible })} accessibilityHint={hint} onPress={openSelector} style={({ pressed }) => ({ alignItems: 'center', backgroundColor: pressed ? colors.surfacePressed : colors.surfaceRaised, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, flexDirection: 'row', gap: spacing.sm, minHeight: 48, padding: spacing.md })}>
       <AppText style={{ flex: 1, flexShrink: 1 }} variant="label">{label}: {selected?.label ?? ''}</AppText>
       <MaterialIcons color={colors.textMuted} importantForAccessibility="no" name="unfold-more" size={20} />
+      <ScanItemHighlight highlighted={scanHighlighted} groupHighlighted={scanGroupHighlighted} radius={radii.lg} />
     </Pressable>
     <Modal testID="selector-modal" animationType={reducedMotion || Platform.OS === 'android' ? 'none' : 'fade'} onDismiss={restoreFieldFocus} onRequestClose={dismiss} onShow={() => scheduleFocus(selectedOptionRef)} supportedOrientations={['portrait', 'landscape']} transparent visible={visible}>
       <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', padding: spacing.xl }}>
         <Pressable testID="selector-scrim" accessible={false} importantForAccessibility="no" onPress={dismiss} style={{ backgroundColor: 'rgba(0, 0, 0, 0.58)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }} />
         <View testID="selector-dialog" accessibilityViewIsModal onAccessibilityEscape={dismiss} style={{ backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, borderWidth: 1, gap: spacing.md, maxHeight: '80%', maxWidth: 480, padding: spacing.xl, width: '100%' }}>
+          <ScanSection exclusive style={{ flexShrink: 1, gap: spacing.md }}>
           <AppText accessibilityRole="header" variant="heading">{modalTitle}</AppText>
           <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
             {options.map((option) => <ControlButton key={String(option.key)} {...(option.key === displayedKey ? { controlRef: selectedOptionRef } : {})} label={option.label} selected={option.key === displayedKey} disabled={selecting || (option.disabled ?? false)} onPress={() => void choose(option)} />)}
           </ScrollView>
           {selectionError ? <AppText accessible={false} importantForAccessibility="no" style={{ color: colors.danger }} variant="caption">{selectionError}</AppText> : null}
           <ActionButton icon="close" label="Close" tone="secondary" onPress={dismiss} />
+          </ScanSection>
         </View>
       </View>
     </Modal>
