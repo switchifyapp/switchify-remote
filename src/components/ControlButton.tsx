@@ -2,6 +2,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import type { ComponentProps, Ref } from "react";
 import {
   Animated,
+  Platform,
   Pressable,
   Text,
   type AccessibilityRole,
@@ -9,6 +10,7 @@ import {
 } from "react-native";
 import { useTheme } from "@/theme/ThemeContext";
 import { usePressScale } from "./usePressScale";
+import { webControlAccessibility } from './webControlAccessibility';
 
 type IconName = ComponentProps<typeof MaterialIcons>["name"];
 
@@ -17,7 +19,7 @@ export function ControlButton({
   accessibilityLabel = label,
   hint,
   onPress,
-  selected = false,
+  selected,
   disabled = false,
   danger = false,
   role = "button",
@@ -60,7 +62,8 @@ export function ControlButton({
         accessibilityRole={role}
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={hint}
-        accessibilityState={{ selected, disabled }}
+        accessibilityState={{ selected: selected ?? false, disabled }}
+        {...webControlAccessibility(Platform.OS, { selected, disabled, role })}
         disabled={disabled}
         onPress={onPress}
         onPressIn={press.pressIn}

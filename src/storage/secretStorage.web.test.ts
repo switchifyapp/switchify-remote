@@ -70,9 +70,73 @@ beforeEach(() => {
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: indexedDb });
   Object.defineProperty(window, 'crypto', { configurable: true, value: webcrypto });
   Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true });
+  let queue: Promise<unknown> = Promise.resolve();
+  Object.defineProperty(window.navigator, 'locks', { configurable: true, value: {
+    request: (_name: string, _options: unknown, callback: () => Promise<string>) => {
+      const next = queue.catch(() => undefined).then(callback);
+      queue = next;
+      return next;
+    },
+  } });
 });
 
 describe('web secret storage', () => {
+  it('creates one persistent identity across independent browser instances', async () => {
+    const first = load().secretStorage;
+    const second = load().secretStorage;
+    const createFirst = jest.fn(() => 'remote-one');
+    const createSecond = jest.fn(() => 'remote-two');
+    const identities = await Promise.all([
+      first.getOrCreateItemAsync!('device-id', createFirst),
+      second.getOrCreateItemAsync!('device-id', createSecond),
+    ]);
+    expect(identities[0]).toBe(identities[1]);
+    expect(createFirst.mock.calls.length + createSecond.mock.calls.length).toBe(1);
+    expect(await load().secretStorage.getItemAsync('device-id')).toBe(identities[0]);
+    expect(Object.values({ ...window.localStorage }).join(' ')).not.toContain(identities[0]);
+  });
+
+  it('preserves an existing identity without requiring a lock', async () => {
+    const storage = load().secretStorage;
+    await storage.setItemAsync('device-id', 'existing');
+    Object.defineProperty(window.navigator, 'locks', { configurable: true, value: undefined });
+    const create = jest.fn(() => 'replacement');
+    expect(await storage.getOrCreateItemAsync!('device-id', create)).toBe('existing');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('fails safely without cross-tab locks rather than racing a new identity', async () => {
+    Object.defineProperty(window.navigator, 'locks', { configurable: true, value: undefined });
+    const storage = load().secretStorage;
+    const create = jest.fn(() => 'unsafe');
+    await expect(storage.getOrCreateItemAsync!('device-id', create)).rejects.toThrow('unavailable');
+    expect(create).not.toHaveBeenCalled();
+    expect(await storage.getItemAsync('device-id')).toBeNull();
+  });
+
+  it('bounds waiting for a lock held by another tab', async () => {
+    jest.useFakeTimers();
+    try {
+      Object.defineProperty(window.navigator, 'locks', { configurable: true, value: {
+        request: (_name: string, options: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('lock aborted')));
+        }),
+      } });
+      const create = jest.fn(() => 'late');
+      const pending = load().secretStorage.getOrCreateItemAsync!('device-id', create);
+      const rejected = expect(pending).rejects.toThrow('unavailable');
+      await jest.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(create).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('does not return an identity when persistence fails', async () => {
+    indexedDb.abortCommit = true;
+    await expect(load().secretStorage.getOrCreateItemAsync!('device-id', () => 'unsaved')).rejects.toThrow('unavailable');
+    expect(window.localStorage.length).toBe(0);
+  });
+
   it('round-trips a secret without storing it in plain text', async () => {
     const { secretStorage } = load();
     await secretStorage.setItemAsync('switchify.remote.token.pc-1', 'secret-token');

@@ -85,8 +85,9 @@ export class ConnectionManager {
 
   async connect(desktop: DiscoveredDesktop): Promise<void> {
     const operation = ++this.#operation;
+    const retained = !this.#client && this.transport.retainDiscoveredConnection?.(desktop.desktopId) === true;
     this.#scanStop?.(); this.#scanStop = null;
-    await this.#teardownConnection();
+    await this.#teardownConnection(retained);
     if (!this.#current(operation)) return;
     this.#set({ kind: 'connecting', desktop });
     this.diagnostics.add('connecting');
@@ -496,14 +497,14 @@ export class ConnectionManager {
     this.#set({ kind: 'failed', message, saved });
   }
 
-  async #teardownConnection(): Promise<void> {
+  async #teardownConnection(preserveDiscovery = false): Promise<void> {
     this.#cancelProfileRecovery();
     this.#cancelHealthTimer();
     this.#disconnectStop?.(); this.#disconnectStop = null;
     const client = this.#client;
     this.#client = null; this.#token = null;
     if (client) await client.close();
-    await this.transport.disconnect().catch(() => undefined);
+    if (!preserveDiscovery) await this.transport.disconnect().catch(() => undefined);
   }
 
   #scheduleHealth(delay = 5_000): void {

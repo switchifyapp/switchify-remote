@@ -1,6 +1,8 @@
 import type * as SecureStore from 'expo-secure-store';
 
-export type SecretStorage = Pick<typeof SecureStore, 'getItemAsync' | 'setItemAsync' | 'deleteItemAsync'>;
+export type SecretStorage = Pick<typeof SecureStore, 'getItemAsync' | 'setItemAsync' | 'deleteItemAsync'> & {
+  getOrCreateItemAsync?: (name: string, create: () => string) => Promise<string>;
+};
 
 const DATABASE = 'switchify-remote-secrets';
 const STORE = 'keys';
@@ -133,4 +135,28 @@ async function deleteItemAsync(name: string): Promise<void> {
   window.localStorage.removeItem(`${VALUE_PREFIX}${name}`);
 }
 
-export const secretStorage = { getItemAsync, setItemAsync, deleteItemAsync } as SecretStorage;
+async function getOrCreateItemAsync(name: string, create: () => string): Promise<string> {
+  const existing = await getItemAsync(name);
+  if (existing) return existing;
+  // The identity read, generation and encrypted write must share a cross-tab lock.
+  // A per-tab promise only protects one instance and can invalidate another pairing.
+  if (!window.navigator.locks) throw unavailable();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    return await window.navigator.locks.request(`switchify.remote.initialize.${name}`, { mode: 'exclusive', signal: controller.signal }, async () => {
+      clearTimeout(timer);
+      const raced = await getItemAsync(name);
+      if (raced) return raced;
+      const created = create();
+      await setItemAsync(name, created);
+      return created;
+    });
+  } catch {
+    throw unavailable();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export const secretStorage: SecretStorage = { getItemAsync, setItemAsync, deleteItemAsync, getOrCreateItemAsync };

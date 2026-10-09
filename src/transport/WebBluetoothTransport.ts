@@ -96,6 +96,7 @@ export class WebBluetoothTransport implements BleTransport {
   #owners = new Map<string, number>();
   #attempts = 0;
   #probes = new Map<WebBluetoothDevice, number>();
+  #discoveredProbe: { device: WebBluetoothDevice; server: WebBluetoothServer; service: WebBluetoothService; desktopId: string; attempt: number; retained: boolean } | null = null;
   #queue: Pending[] = [];
   #running: Pending | null = null;
   #queueGeneration = 0;
@@ -143,13 +144,21 @@ export class WebBluetoothTransport implements BleTransport {
       active = false;
       if (operation === this.#operation) this.#operation += 1;
       const attempt = probe ? this.#probes.get(probe) : undefined;
-      if (probe && attempt !== undefined) this.#releaseProbe(probe, attempt);
+      if (probe && attempt !== undefined && !(this.#discoveredProbe?.device === probe && this.#discoveredProbe.retained)) this.#releaseProbe(probe, attempt);
     };
   }
 
+  retainDiscoveredConnection(desktopId: string): boolean {
+    const probe = this.#discoveredProbe;
+    if (!probe || probe.desktopId !== desktopId || !probe.server.connected || this.#session || this.#owners.get(probe.device.id) !== probe.attempt) return false;
+    probe.retained = true;
+    return true;
+  }
+
   async connect(peripheralId: string): Promise<void> {
-    await this.disconnect();
     const operation = ++this.#operation;
+    await this.#disconnectExceptDiscovery(undefined, operation);
+    if (operation !== this.#operation) throw cancelled();
     let device = this.#devices.get(peripheralId) ?? null;
     if (!device) {
       const remembered = await this.#rememberedDevices();
@@ -161,8 +170,9 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   async resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop> {
-    await this.disconnect();
     const operation = ++this.#operation;
+    await this.#disconnectExceptDiscovery(desktopId, operation);
+    if (operation !== this.#operation) throw cancelled();
     this.#recordStage('resolution', 'started', operation);
     try {
       const known = this.#desktopDevices.get(desktopId);
@@ -187,15 +197,23 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   async disconnect(): Promise<void> {
-    this.#operation += 1;
+    await this.#disconnectExceptDiscovery();
+  }
+
+  async #disconnectExceptDiscovery(desktopId?: string, operation = ++this.#operation): Promise<void> {
     this.#responsePoller?.stop();
     this.#responsePoller = null;
     this.#notificationsReady = null;
     this.#cancelTimers();
     await this.cancelPendingWrites();
+    if (operation !== this.#operation) return;
     this.#resetQueue();
     this.#writePoisoned = false;
-    for (const [probe, attempt] of [...this.#probes]) this.#releaseProbe(probe, attempt);
+    for (const [probe, attempt] of [...this.#probes]) {
+      const ready = this.#discoveredProbe;
+      if (desktopId !== undefined && ready?.retained && ready.desktopId === desktopId && ready.device === probe && ready.server.connected) continue;
+      this.#releaseProbe(probe, attempt);
+    }
     const session = this.#session;
     this.#session = null;
     if (session) {
@@ -307,17 +325,17 @@ export class WebBluetoothTransport implements BleTransport {
 
   async #open(device: WebBluetoothDevice, operation: number): Promise<PcStatus> {
     this.#devices.set(device.id, device);
+    const probe = this.#discoveredProbe;
+    const reusable = probe?.device === device && probe.server.connected && this.#owners.get(device.id) === probe.attempt ? probe : null;
+    if (probe?.device === device) this.#discoveredProbe = null;
     this.#probes.delete(device);
     const attempt = ++this.#attempts;
     this.#owners.set(device.id, attempt);
     try {
-      const server = await this.#connectGatt(device, operation, attempt, 'connect');
-      const characteristics = await this.#stage('services', () => this.#bounded(this.#characteristics(server), 'Bluetooth operation timed out.'), operation);
+      const server = reusable?.server ?? await this.#connectGatt(device, operation, attempt, 'connect');
+      if (reusable) this.#recordStage('discovery_handoff', 'succeeded', operation);
+      const { characteristics, status } = await this.#stage('services', () => this.#characteristics(server, operation, reusable?.service), operation);
       if (operation !== this.#operation) throw cancelled();
-      const view = await this.#stage('status_read', () => this.#bounded(this.#gatt(() => characteristics.status.readValue()), 'Bluetooth operation timed out.'), operation);
-      if (operation !== this.#operation) throw cancelled();
-      const status = decodeStatus(view);
-      if (!status) throw new Error('Bluetooth discovery status is invalid.');
       const readReplies = status.responseTransport === 'read-v1';
       if (readReplies && !characteristics.response) throw new Error('Bluetooth discovery status is invalid.');
       this.#desktopDevices.set(status.desktopId, device.id);
@@ -366,15 +384,30 @@ export class WebBluetoothTransport implements BleTransport {
     }
   }
 
-  async #characteristics(server: WebBluetoothServer): Promise<Characteristics> {
-    const service = await server.getPrimaryService(BLE_UUIDS.service);
-    const [receive, transmit, status, response] = await Promise.all([
-      service.getCharacteristic(BLE_UUIDS.receive),
-      service.getCharacteristic(BLE_UUIDS.transmit),
-      service.getCharacteristic(BLE_UUIDS.status),
-      service.getCharacteristic(BLE_UUIDS.response).catch(() => null),
-    ]);
-    return { receive, transmit, status, response };
+  async #characteristics(server: WebBluetoothServer, operation: number, discoveredService?: WebBluetoothService): Promise<{ characteristics: Characteristics; status: PcStatus }> {
+    const deadline = this.now() + this.timeoutMs;
+    const step = async <T>(stage: ConnectionStage, action: () => Promise<T>): Promise<T> => {
+      if (operation !== this.#operation) throw cancelled();
+      const remaining = deadline - this.now();
+      if (remaining <= 0) throw new Error('Bluetooth operation timed out.');
+      const result = await this.#stage(stage, () => this.#bounded(action(), 'Bluetooth operation timed out.', remaining), operation);
+      if (operation !== this.#operation) throw cancelled();
+      return result;
+    };
+    // Discovery is sequential too. Do not ask notification-based PCs for the
+    // read-v1 characteristic that they do not expose.
+    const service = discoveredService ?? await step('primary_service', () => server.getPrimaryService(BLE_UUIDS.service));
+    const statusCharacteristic = await step('status_characteristic', () => service.getCharacteristic(BLE_UUIDS.status));
+    const view = await step('status_read', () => statusCharacteristic.readValue());
+    const status = decodeStatus(view);
+    this.#recordStage('status_parse', status ? 'succeeded' : 'failed', operation);
+    if (!status) throw new Error('Bluetooth discovery status is invalid.');
+    const receive = await step('receive_characteristic', () => service.getCharacteristic(BLE_UUIDS.receive));
+    const transmit = await step('transmit_characteristic', () => service.getCharacteristic(BLE_UUIDS.transmit));
+    const response = status.responseTransport === 'read-v1'
+      ? await step('response_characteristic', () => service.getCharacteristic(BLE_UUIDS.response))
+      : null;
+    return { characteristics: { receive, transmit, status: statusCharacteristic, response }, status };
   }
 
   /** Reads a device's status over a short-lived probe connection with its own connect attempt. */
@@ -401,6 +434,8 @@ export class WebBluetoothTransport implements BleTransport {
         this.#releaseProbe(device, attempt);
         return null;
       }
+      if (operation !== this.#operation) throw cancelled();
+      this.#discoveredProbe = { device, server, service, desktopId: status.desktopId, attempt, retained: false };
       this.#devices.set(device.id, device);
       this.#desktopDevices.set(status.desktopId, device.id);
       return this.#describe(device, status);
@@ -453,6 +488,7 @@ export class WebBluetoothTransport implements BleTransport {
   }
 
   #releaseProbe(device: WebBluetoothDevice, attempt: number): void {
+    if (this.#discoveredProbe?.device === device && this.#discoveredProbe.attempt === attempt) this.#discoveredProbe = null;
     if (this.#probes.get(device) === attempt) this.#probes.delete(device);
     this.#closeIfOwner(device, attempt);
   }

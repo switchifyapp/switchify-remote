@@ -34,6 +34,15 @@ Web Bluetooth is available in Chrome and Edge on Android, Windows, macOS and Chr
 
 The protocol, framing limits, authentication and pairing approval are unchanged. See [protocol compatibility](protocol-compatibility.md).
 
+First-time browser device identity creation uses an exclusive Web Lock, so tabs
+share one persisted identity. Waiting for a lock is bounded to five seconds. If
+locks are unavailable or persistence fails, initialization fails safely rather
+than using an unsaved identity. Existing encrypted identities remain readable.
+This keeps the existing keys, ciphertext format and native storage path unchanged.
+
+Connection cancellation includes initial cleanup: a stopped or replaced attempt
+must not reopen the picker or begin another connection after cleanup completes.
+
 ## Typing and probe recovery
 
 Keyboard Enter in live typing sends one Enter, clears only after acknowledgement,
@@ -47,6 +56,22 @@ session's GATT queue. A stalled probe must time out and disconnect before fallba
 selection, and a late probe completion must not affect the chosen PC.
 
 ## Hardware validation still needed
+
+Connection discovery now reads status before looking up command and notification
+characteristics, one operation at a time. Only PCs advertising `read-v1` are asked
+for the read-response characteristic. Discovery shares one ten-second budget and
+checks cancellation between operations. Diagnostics identify each lookup using
+fixed labels, never browser error text or Bluetooth identifiers.
+
+Issue #182 follows a real Chrome failure after status discovery and before pairing.
+The current-code hardware retry narrowed the failure to primary-service discovery
+after reconnecting. Sequential characteristic discovery alone did not fix it.
+The web transport now explicitly retains the selected completed discovery probe
+across scan stop and connection preparation. It reuses that live service and
+rereads status before pairing; a changed desktop identity still fails. Normal
+scan stop, explicit disconnect, cancellation and failed setup close the probe.
+Native transports keep their existing preparation path. A successful real pairing
+with this handoff remains required before release.
 
 Automated tests use fake Web Bluetooth devices. Before release, check on real hardware:
 
