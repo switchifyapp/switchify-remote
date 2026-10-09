@@ -34,6 +34,17 @@ function fixture() {
 }
 
 describe('PairingStore transactions', () => {
+  it('uses platform atomic identity initialization when available', async () => {
+    const secrets = new SecretMemory();
+    const atomic = jest.fn(async (_name: string, _create: () => string) => 'shared-device');
+    const storage = Object.assign(secrets, { getOrCreateItemAsync: atomic });
+    const first = new PairingStore(new PublicMemory(), storage);
+    const second = new PairingStore(new PublicMemory(), storage);
+    expect(await Promise.all([first.getDeviceId(), second.getDeviceId()])).toEqual(['shared-device', 'shared-device']);
+    expect(atomic).toHaveBeenCalledWith('switchify.remote.device-id.v1', expect.any(Function));
+    expect(secrets.values.size).toBe(0);
+  });
+
   it('rolls back a token update when saving the public index fails', async () => {
     const { store, publicStorage } = fixture();
     publicStorage.failSet = 1;

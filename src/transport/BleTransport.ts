@@ -7,6 +7,8 @@ export type BleAvailability = 'ready' | 'unauthorized' | 'poweredOff' | 'unsuppo
 export interface BleTransport {
   availability(): Promise<BleAvailability>;
   scan(onDesktop: (desktop: DiscoveredDesktop) => void, onError: (error: Error) => void): Unsubscribe;
+  /** Claim a completed discovery connection before stopping its scan. Disconnect still releases it. */
+  retainDiscoveredConnection?(desktopId: string): boolean;
   connect(peripheralId: string): Promise<void>;
   resolveAndConnect(desktopId: string): Promise<DiscoveredDesktop>;
   disconnect(): Promise<void>;
