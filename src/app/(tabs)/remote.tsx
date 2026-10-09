@@ -16,6 +16,7 @@ import { TypingSurface } from '@/remote/TypingSurface';
 import { WindowSurface } from '@/remote/WindowSurface';
 import { profilePresentation } from '@/remote/profilePresentation';
 import { useProfileStatusAnnouncement } from '@/remote/useProfileStatusAnnouncement';
+import { useScanController } from '@switchify/scanning/native';
 import { useScanInterrupt } from '@/scanning/scanInterrupts';
 import { usePreferences } from '@/storage/usePreferences';
 import { preferencesStore } from '@/storage/PreferencesStore';
@@ -42,6 +43,13 @@ export default function RemoteScreen() {
     void session.stopRepeat();
     return true;
   }, [session]));
+  // Automatic scanning stays on the chosen control until the repeat stops.
+  const scanController = useScanController();
+  const repeating = sessionState.repeat !== null;
+  useEffect(() => {
+    scanController.holdMovement('repeat', repeating);
+    return () => scanController.holdMovement('repeat', false);
+  }, [scanController, repeating]);
   usePreferredPcConnection(manager);
   useEffect(() => { if (params.surface === 'mouse' || params.surface === 'forwarding') void preferencesStore.update({ surface: params.surface }); }, [params.surface]);
   useEffect(() => manager.registerCleanup(() => session.cleanup()), [manager, session]);

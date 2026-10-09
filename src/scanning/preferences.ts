@@ -64,6 +64,28 @@ export function normalizeScanning(raw: unknown): ScanningPreferences {
   };
 }
 
+const MANUAL_KEYS: Record<'next' | 'back', string[]> = {
+  next: ['Enter', 'ArrowRight', 'Digit2', 'F2'],
+  back: ['Backspace', 'ArrowLeft', 'Digit3', 'F3'],
+};
+
+/**
+ * Manual scanning needs switches for Next and Previous. Adds any that are missing on
+ * a free key (Enter and Backspace first, as in Switchify PC), so choosing Manual works
+ * straight away. The keys can be changed afterwards.
+ */
+export function withManualSwitches(switches: SwitchSettings): SwitchSettings {
+  const bindings = [...switches.bindings];
+  for (const action of ['next', 'back'] as const) {
+    if (bindings.some((item) => item.pressAction === action || item.holdActions.includes(action))) continue;
+    const used = new Set(bindings.map((item) => item.key));
+    const key = MANUAL_KEYS[action].find((candidate) => !used.has(candidate));
+    if (!key) continue;
+    bindings.push({ id: `switch-${action}`, name: action === 'next' ? 'Next' : 'Previous', key, pressAction: action, holdActions: [] });
+  }
+  return { ...switches, bindings };
+}
+
 /** A readable name for a KeyboardEvent.code, for showing which key a switch sends. */
 export function keyLabel(code: string): string {
   if (code === 'Space') return 'Space';
